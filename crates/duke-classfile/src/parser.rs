@@ -410,6 +410,48 @@ fn parse_attribute(c: &mut Cursor<'_>, _cp_len: usize) -> Result<AttributeInfo> 
 ///
 /// Called after the whole class file is parsed, when we have the full CP.
 /// ⚡ Bolt: Pre-allocates vectors for known attribute table sizes to eliminate intermediate heap allocations.
+/// Transforms opaque raw attribute bytes into strongly-typed `AttributeData` representations.
+///
+/// **The Story:** During the initial parsing of a classfile, the constant pool string values
+/// are needed to figure out what type of attribute we are dealing with. Because attributes
+/// can appear anywhere (even before the full constant pool might be completely validated
+/// depending on parser design), the parser initially stores them as `AttributeData::Raw`.
+///
+/// This function acts as the "second pass," iterating over the raw attributes, looking up their
+/// names in the fully-formed constant pool (e.g., `"Code"`, `"LineNumberTable"`), and decoding
+/// the bytes into their specific runtime structs.
+///
+/// If an attribute name isn't recognized (which is completely legal in JVM spec to support
+/// future language features), it is gracefully left as a `Raw` payload so the class can
+/// still load.
+///
+/// # Panics
+///
+/// This function does not panic. Invalid attributes or missing constant pool entries
+/// will return an `Error`.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{AttributeInfo, AttributeData, CpEntry, CpIndex};
+/// // Instead of exporting resolve_attributes, we use it directly here if needed or test via `parse`
+/// use duke_classfile::parse;
+///
+/// // Create a dummy raw attribute that says it's a "ConstantValue" (Name index 1)
+/// let mut attrs = vec![AttributeInfo {
+///     name_index: CpIndex(1),
+///     data: AttributeData::Raw(vec![0x00, 0x02]), // Points to CpIndex 2
+/// }];
+///
+/// // Provide the Constant Pool
+/// let pool = vec![
+///     None, // 0 is unused
+///     Some(CpEntry::Utf8("ConstantValue".to_string())),
+///     Some(CpEntry::Integer(42)),
+/// ];
+///
+/// // resolve_attributes is an internal crate helper called via parse()
+/// ```
 pub fn resolve_attributes(attrs: &mut [AttributeInfo], pool: &[Option<CpEntry>]) -> Result<()> {
     for attr in attrs.iter_mut() {
         let name = cp_utf8(pool, attr.name_index)?;

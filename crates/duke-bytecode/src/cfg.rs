@@ -41,6 +41,35 @@ use crate::Instruction;
     clippy::cast_possible_truncation
 )]
 #[must_use]
+/// Transforms raw JVM instructions into a visualizable Mermaid.js Control Flow Graph.
+///
+/// **The Story:** Debugging raw bytecode sequences by staring at jump offsets is a recipe
+/// for a headache. This function brings the code to life by translating the flat list of
+/// `Instruction` pairs into a directed graph structure formatted in Mermaid syntax, enabling
+/// visual comprehension of loops, branches, and dead code.
+///
+/// Each instruction becomes a node, and every jump, branch, or fallthrough becomes a
+/// directed edge connecting them.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::Instruction;
+/// use duke_bytecode::generate_mermaid_cfg;
+///
+/// let instructions = vec![
+///     (0, Instruction::Iconst0),
+///     (1, Instruction::Ifeq(5)), // Branch to PC 5 on true
+///     (4, Instruction::Ireturn),
+///     (5, Instruction::Iconst1),
+///     (6, Instruction::Ireturn),
+/// ];
+///
+/// let mermaid_graph = generate_mermaid_cfg(&instructions);
+/// assert!(mermaid_graph.contains("graph TD"));
+/// assert!(mermaid_graph.contains("node1 -->|true| node6"));
+/// assert!(mermaid_graph.contains("node1 -->|false| node4"));
+/// ```
 pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {
     let mut cfg = String::from("graph TD\n");
 

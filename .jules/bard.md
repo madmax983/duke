@@ -36,3 +36,7 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+
+## 2024-05-24 - [Resolve Missing Docs Warnings]
+**Confusion:** The codebase had missing documentation warnings for `get_successors`, `generate_mermaid_cfg`, `resolve_attributes`, and `ser_helpers`.
+**Clarification:** Added narrative-driven documentation with executable doctests to clarify the 'story' and exact purpose of these components, ensuring all `missing_docs` lints are resolved.

@@ -41,6 +41,39 @@ use std::collections::{HashMap, HashSet, VecDeque};
 #[must_use]
 /// Optimization: Pre-allocate capacity of 2 since branch targets and fallthroughs max out at two.
 /// Reduces dynamic reallocation overhead during CFG construction.
+/// Resolves the valid, immediate execution paths flowing out of a given basic block.
+///
+/// **The Story:** Control Flow Graph (CFG) construction depends on accurately knowing
+/// where execution jumps next. This function serves as the cartographer, examining the
+/// final instruction of a straight-line `BasicBlock` and returning all possible destination
+/// program counters (PCs).
+///
+/// For conditional branches (e.g., `ifeq`), it returns both the jump target and the
+/// fallthrough instruction. For unconditional jumps (`goto`) or returns (`ireturn`),
+/// it returns the single target or an empty list, respectively.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::{BasicBlock, Instruction};
+/// use duke_bytecode::get_successors;
+///
+/// // Example 1: An unconditional jump to PC 6
+/// let goto_block = BasicBlock {
+///     start_pc: 0,
+///     end_pc: 3,
+///     instructions: vec![(0, Instruction::Goto(6))],
+/// };
+/// assert_eq!(get_successors(&goto_block), vec![6]);
+///
+/// // Example 2: A conditional branch (jumps to 10 on True, falls through to 5 on False)
+/// let if_block = BasicBlock {
+///     start_pc: 2,
+///     end_pc: 5,
+///     instructions: vec![(2, Instruction::Ifeq(10))],
+/// };
+/// assert_eq!(get_successors(&if_block), vec![12, 5]);
+/// ```
 pub fn get_successors(block: &BasicBlock) -> Vec<usize> {
     if let Some((last_pc, last_instr)) = block.instructions.last() {
         last_instr.control_flow_targets(*last_pc, Some(block.end_pc))

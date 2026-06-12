@@ -1,5 +1,15 @@
 //! Serde serialization helpers for telemetry data structures.
 #[cfg(feature = "telemetry")]
+/// Specialized `serde` helpers for turning complex Rust maps into clean JSON.
+///
+/// **The Story:** The JVM runtime collects highly detailed metrics, such as how many times
+/// a specific method on a specific class was called. In Rust, these are naturally modeled as
+/// `HashMap<(String, String), i32>`.
+///
+/// However, standard `serde_json` refuses to serialize maps with tuple keys, returning a
+/// `key must be a string` error. This module provides `serialize_with` helpers that flatten
+/// those complex tuple keys into highly readable strings (e.g., `"java/lang/String::intern"`)
+/// before writing them to the output stream.
 pub mod ser_helpers {
     use std::collections::HashMap;
 
