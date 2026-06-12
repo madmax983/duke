@@ -47,3 +47,7 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+
+## 2024-05-18 - Mid-iteration serialization failures in Serde Maps
+**Learning:** Testing `serde::ser::SerializeMap` failure states requires a custom mocked serializer that allows initial iterations to succeed before deliberately failing. Simply using a serializer that returns `Err` on map entry setup is insufficient, as it doesn't exercise the logic inside the iteration loop where `serialize_key` or `serialize_value` might fail after some successful iterations.
+**Action:** Use an internal state counter (e.g., `std::cell::Cell<usize>`) within the mock serializer implementation to control exactly which iteration should trigger the `serde::de::Error::custom` error.

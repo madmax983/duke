@@ -598,4 +598,45 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    fn test_print_dispatch_resolution_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("Foo"));
+        assert!(s.contains("cp42"));
+    }
+
+    #[test]
+    fn test_print_native_boundary_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("java/lang/String.intern"));
+    }
+
+    #[test]
+    fn test_markdown_exception_flow_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut s = String::new();
+        store.markdown_exception_flow(&mut s);
+        assert!(s.contains("No exception flow events recorded."));
+    }
+
+    #[test]
+    fn test_markdown_class_init_dag_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut s = String::new();
+        store.markdown_class_init_dag(&mut s);
+        assert!(s.contains("No class initialization events recorded."));
+    }
 }
