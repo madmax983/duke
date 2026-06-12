@@ -614,7 +614,33 @@ fn parse_code_attribute(c: &mut Cursor<'_>) -> Result<CodeAttribute> {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Resolve a class name from the constant pool.
+///
+/// # Errors
+/// Returns an error if the index is out of bounds or not a Class reference.
+pub fn resolve_class_name(pool: &[Option<CpEntry>], idx: CpIndex) -> Result<&str> {
+    let i = idx.0 as usize;
+    if i == 0 {
+        return Err(Error::CpIndexZero);
+    }
+    match pool.get(i) {
+        Some(Some(CpEntry::Class { name_index })) => cp_utf8(pool, *name_index),
+        Some(None) => Err(Error::CpPhantomSlot { index: idx.0 }),
+        Some(Some(_)) => Err(Error::UnknownCpTag {
+            tag: 0,
+            index: idx.0,
+        }),
+        None => Err(Error::CpIndexOutOfBounds {
+            index: idx.0,
+            pool_size: pool.len(),
+        }),
+    }
+}
+
 /// Look up a UTF-8 string in the constant pool.
+///
+/// # Errors
+/// Returns an error if the index is out of bounds or not a UTF-8 entry.
 pub fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> Result<&str> {
     let i = idx.0 as usize;
     if i == 0 {

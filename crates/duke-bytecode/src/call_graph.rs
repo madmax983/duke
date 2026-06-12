@@ -12,34 +12,6 @@ use duke_classfile::{
 
 use crate::{Instruction, decode};
 
-fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
-    cf.constant_pool
-        .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
-        .and_then(|entry| {
-            if let CpEntry::Utf8(s) = entry {
-                Some(s.as_str())
-            } else {
-                None
-            }
-        })
-}
-
-fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
-    if idx.0 == 0 {
-        return "<none>";
-    }
-    let class_entry = cf
-        .constant_pool
-        .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
-    if let Some(CpEntry::Class { name_index }) = class_entry {
-        cp_str(cf, *name_index).unwrap_or("<invalid utf8>")
-    } else {
-        "<not a class ref>"
-    }
-}
-
 fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, String)> {
     let entry = cf.constant_pool.get(idx.0 as usize)?.as_ref()?;
 
@@ -55,7 +27,12 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
         return None;
     };
 
-    let class_name = resolve_class_name(cf, *class_idx).to_string();
+    let class_name = if class_idx.0 == 0 {
+        "<none>"
+    } else {
+        duke_classfile::resolve_class_name(&cf.constant_pool, *class_idx).unwrap_or("<invalid>")
+    }
+    .to_string();
 
     let nat_entry = cf.constant_pool.get(nat_idx.0 as usize)?.as_ref()?;
     if let CpEntry::NameAndType {
@@ -63,8 +40,12 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
         descriptor_index,
     } = nat_entry
     {
-        let method_name = cp_str(cf, *name_index)?.to_string();
-        let method_desc = cp_str(cf, *descriptor_index)?.to_string();
+        let method_name = duke_classfile::cp_utf8(&cf.constant_pool, *name_index)
+            .ok()?
+            .to_string();
+        let method_desc = duke_classfile::cp_utf8(&cf.constant_pool, *descriptor_index)
+            .ok()?
+            .to_string();
         Some((class_name, method_name, method_desc))
     } else {
         None
@@ -113,11 +94,19 @@ pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
     let mut cg = String::from("graph TD\n");
     let mut edges = BTreeSet::new();
 
-    let this_class_name = resolve_class_name(cf, cf.this_class);
+    let this_class_name = if cf.this_class.0 == 0 {
+        "<none>"
+    } else {
+        duke_classfile::resolve_class_name(&cf.constant_pool, cf.this_class).unwrap_or("<invalid>")
+    };
 
     for method in &cf.methods {
-        let name_str = cp_str(cf, method.name_index).unwrap_or("<invalid>");
-        let desc_str = cp_str(cf, method.descriptor_index).unwrap_or("<invalid>");
+        let name_str = duke_classfile::cp_utf8(&cf.constant_pool, method.name_index)
+            .ok()
+            .unwrap_or("<invalid>");
+        let desc_str = duke_classfile::cp_utf8(&cf.constant_pool, method.descriptor_index)
+            .ok()
+            .unwrap_or("<invalid>");
 
         let source_id = format!("{this_class_name}::{name_str}{desc_str}");
 
@@ -177,33 +166,6 @@ mod tests {
 
         let cg = generate_mermaid_call_graph(&cf);
         assert!(cg.contains("graph TD"));
-    }
-
-    #[test]
-    fn test_resolve_class_name_errors() {
-        let cf = ClassFile {
-            major_version: 61,
-            minor_version: 0,
-            constant_pool: vec![
-                None,                       // 0
-                Some(CpEntry::Integer(42)), // 1
-                Some(CpEntry::Class {
-                    name_index: CpIndex(3),
-                }), // 2
-                Some(CpEntry::Integer(99)), // 3 (not a string)
-            ],
-            access_flags: ClassAccessFlags::PUBLIC,
-            this_class: CpIndex(0),
-            super_class: CpIndex(0),
-            interfaces: vec![],
-            fields: vec![],
-            methods: vec![],
-            attributes: vec![],
-        };
-
-        assert_eq!(resolve_class_name(&cf, CpIndex(0)), "<none>");
-        assert_eq!(resolve_class_name(&cf, CpIndex(1)), "<not a class ref>");
-        assert_eq!(resolve_class_name(&cf, CpIndex(2)), "<invalid utf8>");
     }
 
     #[test]

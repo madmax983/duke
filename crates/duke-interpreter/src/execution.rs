@@ -1345,7 +1345,11 @@ pub fn run_execution(
             Instruction::New(cp_idx) => {
                 let target_class = {
                     let ctx = registry.get(current_class)?;
-                    resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
+                    duke_classfile::resolve_class_name(&ctx.constant_pool, *cp_idx)
+                        .map(std::string::ToString::to_string)
+                        .map_err(|_| Error::InvalidCpIndex {
+                            index: usize::from(cp_idx.0),
+                        })?
                 };
                 let target_class_key =
                     registry.class_key_from_source(&target_class, Some(current_class.as_str()));
@@ -2121,7 +2125,11 @@ pub fn run_execution(
             Instruction::Anewarray(cp_idx) => {
                 let element_type = {
                     let ctx = registry.get(current_class)?;
-                    resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
+                    duke_classfile::resolve_class_name(&ctx.constant_pool, *cp_idx)
+                        .map(std::string::ToString::to_string)
+                        .map_err(|_| Error::InvalidCpIndex {
+                            index: usize::from(cp_idx.0),
+                        })?
                 };
                 let array_type = format!("[L{element_type};");
                 let count = frame.pop_int()?;
@@ -2389,7 +2397,11 @@ pub fn run_execution(
                     Slot::Reference(Some(r)) => {
                         let target = {
                             let ctx = registry.get(current_class)?;
-                            resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
+                            duke_classfile::resolve_class_name(&ctx.constant_pool, *cp_idx)
+                                .map(std::string::ToString::to_string)
+                                .map_err(|_| Error::InvalidCpIndex {
+                                    index: usize::from(cp_idx.0),
+                                })?
                         };
                         let actual = heap.get(*r)?.class_name.clone();
                         if is_assignable_from(
@@ -2421,7 +2433,11 @@ pub fn run_execution(
                     Slot::Reference(Some(r)) => {
                         let target = {
                             let ctx = registry.get(current_class)?;
-                            resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
+                            duke_classfile::resolve_class_name(&ctx.constant_pool, *cp_idx)
+                                .map(std::string::ToString::to_string)
+                                .map_err(|_| Error::InvalidCpIndex {
+                                    index: usize::from(cp_idx.0),
+                                })?
                         };
                         let actual = heap.get(*r)?.class_name.clone();
                         let result = i32::from(is_assignable_from(
@@ -3240,7 +3256,11 @@ pub fn run_execution(
             } => {
                 let element_type = {
                     let ctx = registry.get(current_class)?;
-                    resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
+                    duke_classfile::resolve_class_name(&ctx.constant_pool, *cp_idx)
+                        .map(std::string::ToString::to_string)
+                        .map_err(|_| Error::InvalidCpIndex {
+                            index: usize::from(cp_idx.0),
+                        })?
                 };
 
                 // ⚡ Bolt: Pre-allocate vector capacity to avoid intermediate reallocations

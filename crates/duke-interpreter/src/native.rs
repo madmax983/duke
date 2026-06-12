@@ -19085,7 +19085,7 @@ pub fn execute(
                 frame.push(Slot::Reference(Some(r)))?;
             }
             Instruction::Anewarray(cp_idx) => {
-                let element_type = resolve_class_name(cp, usize::from(cp_idx.0))?;
+                let element_type = duke_classfile::resolve_class_name(cp, *cp_idx).map(std::string::ToString::to_string).map_err(|_| Error::InvalidCpIndex { index: usize::from(cp_idx.0) })?;
                 let array_type = format!("[L{element_type};");
                 let count = frame.pop_int()?;
                 if count < 0 {
@@ -19413,7 +19413,7 @@ pub fn execute(
                         frame.push(slot)?;
                     }
                     Slot::Reference(Some(r)) => {
-                        let target = resolve_class_name(cp, usize::from(cp_idx.0))?;
+                        let target = duke_classfile::resolve_class_name(cp, *cp_idx).map(std::string::ToString::to_string).map_err(|_| Error::InvalidCpIndex { index: usize::from(cp_idx.0) })?;
                         let actual = local_heap
                             .get(*r as usize)
                             .ok_or(Error::InvalidRef { address: *r })?
@@ -19443,7 +19443,7 @@ pub fn execute(
                         frame.push(Slot::Int(0))?;
                     }
                     Slot::Reference(Some(r)) => {
-                        let target = resolve_class_name(cp, usize::from(cp_idx.0))?;
+                        let target = duke_classfile::resolve_class_name(cp, *cp_idx).map(std::string::ToString::to_string).map_err(|_| Error::InvalidCpIndex { index: usize::from(cp_idx.0) })?;
                         let actual = local_heap
                             .get(*r as usize)
                             .ok_or(Error::InvalidRef { address: *r })?
@@ -21770,7 +21770,7 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
     let (fields, static_fields, instance_field_count) = build_field_entries(cf);
     // Resolve super_class: if the index is 0, this is java/lang/Object (no super).
     let super_class = if cf.super_class.0 != 0 {
-        resolve_class_name(&cf.constant_pool, cf.super_class.0 as usize).ok()
+        duke_classfile::resolve_class_name(&cf.constant_pool, cf.super_class).map(std::string::ToString::to_string).ok()
     } else {
         None
     };
@@ -21779,7 +21779,7 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
     let interfaces: Vec<String> = cf
         .interfaces
         .iter()
-        .filter_map(|idx| resolve_class_name(&cf.constant_pool, idx.0 as usize).ok())
+        .filter_map(|idx| duke_classfile::resolve_class_name(&cf.constant_pool, *idx).map(std::string::ToString::to_string).ok())
         .collect();
 
     // Extract BootstrapMethods from class-level attributes.
@@ -21810,20 +21810,6 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
 }
 
 /// Resolve a CP Class entry to its name string.
-fn resolve_class_name(cp: &[Option<CpEntry>], cp_idx: usize) -> Result<String> {
-    match cp.get(cp_idx).and_then(|e| e.as_ref()) {
-        Some(CpEntry::Class { name_index }) => {
-            match cp.get(name_index.0 as usize).and_then(|e| e.as_ref()) {
-                Some(CpEntry::Utf8(s)) => Ok(s.clone()),
-                _ => Err(Error::InvalidCpIndex {
-                    index: name_index.0 as usize,
-                }),
-            }
-        }
-        _ => Err(Error::InvalidCpIndex { index: cp_idx }),
-    }
-}
-
 fn internal_name_to_binary_name(name: &str) -> String {
     match name {
         "B" => "byte".to_string(),
@@ -22030,14 +22016,14 @@ fn reflected_class_info_from_loader(
         })
         .collect();
     let super_class = if class_file.super_class.0 != 0 {
-        resolve_class_name(&class_file.constant_pool, class_file.super_class.0 as usize).ok()
+        duke_classfile::resolve_class_name(&class_file.constant_pool, class_file.super_class).map(std::string::ToString::to_string).ok()
     } else {
         None
     };
     let interfaces = class_file
         .interfaces
         .iter()
-        .filter_map(|idx| resolve_class_name(&class_file.constant_pool, idx.0 as usize).ok())
+        .filter_map(|idx| duke_classfile::resolve_class_name(&class_file.constant_pool, *idx).map(std::string::ToString::to_string).ok())
         .collect();
     Some(ReflectedClassInfo {
         internal_name: internal_name.to_string(),

@@ -2,51 +2,12 @@
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
-
-#[cfg(feature = "nova")]
-#[cfg(not(tarpaulin_include))]
-#[allow(unexpected_cfgs)]
-fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
-    cf.constant_pool
-        .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
-        .and_then(|entry| {
-            if let CpEntry::Utf8(s) = entry {
-                Some(s.as_str())
-            } else {
-                None
-            }
-        })
-}
-
-#[cfg(feature = "nova")]
-#[cfg(not(tarpaulin_include))]
-#[allow(unexpected_cfgs)]
-fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
-    if idx.0 == 0 {
-        return "<none>".to_string();
-    }
-    let class_entry = cf
-        .constant_pool
-        .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
-    if let Some(CpEntry::Class { name_index }) = class_entry {
-        cp_str(cf, *name_index)
-            .unwrap_or("<invalid utf8>")
-            .to_string()
-    } else {
-        "<not a class ref>".to_string()
-    }
-}
 
 #[cfg(feature = "nova")]
 #[cfg(not(tarpaulin_include))]
@@ -154,11 +115,22 @@ fn load_jar_methods(jar_path: &str) -> HashMap<String, u64> {
         if let Ok(bytes) = loader.find_class(class_name_internal) {
             #[allow(clippy::collapsible_if)]
             if let Ok(cf) = parse(&bytes) {
-                let class_name = resolve_class_name(&cf, cf.this_class);
+                let class_name = if cf.this_class.0 == 0 {
+                    "<none>".to_string()
+                } else {
+                    duke_classfile::resolve_class_name(&cf.constant_pool, cf.this_class)
+                        .unwrap_or("<invalid utf8>")
+                        .to_string()
+                };
 
                 for method in &cf.methods {
-                    let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
-                    let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
+                    let name_str = duke_classfile::cp_utf8(&cf.constant_pool, method.name_index)
+                        .ok()
+                        .unwrap_or("<invalid>");
+                    let desc_str =
+                        duke_classfile::cp_utf8(&cf.constant_pool, method.descriptor_index)
+                            .ok()
+                            .unwrap_or("<invalid>");
                     let full_name = format!("{class_name}::{name_str}{desc_str}");
 
                     let mut hasher = DefaultHasher::new();

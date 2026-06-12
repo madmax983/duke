@@ -85,3 +85,7 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+**Extract duplicate `cp_str` and `resolve_class_name`**
+**Learning:** `cp_str` and `resolve_class_name` were duplicated in `jar_diff.rs`, `call_graph.rs`, and `native.rs`. This violated DRY, leading to redundant logic for basic constant pool lookups.
+**Action:** Always extract shared utility functions that operate strictly on `duke-classfile` structures into `duke-classfile/src/parser.rs` and export them via `lib.rs` for use across the workspace.
