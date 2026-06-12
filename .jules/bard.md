@@ -36,3 +36,11 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+
+## 2024-05-25 - [Missing jar_diff Documentation]
+**Confusion:** The `duke/src/jar_diff.rs` lacked module-level documentation.
+**Clarification:** Added module-level `//!` documentation explaining the purpose of analyzing bytecode changes between two JAR files.
+
+## 2024-05-25 - [Missing ClassFile Documentation]
+**Confusion:** The `ClassFile` structure in `crates/duke-classfile/src/class.rs` lacked detailed narrative documentation explaining its role as the bridge between raw bytecode and runtime structures, nor did it explain its panic safety guarantees.
+**Clarification:** Added detailed narrative documentation to `ClassFile`, explaining its purpose, usage, and explicitly documenting its panic safety under a `/// # Panics` section as per Bard's preference.

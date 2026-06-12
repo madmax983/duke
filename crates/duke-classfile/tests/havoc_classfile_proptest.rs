@@ -1,3 +1,5 @@
+//! Fuzz testing for the classfile parser to ensure it does not panic on arbitrary input.
+
 use proptest::prelude::*;
 
 proptest! {

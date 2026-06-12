@@ -11,6 +11,19 @@ use crate::constant_pool::CpIndex;
 
 /// Parsed top-level class file structure (JVM spec §4.1).
 ///
+/// This structure represents a fully decoded Java class file. It serves as the bridge
+/// between the raw binary `.class` format and the runtime structures needed for execution.
+/// It contains all vital information about the class: its constant pool (the "dictionary" of the class),
+/// fields, methods, interfaces, and metadata attributes.
+///
+/// Understanding `ClassFile` is crucial for tools that analyze, verify, or manipulate Java bytecode,
+/// as it provides a structured, type-safe representation of the JVM's fundamental unit of code.
+///
+/// # Panics
+///
+/// Parsing a class file using this struct and the associated parsing functions should never panic on arbitrary input.
+/// It gracefully returns an `Error` describing the structural validation failure if the input bytes are malformed.
+///
 /// # Examples
 ///
 /// ```
