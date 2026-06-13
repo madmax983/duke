@@ -63,9 +63,12 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_u16(&mut self) -> Result<u16> {
-        let hi = u16::from(self.read_u8()?);
-        let lo = u16::from(self.read_u8()?);
-        Ok((hi << 8) | lo)
+        if self.pos + 2 > self.data.len() {
+            return Err(Error::UnexpectedEof { offset: self.pos });
+        }
+        let bytes = [self.data[self.pos], self.data[self.pos + 1]];
+        self.pos += 2;
+        Ok(u16::from_be_bytes(bytes))
     }
 
     #[allow(dead_code)]
@@ -74,9 +77,17 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_u32(&mut self) -> Result<u32> {
-        let hi = u32::from(self.read_u16()?);
-        let lo = u32::from(self.read_u16()?);
-        Ok((hi << 16) | lo)
+        if self.pos + 4 > self.data.len() {
+            return Err(Error::UnexpectedEof { offset: self.pos });
+        }
+        let bytes = [
+            self.data[self.pos],
+            self.data[self.pos + 1],
+            self.data[self.pos + 2],
+            self.data[self.pos + 3],
+        ];
+        self.pos += 4;
+        Ok(u32::from_be_bytes(bytes))
     }
 
     fn read_i32(&mut self) -> Result<i32> {
@@ -84,9 +95,21 @@ impl<'a> Cursor<'a> {
     }
 
     fn read_u64(&mut self) -> Result<u64> {
-        let hi = u64::from(self.read_u32()?);
-        let lo = u64::from(self.read_u32()?);
-        Ok((hi << 32) | lo)
+        if self.pos + 8 > self.data.len() {
+            return Err(Error::UnexpectedEof { offset: self.pos });
+        }
+        let bytes = [
+            self.data[self.pos],
+            self.data[self.pos + 1],
+            self.data[self.pos + 2],
+            self.data[self.pos + 3],
+            self.data[self.pos + 4],
+            self.data[self.pos + 5],
+            self.data[self.pos + 6],
+            self.data[self.pos + 7],
+        ];
+        self.pos += 8;
+        Ok(u64::from_be_bytes(bytes))
     }
 
     fn read_i64(&mut self) -> Result<i64> {
