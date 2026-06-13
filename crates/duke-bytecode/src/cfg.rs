@@ -389,11 +389,9 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
         return cfg;
     }
 
-    // Map PC to Block ID (start_pc) for edge resolution
-    let mut pc_to_block = std::collections::HashMap::new();
-    for block in blocks {
-        pc_to_block.insert(block.start_pc, block.start_pc);
-    }
+    // OPTIMIZATION: Basic blocks are inherently sorted by `start_pc`.
+    // We replace the O(N) allocation of a temporary HashMap with an O(log N)
+    // binary search directly against the `blocks` slice for edge resolution.
 
     for block in blocks {
         let block_id = block.start_pc;
@@ -411,7 +409,10 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
         // Edge definition based on the last instruction
         if let Some((last_pc, last_instr)) = block.instructions.last() {
             let next_block_id = block.end_pc;
-            let next_pc = if pc_to_block.contains_key(&next_block_id) {
+            let next_pc = if blocks
+                .binary_search_by_key(&next_block_id, |b| b.start_pc)
+                .is_ok()
+            {
                 Some(next_block_id)
             } else {
                 None
