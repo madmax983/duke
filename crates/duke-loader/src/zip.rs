@@ -279,6 +279,20 @@ impl ZipReader {
                         ),
                     });
                 }
+
+                // Prevent Zip Bomb attacks (e.g. 255MB uncompressed from a few KB of deflated zeros)
+                // by enforcing a maximum compression ratio before allocating memory, but only
+                // for files larger than a reasonable threshold (e.g. 5MB) to avoid rejecting
+                // small highly-compressible benign files.
+                if cap > 5_000_000 && cap > compressed.len().max(1).saturating_mul(100) {
+                    return Err(Error::ZipFormat {
+                        msg: format!(
+                            "entry '{}' compression ratio exceeds limit (potential zip bomb)",
+                            info.name
+                        ),
+                    });
+                }
+
                 let mut buf = Vec::with_capacity(cap.min(compressed.len().saturating_mul(2)));
                 decoder
                     .take(max_size as u64)
