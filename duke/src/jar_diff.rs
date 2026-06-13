@@ -4,7 +4,7 @@
 #[cfg(feature = "nova")]
 use duke_classfile::{
     parse,
-    types::{AttributeData, CpEntry, CpIndex},
+    AttributeData, CpEntry, CpIndex,
 };
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
@@ -18,7 +18,7 @@ use std::path::Path;
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|s: &Option<CpEntry>| s.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -38,7 +38,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -143,13 +143,7 @@ fn load_jar_methods(jar_path: &str) -> HashMap<String, u64> {
 
     let mut method_hashes = HashMap::new();
     let reader = loader.reader();
-    let class_entries: Vec<String> = reader
-        .entry_names()
-        .filter(|name| name.ends_with(".class"))
-        .map(std::string::ToString::to_string)
-        .collect();
-
-    for entry_name in class_entries {
+    for entry_name in reader.entry_names().filter(|name| name.ends_with(".class")) {
         let class_name_internal = entry_name.strip_suffix(".class").unwrap();
         if let Ok(bytes) = loader.find_class(class_name_internal) {
             #[allow(clippy::collapsible_if)]
@@ -159,7 +153,11 @@ fn load_jar_methods(jar_path: &str) -> HashMap<String, u64> {
                 for method in &cf.methods {
                     let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
                     let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
-                    let full_name = format!("{class_name}::{name_str}{desc_str}");
+                    let mut full_name = String::with_capacity(class_name.len() + 2 + name_str.len() + desc_str.len());
+                    full_name.push_str(&class_name);
+                    full_name.push_str("::");
+                    full_name.push_str(name_str);
+                    full_name.push_str(desc_str);
 
                     let mut hasher = DefaultHasher::new();
                     for attr in &method.attributes {
