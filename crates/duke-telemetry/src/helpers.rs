@@ -103,7 +103,7 @@ mod tests {
         map: &HashMap<i32, &'static str>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
-        super::ser_helpers::keyed_map(map, ser, |k| format!("key_{k}"))
+        keyed_map(map, ser, |k| format!("key_{k}"))
     }
 
     #[test]
