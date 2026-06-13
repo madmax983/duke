@@ -37,3 +37,6 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+**[Title: HashMap allocation replaced with binary_search_by_key on sorted slice]
+**Learning:** `HashMap::new()` causes dynamic reallocation as items are inserted. Pre-allocating capacity avoids this. However, if the underlying collection is already naturally sorted by the lookup key, you can eliminate the map entirely and use `binary_search_by_key()`.
+**Action:** Always check if a collection is naturally sorted before creating an indexing `HashMap`. Use `binary_search` for $O(\log N)$ allocation-free lookups.
