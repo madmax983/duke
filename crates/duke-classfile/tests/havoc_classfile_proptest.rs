@@ -1,3 +1,5 @@
+//! Tests for classfile parsing using proptest.
+
 use proptest::prelude::*;
 
 proptest! {

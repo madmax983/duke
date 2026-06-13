@@ -406,9 +406,40 @@ fn parse_attribute(c: &mut Cursor<'_>, _cp_len: usize) -> Result<AttributeInfo> 
 // Post-parse attribute resolution (requires constant pool string lookup)
 // ---------------------------------------------------------------------------
 
-/// Resolve raw attributes into typed forms using the constant pool.
+/// Resolves generic `AttributeData::Raw` bytes into strongly-typed `AttributeData` variants.
 ///
-/// Called after the whole class file is parsed, when we have the full CP.
+/// The JVM `.class` format stores attributes as raw byte arrays along with a name index
+/// pointing to the constant pool. Because a constant pool is required to resolve the name
+/// of an attribute (e.g., `"Code"`, `"ConstantValue"`), and because the constant pool itself
+/// is parsed sequentially before attributes, this function serves as a crucial secondary pass.
+/// It takes the fully constructed constant pool and applies it to the unparsed attributes,
+/// converting them from raw bytes into actionable, typed Rust structs.
+///
+/// # Errors
+/// Returns an error if an attribute name index points to an invalid or missing constant pool entry,
+/// or if the structural decoding of a known attribute fails (e.g., truncated data).
+///
+/// # Examples
+/// ```ignore
+/// use duke_classfile::{AttributeInfo, AttributeData, CpEntry, CpIndex};
+/// use duke_classfile::parser::resolve_attributes;
+///
+/// // Create a dummy constant pool with the string "ConstantValue" at index 1
+/// let pool = vec![None, Some(CpEntry::Utf8("ConstantValue".to_string()))];
+///
+/// // Create a raw attribute pointing to the "ConstantValue" name index
+/// // The raw data (0, 4) corresponds to a constant value index of 4
+/// let mut attrs = vec![
+///     AttributeInfo {
+///         name_index: CpIndex(1),
+///         data: AttributeData::Raw(vec![0x00, 0x04])
+///     }
+/// ];
+///
+/// resolve_attributes(&mut attrs, &pool).unwrap();
+/// assert!(matches!(attrs[0].data, AttributeData::ConstantValue { constant_value_index: CpIndex(4) }));
+/// ```
+///
 /// ⚡ Bolt: Pre-allocates vectors for known attribute table sizes to eliminate intermediate heap allocations.
 pub fn resolve_attributes(attrs: &mut [AttributeInfo], pool: &[Option<CpEntry>]) -> Result<()> {
     for attr in attrs.iter_mut() {
@@ -614,7 +645,31 @@ fn parse_code_attribute(c: &mut Cursor<'_>) -> Result<CodeAttribute> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Look up a UTF-8 string in the constant pool.
+/// Looks up and retrieves a string from the constant pool using a `CpIndex`.
+///
+/// The JVM constant pool frequently stores names, descriptors, and string literals as `CONSTANT_Utf8_info`
+/// entries. This function provides a safe, ergonomic way to extract these string values by their index,
+/// handling the complexities of 1-based indexing, wide characters, and phantom slots left by long/double constants.
+///
+/// # Errors
+/// Returns `Error::CpIndexZero` if the index is `0` (which is invalid in the JVM constant pool).
+/// Returns `Error::CpPhantomSlot` if the index points to a phantom slot left by an 8-byte constant.
+/// Returns `Error::CpIndexOutOfBounds` if the index is larger than the pool or doesn't contain a `Utf8` variant.
+///
+/// # Examples
+/// ```ignore
+/// use duke_classfile::{CpEntry, CpIndex};
+/// use duke_classfile::parser::cp_utf8;
+///
+/// // A valid JVM constant pool is 1-indexed, so index 0 is always None.
+/// let pool = vec![None, Some(CpEntry::Utf8("java/lang/Object".to_string()))];
+///
+/// let name = cp_utf8(&pool, CpIndex(1)).unwrap();
+/// assert_eq!(name, "java/lang/Object");
+///
+/// // Looking up index 0 is an error.
+/// assert!(cp_utf8(&pool, CpIndex(0)).is_err());
+/// ```
 pub fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> Result<&str> {
     let i = idx.0 as usize;
     if i == 0 {
