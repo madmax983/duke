@@ -1,3 +1,5 @@
+//! Scans class files for potentially dangerous method calls (e.g., Runtime.exec).
+
 use duke_classfile::{
     ClassFile, {CpEntry, CpIndex},
 };

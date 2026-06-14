@@ -1,3 +1,5 @@
+//! Generates HTML documentation from class files inside a JAR.
+
 use duke_classfile::parse;
 use duke_loader::{ClassLoader, ZipLoader};
 use std::fmt::Write;

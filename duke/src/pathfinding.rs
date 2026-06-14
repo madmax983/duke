@@ -1,3 +1,5 @@
+//! Finds the shortest path between two points in the control flow graph.
+
 #![allow(clippy::items_after_statements)]
 #[cfg(feature = "nova")]
 use duke_bytecode::{build_basic_blocks, decode, find_shortest_path};

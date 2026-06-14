@@ -1,3 +1,5 @@
+//! Performs reachability analysis to identify potentially unused methods.
+
 use duke_bytecode::{Instruction, decode};
 use duke_classfile::{
     ClassFile, {AttributeData, CpEntry, CpIndex},

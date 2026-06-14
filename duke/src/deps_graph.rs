@@ -1,3 +1,5 @@
+//! Generates a dependency graph in Graphviz DOT format.
+
 use duke_classfile::{
     ClassFile, {CpEntry, CpIndex},
 };

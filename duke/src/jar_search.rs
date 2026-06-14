@@ -1,3 +1,5 @@
+//! Searches a JAR file for string constants or references matching a query.
+
 #![allow(clippy::items_after_statements)]
 #[cfg(feature = "nova")]
 use duke_bytecode::decode;

@@ -1,3 +1,5 @@
+//! Generates an opcode histogram from all class files in a JAR.
+
 use duke_bytecode::decode;
 use duke_classfile::{AttributeData, parse};
 use duke_loader::{ClassLoader, ZipLoader};

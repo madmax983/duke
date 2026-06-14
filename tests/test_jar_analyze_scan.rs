@@ -1,3 +1,5 @@
+//! Integration tests for the JAR analyze and scan commands.
+
 #![allow(missing_docs)]
 use std::process::Command;
 use std::path::PathBuf;

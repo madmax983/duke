@@ -1,3 +1,5 @@
+//! Analyzes the methods of a JAR file and computes cyclomatic complexity.
+
 #![allow(clippy::items_after_statements)]
 #![allow(
     clippy::case_sensitive_file_extension_comparisons,

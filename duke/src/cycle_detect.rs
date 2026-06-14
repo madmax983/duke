@@ -1,3 +1,5 @@
+//! Detects cyclic dependencies between classes inside a JAR.
+
 use duke_classfile::{
     parse, {CpEntry, CpIndex},
 };

@@ -36,3 +36,7 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+
+## 2024-06-14 - [JAR Utility Modules Documentation]
+**Confusion:** The massive addition of new JAR utility tools (`jar_diff`, `jar_analyze`, `jar_search`, `histogram`, etc.) lacked module-level (`//!`) documentation, leaving developers without a clear entry point explaining the high-level concept of these modules and their distinct purposes.
+**Clarification:** Added concise module-level documentation to all 11 new JAR utility files in `duke/src/` (e.g., `jar_diff.rs`, `jar_analyze.rs`), clarifying what each module does and how it aids in bytecode analysis and security auditing.

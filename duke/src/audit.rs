@@ -1,3 +1,5 @@
+//! Performs a security audit on a JAR file.
+
 #![allow(clippy::items_after_statements)]
 #[cfg(feature = "nova")]
 use duke_bytecode::Instruction;
