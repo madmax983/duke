@@ -1,0 +1,4 @@
+🎯 Target: `find_shortest_path`, `get_successors`, and `find_dead_blocks` functions in `crates/duke-bytecode/src/reachability.rs`.
+💣 Risk: Replaced an unsafe `.unwrap()` that could potentially panic with a safe `let else` guard and `unreachable!` with an explicit, traceable error message. This protects against regressions where path traversal loses node parents. Empty state and invalid targets could silently hide bugs.
+🧪 Strategy: Replaced `.unwrap()` with a safe `let else` check. Wrote unit tests confirming safety around edge cases such as empty basic blocks, empty block lists, invalid jump targets, and invalid search targets.
+🔬 Verification: Run `cargo test -p duke-bytecode` to verify all paths succeed safely.

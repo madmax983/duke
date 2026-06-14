@@ -208,7 +208,10 @@ pub fn find_shortest_path(
         let mut curr = target_pc;
         while curr != start_pc {
             path.push(curr);
-            curr = *parents.get(&curr).unwrap();
+            let Some(&parent_pc) = parents.get(&curr) else {
+                unreachable!("Pathfinding failed: missing parent for node on confirmed path");
+            };
+            curr = parent_pc;
         }
         path.push(start_pc);
         path.reverse();
@@ -280,5 +283,52 @@ mod tests {
 
         // Unreachable
         assert!(find_shortest_path(&blocks, 0, 6).is_none());
+    }
+
+    #[test]
+    fn test_get_successors_empty_block() {
+        let block = BasicBlock {
+            start_pc: 0,
+            end_pc: 0,
+            instructions: vec![],
+        };
+        let succ = get_successors(&block);
+        assert!(succ.is_empty());
+    }
+
+    #[test]
+    fn test_find_dead_blocks_empty() {
+        let dead = find_dead_blocks(&[], 0);
+        assert!(dead.is_empty());
+    }
+
+    #[test]
+    fn test_find_dead_blocks_invalid_entry() {
+        let instructions = vec![(0, Instruction::Iconst0), (1, Instruction::Ireturn)];
+        let blocks = build_basic_blocks(&instructions);
+        let dead = find_dead_blocks(&blocks, 999);
+        assert_eq!(dead, vec![0]);
+    }
+
+    #[test]
+    fn test_find_shortest_path_empty() {
+        let path = find_shortest_path(&[], 0, 10);
+        assert!(path.is_none());
+    }
+
+    #[test]
+    fn test_find_shortest_path_invalid_start() {
+        let instructions = vec![(0, Instruction::Iconst0), (1, Instruction::Ireturn)];
+        let blocks = build_basic_blocks(&instructions);
+        let path = find_shortest_path(&blocks, 999, 1);
+        assert!(path.is_none());
+    }
+
+    #[test]
+    fn test_find_shortest_path_invalid_target() {
+        let instructions = vec![(0, Instruction::Iconst0), (1, Instruction::Ireturn)];
+        let blocks = build_basic_blocks(&instructions);
+        let path = find_shortest_path(&blocks, 0, 999);
+        assert!(path.is_none());
     }
 }
