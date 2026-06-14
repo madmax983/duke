@@ -37,3 +37,11 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**[Replace BTreeSet with Sorted Vecs]
+**Learning:** For collections built once and queried multiple times (like basic block leaders), `BTreeSet` introduces unnecessary heap allocations for every single node.
+**Action:** Use a `Vec` and manually push elements, followed by `sort_unstable()` and `dedup()`. Querying can then be done safely and efficiently via `binary_search()`.
+
+**[Safe Binary Search Replacements for HashMaps]
+**Learning:** Replacing an O(1) `HashMap` lookup with an O(log N) `binary_search_by_key` on a slice eliminates expensive hashing and allocations, but introduces a severe maintainability hazard if the slice ordering is ever broken silently by future refactoring.
+**Action:** When replacing a `HashMap` lookup with a slice `binary_search` optimization, always add a `debug_assert!(slice.windows(2).all(|w| w[0] < w[1]))` immediately prior to the loop. This documents the structural invariant for future maintainers and actively enforces it during test runs without slowing down release builds.
