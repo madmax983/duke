@@ -51,7 +51,9 @@ pub fn compare_blocks(old_blocks: &[BasicBlock], new_blocks: &[BasicBlock]) -> V
             (Some(old_b), Some(new_b)) => {
                 // Same start PC, compare contents
                 if old_b.instructions == new_b.instructions {
-                    diffs.push(BlockDiff::Identical { block: (*old_b).clone() });
+                    diffs.push(BlockDiff::Identical {
+                        block: (*old_b).clone(),
+                    });
                 } else {
                     diffs.push(BlockDiff::Modified {
                         old_block: (*old_b).clone(),
@@ -60,10 +62,14 @@ pub fn compare_blocks(old_blocks: &[BasicBlock], new_blocks: &[BasicBlock]) -> V
                 }
             }
             (Some(old_b), None) => {
-                diffs.push(BlockDiff::Removed { block: (*old_b).clone() });
+                diffs.push(BlockDiff::Removed {
+                    block: (*old_b).clone(),
+                });
             }
             (None, Some(new_b)) => {
-                diffs.push(BlockDiff::Added { block: (*new_b).clone() });
+                diffs.push(BlockDiff::Added {
+                    block: (*new_b).clone(),
+                });
             }
             (None, None) => unreachable!(),
         }

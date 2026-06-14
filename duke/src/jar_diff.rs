@@ -2,9 +2,9 @@
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
+use duke_bytecode::{BlockDiff, build_basic_blocks, compare_blocks, decode};
 #[cfg(feature = "nova")]
-use duke_bytecode::{build_basic_blocks, compare_blocks, decode, BlockDiff};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -149,9 +149,16 @@ fn print_method_diff(m: &str, old_code: &[u8], new_code: &[u8]) {
                 BlockDiff::Removed { block } => {
                     println!("    - Block @ PC {}", block.start_pc);
                 }
-                BlockDiff::Modified { old_block, new_block } => {
-                    println!("    ~ Block @ PC {} modified ({} instrs -> {} instrs)",
-                        old_block.start_pc, old_block.instructions.len(), new_block.instructions.len());
+                BlockDiff::Modified {
+                    old_block,
+                    new_block,
+                } => {
+                    println!(
+                        "    ~ Block @ PC {} modified ({} instrs -> {} instrs)",
+                        old_block.start_pc,
+                        old_block.instructions.len(),
+                        new_block.instructions.len()
+                    );
                 }
                 BlockDiff::Identical { .. } => {}
             }
