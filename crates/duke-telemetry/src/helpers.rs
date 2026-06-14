@@ -5,16 +5,16 @@ pub mod ser_helpers {
 
     use serde::{Serialize, ser::SerializeMap};
 
-    /// Core helper: serialize any `HashMap<K, V>` by formatting each key with `key_fn`.
+    /// Core helper: serialize any `HashMap<K, V>` by formatting each key using a zero-cost wrapper.
     ///
-    /// ⚡ Bolt: Using `SerializeMap` to serialize directly removes the intermediate `HashMap`
-    /// collection, avoiding heap allocations and hashing overhead during telemetry generation.
-    pub fn keyed_map<K, V, S, F>(map: &HashMap<K, V>, ser: S, key_fn: F) -> Result<S::Ok, S::Error>
+    /// ⚡ Bolt: Using `SerializeMap` and a custom display struct avoids `format!` string allocations.
+    pub fn keyed_map<'a, K, V, S, F, W>(map: &'a HashMap<K, V>, ser: S, key_fn: F) -> Result<S::Ok, S::Error>
     where
-        K: Eq + std::hash::Hash,
+        K: Eq + std::hash::Hash + 'a,
         V: Serialize,
         S: serde::Serializer,
-        F: Fn(&K) -> String,
+        F: Fn(&'a K) -> W,
+        W: Serialize,
     {
         let mut map_ser = ser.serialize_map(Some(map.len()))?;
         for (k, v) in map {
@@ -23,12 +23,36 @@ pub mod ser_helpers {
         map_ser.end()
     }
 
+    struct Site3Key<'a>(&'a String, &'a String, usize);
+    impl std::fmt::Display for Site3Key<'_> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}::{}@{}", self.0, self.1, self.2)
+        }
+    }
+    impl Serialize for Site3Key<'_> {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            serializer.collect_str(self)
+        }
+    }
+
     /// `HashMap<(class, method, pc), V>` → `"class::method@pc"`.
     pub fn site3<V: Serialize, S: serde::Serializer>(
         map: &HashMap<(String, String, usize), V>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
-        keyed_map(map, ser, |(c, m, pc)| format!("{c}::{m}@{pc}"))
+        keyed_map(map, ser, |(c, m, pc)| Site3Key(c, m, *pc))
+    }
+
+    struct Site2U16Key<'a>(&'a String, u16);
+    impl std::fmt::Display for Site2U16Key<'_> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}@{}", self.0, self.1)
+        }
+    }
+    impl Serialize for Site2U16Key<'_> {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            serializer.collect_str(self)
+        }
     }
 
     /// `HashMap<(class, cp_idx), V>` → `"class@cp"`.
@@ -36,7 +60,19 @@ pub mod ser_helpers {
         map: &HashMap<(String, u16), V>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
-        keyed_map(map, ser, |(c, cp)| format!("{c}@{cp}"))
+        keyed_map(map, ser, |(c, cp)| Site2U16Key(c, *cp))
+    }
+
+    struct PairStrKey<'a>(&'a String, &'a String);
+    impl std::fmt::Display for PairStrKey<'_> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{}::{}", self.0, self.1)
+        }
+    }
+    impl Serialize for PairStrKey<'_> {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            serializer.collect_str(self)
+        }
     }
 
     /// `HashMap<(class, method), V>` → `"class::method"`.
@@ -44,7 +80,7 @@ pub mod ser_helpers {
         map: &HashMap<(String, String), V>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
-        keyed_map(map, ser, |(c, m)| format!("{c}::{m}"))
+        keyed_map(map, ser, |(c, m)| PairStrKey(c, m))
     }
 
     /// Serialize `HashSet<String>` as a sorted `Vec<String>` for deterministic output.
@@ -99,11 +135,23 @@ mod tests {
         map: HashMap<i32, &'static str>,
     }
 
+    struct CustomKey<'a>(&'a i32);
+    impl std::fmt::Display for CustomKey<'_> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "key_{}", self.0)
+        }
+    }
+    impl Serialize for CustomKey<'_> {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            serializer.collect_str(self)
+        }
+    }
+
     fn custom_keyed_map<S: serde::Serializer>(
         map: &HashMap<i32, &'static str>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
-        super::ser_helpers::keyed_map(map, ser, |k| format!("key_{k}"))
+        super::ser_helpers::keyed_map(map, ser, CustomKey)
     }
 
     #[test]
@@ -135,26 +183,26 @@ mod tests {
         let empty_site3 = Site3Wrapper {
             map: HashMap::new(),
         };
-        let json_site3 = serde_json::to_string(&empty_site3).unwrap();
-        assert_eq!(json_site3, r#"{"map":{}}"#);
+        let json = serde_json::to_string(&empty_site3).unwrap();
+        assert_eq!(json, r#"{"map":{}}"#);
 
         let empty_site2 = Site2Wrapper {
             map: HashMap::new(),
         };
-        let json_site2 = serde_json::to_string(&empty_site2).unwrap();
-        assert_eq!(json_site2, r#"{"map":{}}"#);
+        let json = serde_json::to_string(&empty_site2).unwrap();
+        assert_eq!(json, r#"{"map":{}}"#);
 
         let empty_pair = PairWrapper {
             map: HashMap::new(),
         };
-        let json_pair = serde_json::to_string(&empty_pair).unwrap();
-        assert_eq!(json_pair, r#"{"map":{}}"#);
+        let json = serde_json::to_string(&empty_pair).unwrap();
+        assert_eq!(json, r#"{"map":{}}"#);
 
         let empty_set = SetWrapper {
             set: HashSet::new(),
         };
-        let json_set = serde_json::to_string(&empty_set).unwrap();
-        assert_eq!(json_set, r#"{"set":[]}"#);
+        let json = serde_json::to_string(&empty_set).unwrap();
+        assert_eq!(json, r#"{"set":[]}"#);
     }
 
     #[test]
@@ -244,7 +292,7 @@ mod tests {
         map: &HashMap<i32, FailingDummy>,
         ser: S,
     ) -> Result<S::Ok, S::Error> {
-        super::ser_helpers::keyed_map(map, ser, |k| format!("key_{k}"))
+        super::ser_helpers::keyed_map(map, ser, CustomKey)
     }
 
     #[test]

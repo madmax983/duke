@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**Zero-cost String Formatting for Serde Map Keys**
+**Learning:** `format!("{c}::{m}@{pc}")` inside map serialization closures for `SerializeMap` causes excessive intermediate String allocations on the heap just to act as keys.
+**Action:** Replace `format!` closures with custom wrapper structs (e.g. `Site3Key`) that implement `std::fmt::Display` and `serde::Serialize` (by delegating to `serializer.collect_str(self)`). This allows `SerializeMap` to stream the formatted text directly to the serialization output buffer without allocating intermediate `String`s. Note: When implementing traits like `std::fmt::Display` or `Serialize` for these custom structs, elide lifetimes if possible (e.g. `impl std::fmt::Display for MyStruct<'_>`) to avoid `clippy::elidable_lifetime_names` lints.
