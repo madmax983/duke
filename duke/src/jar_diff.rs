@@ -2,14 +2,12 @@
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
+#[cfg(feature = "nova")]
+use duke_bytecode::{build_basic_blocks, compare_blocks, decode, BlockDiff};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 
 #[cfg(feature = "nova")]
@@ -124,7 +122,7 @@ pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
     if !modified.is_empty() {
         println!("--- Top 10 Modified Methods ---");
         for m in modified.iter().take(10) {
-            println!("  ~ {m}");
+            print_method_diff(m, map1.get(m).unwrap(), map2.get(m).unwrap());
         }
         if modified.len() > 10 {
             println!("  ... and {} more", modified.len() - 10);
@@ -136,7 +134,35 @@ pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
 #[cfg(feature = "nova")]
 #[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
-fn load_jar_methods(jar_path: &str) -> HashMap<String, u64> {
+fn print_method_diff(m: &str, old_code: &[u8], new_code: &[u8]) {
+    println!("  ~ {m}");
+    if let (Ok(old_instrs), Ok(new_instrs)) = (decode(old_code), decode(new_code)) {
+        let old_blocks = build_basic_blocks(&old_instrs);
+        let new_blocks = build_basic_blocks(&new_instrs);
+        let block_diffs = compare_blocks(&old_blocks, &new_blocks);
+
+        for diff in block_diffs {
+            match diff {
+                BlockDiff::Added { block } => {
+                    println!("    + Block @ PC {}", block.start_pc);
+                }
+                BlockDiff::Removed { block } => {
+                    println!("    - Block @ PC {}", block.start_pc);
+                }
+                BlockDiff::Modified { old_block, new_block } => {
+                    println!("    ~ Block @ PC {} modified ({} instrs -> {} instrs)",
+                        old_block.start_pc, old_block.instructions.len(), new_block.instructions.len());
+                }
+                BlockDiff::Identical { .. } => {}
+            }
+        }
+    }
+}
+
+#[cfg(feature = "nova")]
+#[cfg(not(tarpaulin_include))]
+#[allow(unexpected_cfgs)]
+fn load_jar_methods(jar_path: &str) -> HashMap<String, Vec<u8>> {
     let Ok(loader) = ZipLoader::open(Path::new(jar_path)) else {
         return HashMap::new(); // If we cannot load, treat as empty
     };
@@ -161,13 +187,13 @@ fn load_jar_methods(jar_path: &str) -> HashMap<String, u64> {
                     let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
                     let full_name = format!("{class_name}::{name_str}{desc_str}");
 
-                    let mut hasher = DefaultHasher::new();
+                    let mut code_bytes = Vec::new();
                     for attr in &method.attributes {
                         if let AttributeData::Code(code) = &attr.data {
-                            code.code.hash(&mut hasher);
+                            code_bytes.clone_from(&code.code);
                         }
                     }
-                    method_hashes.insert(full_name, hasher.finish());
+                    method_hashes.insert(full_name, code_bytes);
                 }
             }
         }
