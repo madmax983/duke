@@ -40,7 +40,7 @@ fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
     }
 }
 
-fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, String)> {
+fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(&str, &str, &str)> {
     let entry = cf.constant_pool.get(idx.0 as usize)?.as_ref()?;
 
     let (CpEntry::Methodref {
@@ -55,7 +55,7 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
         return None;
     };
 
-    let class_name = resolve_class_name(cf, *class_idx).to_string();
+    let class_name = resolve_class_name(cf, *class_idx);
 
     let nat_entry = cf.constant_pool.get(nat_idx.0 as usize)?.as_ref()?;
     if let CpEntry::NameAndType {
@@ -63,8 +63,8 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
         descriptor_index,
     } = nat_entry
     {
-        let method_name = cp_str(cf, *name_index)?.to_string();
-        let method_desc = cp_str(cf, *descriptor_index)?.to_string();
+        let method_name = cp_str(cf, *name_index)?;
+        let method_desc = cp_str(cf, *descriptor_index)?;
         Some((class_name, method_name, method_desc))
     } else {
         None
