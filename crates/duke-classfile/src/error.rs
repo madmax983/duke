@@ -79,6 +79,13 @@ pub enum Error {
     #[error("constant pool index 0 is reserved and must not be used")]
     CpIndexZero,
 
+    /// A constant pool entry had an unexpected type.
+    #[error("constant pool entry type mismatch at index {index}")]
+    CpTypeMismatch {
+        /// The index of the mismatched entry.
+        index: u16,
+    },
+
     /// A reference attempted to read the second (phantom) slot of a `Long` or `Double` entry.
     #[error("constant pool slot {index} is a phantom slot (occupied by preceding Long/Double)")]
     CpPhantomSlot {

@@ -623,10 +623,11 @@ pub fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> Result<&str> {
     match pool.get(i) {
         Some(None) => Err(Error::CpPhantomSlot { index: idx.0 }),
         Some(Some(CpEntry::Utf8(s))) => Ok(s.as_str()),
-        None | Some(Some(_)) => Err(Error::CpIndexOutOfBounds {
+        None => Err(Error::CpIndexOutOfBounds {
             index: idx.0,
             pool_size: pool.len(),
         }),
+        Some(Some(_)) => Err(Error::CpTypeMismatch { index: idx.0 }),
     }
 }
 
@@ -708,8 +709,8 @@ mod tests {
         let pool = vec![None, Some(CpEntry::Integer(42))];
         let result = cp_utf8(&pool, CpIndex(1));
         assert!(
-            matches!(result, Err(Error::CpIndexOutOfBounds { index: 1, .. })),
-            "Expected Error::CpIndexOutOfBounds for wrong type, got {result:?}"
+            matches!(result, Err(Error::CpTypeMismatch { index: 1 })),
+            "Expected Error::CpTypeMismatch for wrong type, got {result:?}"
         );
 
         let result = cp_utf8(&pool, CpIndex(99));
