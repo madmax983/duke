@@ -47,3 +47,7 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+
+## 2024-06-15 - Unsafe Path Reconstruction in BFS
+**Learning:** In graph algorithms like BFS, assuming a target node's parent is present in the visited/parents map during path reconstruction via `.unwrap()` is risky. While mathematically sound if the target was found, it creates a potential panic point if the graph or map invariants are ever corrupted.
+**Action:** Replace `unwrap()` with a safe fallback (e.g. `let else` guard) returning `None` or an explicit error, removing the "fuse" from the time bomb. Also, always add a test for the base case (e.g. `start_pc == target_pc`).

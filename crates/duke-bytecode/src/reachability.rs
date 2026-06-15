@@ -152,7 +152,7 @@ pub fn find_dead_blocks(blocks: &[BasicBlock], entry_pc: usize) -> Vec<usize> {
 /// let blocks = build_basic_blocks(&instructions);
 ///
 /// // Path to PC 10 goes through PC 0, then falls through/jumps to PC 3, which jumps to PC 10.
-/// let path = find_shortest_path(&blocks, 0, 10).unwrap();
+/// let path = find_shortest_path(&blocks, 0, 10).expect("should find path");
 /// assert_eq!(path, vec![0, 3, 10]);
 /// # }
 /// ```
@@ -208,7 +208,8 @@ pub fn find_shortest_path(
         let mut curr = target_pc;
         while curr != start_pc {
             path.push(curr);
-            curr = *parents.get(&curr).unwrap();
+            let &prev = parents.get(&curr)?;
+            curr = prev;
         }
         path.push(start_pc);
         path.reverse();
@@ -271,14 +272,29 @@ mod tests {
         let blocks = build_basic_blocks(&instructions);
 
         // Path to 10: 0 -> 3 -> 10
-        let path = find_shortest_path(&blocks, 0, 10).unwrap();
+        let path = find_shortest_path(&blocks, 0, 10).expect("should find path");
         assert_eq!(path, vec![0, 3, 10]);
 
         // Path to 8: 0 -> 8
-        let path2 = find_shortest_path(&blocks, 0, 8).unwrap();
+        let path2 = find_shortest_path(&blocks, 0, 8).expect("should find path");
         assert_eq!(path2, vec![0, 8]);
 
         // Unreachable
         assert!(find_shortest_path(&blocks, 0, 6).is_none());
+    }
+
+    #[test]
+    fn test_find_shortest_path_start_eq_target() {
+        let instructions = vec![
+            (0, Instruction::Goto(6)),
+            (3, Instruction::Ireturn),
+            (6, Instruction::Ireturn),
+        ];
+        let blocks = build_basic_blocks(&instructions);
+
+        // Path where start_pc == target_pc
+        let path =
+            find_shortest_path(&blocks, 0, 0).expect("should find path when start == target");
+        assert_eq!(path, vec![0]);
     }
 }
