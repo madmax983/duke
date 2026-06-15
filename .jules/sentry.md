@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Testing Annotation Recursion Limits
+**Learning:** Certain `Error` variants like `RecursionLimitExceeded` inside recursive annotation element decoding were previously untested. By constructing malicious byte streams in `duke-classfile/src/parser.rs` with heavily nested annotation arrays, we can trigger the maximum recursion bounds directly.
+**Action:** When evaluating heavily recursive parser loops, intentionally craft binary sequences that exceed depth limits and assert correct `RecursionLimitExceeded` error propagation to ensure safe failure.

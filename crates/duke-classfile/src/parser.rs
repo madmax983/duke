@@ -773,4 +773,40 @@ mod tests {
         };
         assert_eq!(values.len(), 2);
     }
+
+    #[test]
+    fn should_return_error_when_decoding_element_value_exceeds_recursion_limit() {
+        let mut raw = Vec::new();
+        // We construct a nested array: '[' ...
+        for _ in 0..17 {
+            raw.push(b'[');
+            raw.extend_from_slice(&[0x00, 0x01]); // 1 element
+        }
+        raw.push(b'I');
+        raw.extend_from_slice(&[0x00, 0x01]); // leaf integer
+
+        let mut cursor = Cursor::new(&raw);
+        let result = decode_element_value(&mut cursor, 17);
+        assert!(
+            matches!(result, Err(Error::RecursionLimitExceeded { .. })),
+            "Expected RecursionLimitExceeded, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn should_return_error_when_decoding_annotation_exceeds_recursion_limit() {
+        let mut raw = Vec::new();
+        for _ in 0..17 {
+            // annotation: type_index, num_pairs=1, name_index, value=@...
+            raw.extend_from_slice(&[0x00, 0x01, 0x00, 0x01, 0x00, 0x02, b'@']);
+        }
+        raw.extend_from_slice(&[0x00, 0x01, 0x00, 0x00]); // base case: empty annotation
+
+        let mut cursor = Cursor::new(&raw);
+        let result = decode_annotation(&mut cursor, 17);
+        assert!(
+            matches!(result, Err(Error::RecursionLimitExceeded { .. })),
+            "Expected RecursionLimitExceeded, got {result:?}"
+        );
+    }
 }
