@@ -85,3 +85,7 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+**Flatten Nested Option Combinators**
+**Learning:** `cp_str` and `resolve_class_name` in `duke/src/jar_diff.rs` used chained `.and_then()` closures to dig into `Option<Option<CpEntry>>`. This created a "Pyramid of Doom" disguised as combinators and resulted in `E0282: type annotations needed` compiler errors when the compiler could not infer the closure argument types.
+**Action:** Replace deeply nested or ambiguous `.and_then()` chains with explicit `let Some(Some(...)) = ... else { return ... };` guard clauses. This flattens control flow, removes the need for explicit closure type annotations, and clearly documents the expected shape of the data.
