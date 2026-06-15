@@ -85,3 +85,6 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+**[Closure Parameter Type Inference]
+**Learning:** Chaining `.and_then()` closures on nested `Option`s containing enums (like `Option<Option<CpEntry>>`) caused type inference failures (`E0282`) across multiple files because the compiler couldn't infer the type of the closure parameter.
+**Action:** Always provide explicit type annotations for closure parameters (e.g., `|slot: &Option<CpEntry>|`) when chaining methods that return references to deeply nested or complex types.

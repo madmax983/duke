@@ -13,7 +13,7 @@ use std::process;
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())

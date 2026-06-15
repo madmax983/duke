@@ -51,7 +51,7 @@ pub fn inspect_jar(path: &str) {
                         let method_name = cf
                             .constant_pool
                             .get(method.name_index.0 as usize)
-                            .and_then(|e| e.as_ref())
+                            .and_then(|e: &Option<CpEntry>| e.as_ref())
                             .and_then(|e| {
                                 if let duke_classfile::CpEntry::Utf8(s) = e {
                                     Some(s)
