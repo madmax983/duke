@@ -21237,7 +21237,7 @@ fn spawn_java_thread(
         }
         let _ = runtime_clone
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .threads
             .mark_finished_by_java_ref(thread_ref);
         unregister_java_host_thread(host_key);
@@ -38212,4 +38212,50 @@ mod tests_sentry {
         assert!(matches!(err_bool, crate::Error::InvalidRef { address: _ }));
     }
 
+}
+
+
+#[cfg(test)]
+mod havoc_tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    use duke_loader::DirectoryLoader;
+    use std::path::PathBuf;
+
+    #[test]
+    fn havoc_test_runtime_lock_poison_unwrap() {
+        let registry = ClassRegistry::new();
+        let heap = duke_gc::Heap::new();
+        let loader = DirectoryLoader::new(PathBuf::from("."));
+
+        let shared = Arc::new(Mutex::new(CompletionVm {
+            registry,
+            heap,
+            output: Vec::new(),
+            live_workers: 1,
+        }));
+
+        let runtime = Arc::new(Mutex::new(CompletionRuntime::default()));
+
+        let _ = std::thread::spawn({
+            let runtime = Arc::clone(&runtime);
+            move || {
+                let _guard = runtime.lock().unwrap();
+                panic!("Havoc: Poisoning the runtime lock!");
+            }
+        }).join();
+
+        assert!(runtime.is_poisoned());
+
+        let loader_arc: Arc<dyn ClassLoader + Send + Sync> = Arc::new(loader);
+        // spawn_java_thread starts a thread. We wait for it to crash on `.unwrap()`.
+        let _ = spawn_java_thread(&shared, &runtime, &loader_arc, 0);
+
+        // Wait for the spawned thread to finish its work without sleep
+        let handles = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner).handles.drain().collect::<Vec<_>>();
+        for (_, handle) in handles {
+            let res = handle.join();
+            assert!(res.is_ok(), "Worker thread should NOT have panicked, but it did");
+        }
+    }
 }
