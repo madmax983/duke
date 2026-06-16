@@ -389,13 +389,14 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
         return cfg;
     }
 
-    // Map PC to Block ID (start_pc) for edge resolution
-    let mut pc_to_block = std::collections::HashMap::new();
-    for block in blocks {
-        pc_to_block.insert(block.start_pc, block.start_pc);
-    }
+    // ⚡ Bolt Optimization:
+    // Removed O(N) HashMap allocation for basic block lookup.
+    // The `blocks` slice is already sorted by `start_pc`.
+    // Lookups now use zero-allocation binary_search_by_key.
+    debug_assert!(blocks.windows(2).all(|w| w[0].start_pc < w[1].start_pc), "Basic blocks must be sorted by start_pc");
 
     for block in blocks {
+        let block_id = block.start_pc;
         let block_id = block.start_pc;
 
         // Node definition
@@ -411,7 +412,7 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
         // Edge definition based on the last instruction
         if let Some((last_pc, last_instr)) = block.instructions.last() {
             let next_block_id = block.end_pc;
-            let next_pc = if pc_to_block.contains_key(&next_block_id) {
+            let next_pc = if blocks.binary_search_by_key(&next_block_id, |b| b.start_pc).is_ok() {
                 Some(next_block_id)
             } else {
                 None
