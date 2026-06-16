@@ -22,6 +22,20 @@ Duke is structured as a Cargo Workspace containing several specialized crates. T
 
 * **`duke-telemetry`**: A subsystem for gathering runtime metrics. It tracks bytecode execution costs, object lineage (allocation tracking), dispatch resolution performance, and exception flow, providing observability into the VM's behavior.
 
+
+### Command-Line Analysis Tools
+
+Duke ships with a suite of built-in CLI tools to inspect, analyze, and verify JVM bytecode:
+
+*   **`jar-diff`**: Computes differences between two JAR files, showing added, removed, and modified methods.
+*   **`jar-search`**: Scans a JAR for methods containing specific bytecode instructions.
+*   **`audit`**: Performs a security audit on a JAR, detecting dangerous API calls like `System.exit()`, `Runtime.exec()`, and Reflection.
+*   **`simulate`**: Simulates the execution of a specific method, outputting an instruction trace.
+*   **`pathfinding`**: Finds the shortest execution path between two instructions within a method's basic blocks.
+*   **`purity`**: Analyzes methods to determine if they are side-effect free.
+*   **`dead-code`**: Detects unreachable bytecode instructions within methods.
+*   **`jdwp`**: Starts a simple JDWP debugging session.
+
 ## Goals
 
 1. **Modularity**: Strict crate boundaries ensure that the classfile parser has no dependency on the execution engine or garbage collector.

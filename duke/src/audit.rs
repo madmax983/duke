@@ -1,4 +1,19 @@
 #![allow(clippy::items_after_statements)]
+//! `duke::audit` — JAR Security Auditing Tool
+//!
+//! The `audit` module provides static analysis capabilities to inspect
+//! Java classes within a JAR archive for potentially dangerous API usages.
+//! In many enterprise and embedded contexts, executing untrusted bytecode
+//! requires strict verification that the code does not attempt to break out
+//! of the sandbox or alter the host environment.
+//!
+//! This analysis scans the constant pool and bytecode instructions for:
+//! - Subprocess execution (e.g., `Runtime.exec`)
+//! - VM termination (e.g., `System.exit`)
+//! - Reflective access (e.g., `Method.invoke`)
+//!
+//! Using this tool helps quickly flag suspicious libraries before they are executed.
+
 #[cfg(feature = "nova")]
 use duke_bytecode::Instruction;
 #[cfg(feature = "nova")]
@@ -18,7 +33,7 @@ use std::process;
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -38,7 +53,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -76,6 +91,27 @@ fn resolve_method_ref(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<(S
         None
     }
 }
+
+/// Performs a static security audit on the specified JAR file.
+///
+/// This function opens the JAR file, iterates through all `.class` files,
+/// decodes their `Code` attributes, and scans for `invokevirtual`, `invokestatic`,
+/// `invokespecial`, and `invokeinterface` instructions that resolve to dangerous methods.
+///
+/// If no dangerous usages are found, it prints a success message. Otherwise,
+/// it outputs a list of all detected dangerous API usages along with their location.
+///
+/// # Examples
+///
+/// ```
+/// use std::path::PathBuf;
+///
+/// let manifest_dir = env!("CARGO_MANIFEST_DIR");
+/// let jar_path = PathBuf::from(manifest_dir).join("../tests/fixtures/hello.jar");
+///
+/// // In our test fixtures, hello.jar does not contain dangerous API calls.
+/// duke::audit::dump_jar_audit(jar_path.to_str().unwrap());
+/// ```
 
 #[cfg(feature = "nova")]
 #[allow(clippy::print_stdout, clippy::collapsible_if, clippy::use_debug)]
