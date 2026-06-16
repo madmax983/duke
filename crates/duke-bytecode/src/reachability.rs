@@ -86,25 +86,27 @@ pub fn find_dead_blocks(blocks: &[BasicBlock], entry_pc: usize) -> Vec<usize> {
         return Vec::new();
     }
 
-    // ⚡ Bolt: Pre-allocate capacities based on known block count to eliminate heap reallocations
-    let mut block_map = HashMap::with_capacity(blocks.len());
-    for block in blocks {
-        block_map.insert(block.start_pc, block);
-    }
+    /// ⚡ Bolt: Removed O(N) HashMap allocation. `blocks` are natively sorted by `start_pc`.
+    /// Lookups now use zero-allocation `binary_search_by_key` to achieve O(log N) latency.
+    debug_assert!(
+        blocks.windows(2).all(|w| w[0].start_pc < w[1].start_pc),
+        "Blocks must be sorted by start_pc for binary search"
+    );
 
     let mut visited = HashSet::with_capacity(blocks.len());
     let mut queue = VecDeque::with_capacity(blocks.len());
 
-    if block_map.contains_key(&entry_pc) {
+    if blocks.binary_search_by_key(&entry_pc, |b| b.start_pc).is_ok() {
         queue.push_back(entry_pc);
         visited.insert(entry_pc);
     }
 
     while let Some(current_pc) = queue.pop_front() {
-        if let Some(block) = block_map.get(&current_pc) {
+        if let Ok(idx) = blocks.binary_search_by_key(&current_pc, |b| b.start_pc) {
+            let block = &blocks[idx];
             let successors = get_successors(block);
             for next_pc in successors {
-                if block_map.contains_key(&next_pc) && !visited.contains(&next_pc) {
+                if !visited.contains(&next_pc) && blocks.binary_search_by_key(&next_pc, |b| b.start_pc).is_ok() {
                     visited.insert(next_pc);
                     queue.push_back(next_pc);
                 }
@@ -167,13 +169,14 @@ pub fn find_shortest_path(
         return None;
     }
 
-    // ⚡ Bolt: Pre-allocate capacities based on known block count to eliminate heap reallocations
-    let mut block_map = HashMap::with_capacity(blocks.len());
-    for block in blocks {
-        block_map.insert(block.start_pc, block);
-    }
+    /// ⚡ Bolt: Removed O(N) HashMap allocation. `blocks` are natively sorted by `start_pc`.
+    /// Lookups now use zero-allocation `binary_search_by_key` to achieve O(log N) latency.
+    debug_assert!(
+        blocks.windows(2).all(|w| w[0].start_pc < w[1].start_pc),
+        "Blocks must be sorted by start_pc for binary search"
+    );
 
-    if !block_map.contains_key(&start_pc) || !block_map.contains_key(&target_pc) {
+    if blocks.binary_search_by_key(&start_pc, |b| b.start_pc).is_err() || blocks.binary_search_by_key(&target_pc, |b| b.start_pc).is_err() {
         return None;
     }
 
@@ -192,9 +195,10 @@ pub fn find_shortest_path(
             break;
         }
 
-        if let Some(block) = block_map.get(&current_pc) {
+        if let Ok(idx) = blocks.binary_search_by_key(&current_pc, |b| b.start_pc) {
+            let block = &blocks[idx];
             for next_pc in get_successors(block) {
-                if block_map.contains_key(&next_pc) && !visited.contains(&next_pc) {
+                if !visited.contains(&next_pc) && blocks.binary_search_by_key(&next_pc, |b| b.start_pc).is_ok() {
                     visited.insert(next_pc);
                     parents.insert(next_pc, current_pc);
                     queue.push_back(next_pc);
@@ -208,7 +212,7 @@ pub fn find_shortest_path(
         let mut curr = target_pc;
         while curr != start_pc {
             path.push(curr);
-            curr = *parents.get(&curr).unwrap();
+            curr = *parents.get(&curr)?;
         }
         path.push(start_pc);
         path.reverse();
@@ -280,5 +284,17 @@ mod tests {
 
         // Unreachable
         assert!(find_shortest_path(&blocks, 0, 6).is_none());
+    }
+
+    #[test]
+    fn test_find_shortest_path_base_case() {
+        let instructions = vec![
+            (0, Instruction::Ireturn),
+        ];
+        let blocks = build_basic_blocks(&instructions);
+
+        // Path from 0 to 0
+        let path = find_shortest_path(&blocks, 0, 0).unwrap();
+        assert_eq!(path, vec![0]);
     }
 }
