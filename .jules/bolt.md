@@ -37,3 +37,6 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+**Replaced BTreeSet with Vec and binary_search for basic block leaders**
+**Learning:** Replaced the `BTreeSet<usize>` used for finding basic block leaders with a `Vec<usize>` that uses `.sort_unstable()`, `.dedup()`, and `.binary_search()`. Constructing a basic block sequence operates in a hot path when deciphering and traversing bytecode graphs. The `BTreeSet` causes many unnecessary node-based heap allocations during inserts since it's just building up the list of targets once before lookups.
+**Action:** Replaced the `BTreeSet` used for finding basic block leaders with a `Vec<usize>` that uses `.sort_unstable()`, `.dedup()`, and `.binary_search()`.

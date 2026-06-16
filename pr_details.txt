@@ -1,6 +1,7 @@
-Title: 🛡️ Sentry: [test coverage improvement]
-Body:
-🎯 Target: `duke_loader::ZipReader::read_entry_info`, `duke_loader::parse_central_directory`, and `duke_telemetry::ser_helpers`.
-💣 Risk: Edge cases where zip central directories have truncated entries or mismatched local header offsets, and missing telemetry map empty paths could panic or fail implicitly if refactored.
-🧪 Strategy: Added specific inline tests inside `crates/duke-loader/src/zip.rs` to reach missing branches of Zip Format errors (e.g. truncated `filename_len`, exceeded `uncompressed_size`). Added tests in `crates/duke-telemetry/src/helpers.rs` for empty map serialization. Added an empty check for `print_report`.
-🔭 Verification: `cargo test -p duke-loader` and `cargo test -p duke-telemetry`
+Title: ⚡ Bolt: Replace BTreeSet with Vec and binary_search for basic block leaders
+
+Description:
+💡 What: Replaced the `BTreeSet<usize>` used for finding basic block leaders with a `Vec<usize>` that uses `.sort_unstable()`, `.dedup()`, and `.binary_search()`.
+🎯 Why: Constructing a basic block sequence operates in a hot path when deciphering and traversing bytecode graphs. The `BTreeSet` causes many unnecessary node-based heap allocations during inserts since it's just building up the list of targets once before lookups.
+📊 Impact: Eliminates numerous tiny heap allocations in `find_leaders` during `build_basic_blocks` without compromising lookup performance (O(log n)).
+🔬 Measurement: Run `cargo test -p duke-bytecode` and `cargo bench -p duke-bytecode` to verify correctness and performance.
