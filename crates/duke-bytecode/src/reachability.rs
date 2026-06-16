@@ -86,8 +86,8 @@ pub fn find_dead_blocks(blocks: &[BasicBlock], entry_pc: usize) -> Vec<usize> {
         return Vec::new();
     }
 
-    /// ⚡ Bolt: Removed O(N) HashMap allocation. `blocks` are natively sorted by `start_pc`.
-    /// Lookups now use zero-allocation `binary_search_by_key` to achieve O(log N) latency.
+    // ⚡ Bolt: Removed O(N) HashMap allocation. `blocks` are natively sorted by `start_pc`.
+    // Lookups now use zero-allocation `binary_search_by_key` to achieve O(log N) latency.
     debug_assert!(
         blocks.windows(2).all(|w| w[0].start_pc < w[1].start_pc),
         "Blocks must be sorted by start_pc for binary search"
@@ -169,8 +169,8 @@ pub fn find_shortest_path(
         return None;
     }
 
-    /// ⚡ Bolt: Removed O(N) HashMap allocation. `blocks` are natively sorted by `start_pc`.
-    /// Lookups now use zero-allocation `binary_search_by_key` to achieve O(log N) latency.
+    // ⚡ Bolt: Removed O(N) HashMap allocation. `blocks` are natively sorted by `start_pc`.
+    // Lookups now use zero-allocation `binary_search_by_key` to achieve O(log N) latency.
     debug_assert!(
         blocks.windows(2).all(|w| w[0].start_pc < w[1].start_pc),
         "Blocks must be sorted by start_pc for binary search"
