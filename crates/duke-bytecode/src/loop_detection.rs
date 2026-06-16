@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 #[cfg(feature = "nova")]
 #[must_use]
 pub fn find_back_edges(blocks: &[BasicBlock], entry_pc: usize) -> Vec<(usize, usize)> {
-fn dfs(
+    fn dfs(
         block_start_pc: usize,
         block_map: &HashMap<usize, &BasicBlock>,
         visited: &mut HashSet<usize>,
