@@ -65,6 +65,8 @@ impl JdwpServer {
     }
 }
 
+/// # Errors
+/// Returns an IO error if the server cannot bind to the requested address.
 pub fn start(config: &JdwpConfig) -> std::io::Result<JdwpServer> {
     let listener = TcpListener::bind(&config.address)?;
     let (attached_tx, attached_rx) = mpsc::channel();

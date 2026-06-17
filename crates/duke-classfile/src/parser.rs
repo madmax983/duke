@@ -410,6 +410,22 @@ fn parse_attribute(c: &mut Cursor<'_>, _cp_len: usize) -> Result<AttributeInfo> 
 ///
 /// Called after the whole class file is parsed, when we have the full CP.
 /// ⚡ Bolt: Pre-allocates vectors for known attribute table sizes to eliminate intermediate heap allocations.
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{CpEntry, CpIndex, AttributeInfo, AttributeData};
+///
+/// let mut attrs = vec![AttributeInfo {
+///     name_index: CpIndex(1),
+///     data: AttributeData::Raw(vec![]),
+/// }];
+/// let pool = vec![
+///     None,
+///     Some(CpEntry::Utf8("Synthetic".to_string())),
+/// ];
+/// // Cannot test directly due to `resolve_attributes` being internal module.
+/// // It is tested via parsing integration.
+/// ```
 pub fn resolve_attributes(attrs: &mut [AttributeInfo], pool: &[Option<CpEntry>]) -> Result<()> {
     for attr in attrs.iter_mut() {
         let name = cp_utf8(pool, attr.name_index)?;
@@ -615,6 +631,19 @@ fn parse_code_attribute(c: &mut Cursor<'_>) -> Result<CodeAttribute> {
 // ---------------------------------------------------------------------------
 
 /// Look up a UTF-8 string in the constant pool.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{CpEntry, CpIndex};
+///
+/// let pool = vec![
+///     None,
+///     Some(CpEntry::Utf8("HelloWorld".to_string())),
+/// ];
+/// // Cannot test directly due to `cp_utf8` being internal module.
+/// // It is tested via parsing integration.
+/// ```
 pub fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> Result<&str> {
     let i = idx.0 as usize;
     if i == 0 {

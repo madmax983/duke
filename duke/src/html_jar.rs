@@ -12,6 +12,8 @@ use crate::html::generate_html_report;
 /// an interconnected set of HTML reports for every class in a JAR, plus an index.
 #[cfg(feature = "nova")]
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
+/// # Errors
+/// Returns an error if the JAR file cannot be opened or if HTML files cannot be written.
 pub fn generate_jar_html_site(jar_path: &str, output_dir: &str) -> std::io::Result<()> {
     let loader = ZipLoader::open(Path::new(jar_path)).map_err(|e| {
         std::io::Error::other(format!("duke: failed to open JAR '{jar_path}': {e}"))

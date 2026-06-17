@@ -185,6 +185,16 @@ impl ZipReader {
     ///
     /// Validates the CRC-32 after decompression.
     ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::path::Path;
+    /// use duke_loader::ZipReader;
+    ///
+    /// let reader = ZipReader::open(Path::new("app.jar")).unwrap();
+    /// let data = reader.read_entry("file.txt").unwrap();
+    /// ```
+    ///
     /// # Errors
     /// Returns [`Error::NotFound`] if the entry doesn't exist,
     /// [`Error::ZipFormat`] on decompression failure, or

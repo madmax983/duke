@@ -9,6 +9,8 @@ pub mod ser_helpers {
     ///
     /// ⚡ Bolt: Using `SerializeMap` to serialize directly removes the intermediate `HashMap`
     /// collection, avoiding heap allocations and hashing overhead during telemetry generation.
+    /// # Errors
+    /// Returns a serializer error if serialization fails.
     pub fn keyed_map<K, V, S, F>(map: &HashMap<K, V>, ser: S, key_fn: F) -> Result<S::Ok, S::Error>
     where
         K: Eq + std::hash::Hash,
@@ -24,6 +26,8 @@ pub mod ser_helpers {
     }
 
     /// `HashMap<(class, method, pc), V>` → `"class::method@pc"`.
+    /// # Errors
+    /// Returns a serializer error if serialization fails.
     pub fn site3<V: Serialize, S: serde::Serializer>(
         map: &HashMap<(String, String, usize), V>,
         ser: S,
@@ -32,6 +36,8 @@ pub mod ser_helpers {
     }
 
     /// `HashMap<(class, cp_idx), V>` → `"class@cp"`.
+    /// # Errors
+    /// Returns a serializer error if serialization fails.
     pub fn site2_u16<V: Serialize, S: serde::Serializer>(
         map: &HashMap<(String, u16), V>,
         ser: S,
@@ -40,6 +46,8 @@ pub mod ser_helpers {
     }
 
     /// `HashMap<(class, method), V>` → `"class::method"`.
+    /// # Errors
+    /// Returns a serializer error if serialization fails.
     pub fn pair_str<V: Serialize, S: serde::Serializer>(
         map: &HashMap<(String, String), V>,
         ser: S,
@@ -48,6 +56,8 @@ pub mod ser_helpers {
     }
 
     /// Serialize `HashSet<String>` as a sorted `Vec<String>` for deterministic output.
+    /// # Errors
+    /// Returns a serializer error if serialization fails.
     pub fn sorted_set<S: serde::Serializer>(
         set: &std::collections::HashSet<String>,
         ser: S,
