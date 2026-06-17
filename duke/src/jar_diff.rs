@@ -2,10 +2,7 @@
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -16,16 +13,18 @@ use std::path::Path;
 #[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
-    cf.constant_pool
+    let Some(Some(entry)) = cf
+        .constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
-        .and_then(|entry| {
-            if let CpEntry::Utf8(s) = entry {
-                Some(s.as_str())
-            } else {
-                None
-            }
-        })
+        .map(|slot| slot.as_ref())
+    else {
+        return None;
+    };
+    if let CpEntry::Utf8(s) = entry {
+        Some(s.as_str())
+    } else {
+        None
+    }
 }
 
 #[cfg(feature = "nova")]
@@ -35,10 +34,12 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     if idx.0 == 0 {
         return "<none>".to_string();
     }
-    let class_entry = cf
-        .constant_pool
-        .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+    let class_entry =
+        if let Some(Some(s)) = cf.constant_pool.get(idx.0 as usize).map(|s| s.as_ref()) {
+            Some(s)
+        } else {
+            None
+        };
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")

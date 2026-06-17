@@ -7,3 +7,6 @@
 **[Encapsulate `duke_classfile` Facade]**
 **Tangle:** The `duke_classfile` API exported an intermediate `types` module (`pub mod types`) merely to re-export its inner types, and `duke-telemetry` exposed internal serialization helpers via `pub mod ser_helpers`. This creates confusing, leaky abstractions and redundant paths.
 **Blueprint:** Encapsulated both modules. In `duke_classfile`, replaced `pub mod types` with direct `pub use` statements at the crate root, eliminating the `types` namespace from the public API entirely. In `duke_telemetry`, reduced `ser_helpers` visibility to `pub(crate)`.
+**[Fix type inference failure in `duke/src/jar_diff.rs`]**
+**Tangle:** The type inference failure `E0282` in `duke/src/jar_diff.rs` was caused by chained `.and_then()` closures on nested `Option`s returned by `cf.constant_pool.get(...)`.
+**Blueprint:** Replaced the chained `.and_then()` closures with explicit `let Some(Some(...)) = ... else { ... };` guard clauses. This provides explicit type constraints and flattens control flow, resolving the `E0282` compilation error.
