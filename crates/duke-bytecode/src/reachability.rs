@@ -208,7 +208,7 @@ pub fn find_shortest_path(
         let mut curr = target_pc;
         while curr != start_pc {
             path.push(curr);
-            curr = *parents.get(&curr).unwrap();
+            curr = *parents.get(&curr)?;
         }
         path.push(start_pc);
         path.reverse();
@@ -280,5 +280,14 @@ mod tests {
 
         // Unreachable
         assert!(find_shortest_path(&blocks, 0, 6).is_none());
+    }
+
+    #[test]
+    fn test_find_shortest_path_base_case() {
+        let instructions = vec![(0, Instruction::Ireturn)];
+        let blocks = build_basic_blocks(&instructions);
+
+        let path = find_shortest_path(&blocks, 0, 0).unwrap();
+        assert_eq!(path, vec![0]);
     }
 }
