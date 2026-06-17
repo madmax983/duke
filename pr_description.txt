@@ -1,0 +1,4 @@
+💡 **The Spark:** "I noticed we parse bytecode into CFGs and basic blocks, but we lack high-level structural analysis of what a method actually *does* at a macro level (e.g. is it just a simple getter?)."
+🚀 **The Feature:** "Implemented `analyze_method_patterns` in `heuristics.rs` to detect getters, setters, empty methods, allocations, and loops from raw JVM instructions."
+🔮 **The Potential:** "Could be used for static decompilation assistance, inlining heuristics for future JIT experiments, or deeper telemetry profiling."
+⚠️ **Risk:** "Low. Purely additive static analysis logic, gated behind the `nova` feature flag in `duke-bytecode`, with unit tests."

@@ -767,3 +767,6 @@ mod tests {
 }
 #[cfg(test)]
 mod fuzz;
+pub(crate) mod heuristics;
+#[cfg(feature = "nova")]
+pub use heuristics::{MethodPattern, analyze_method_patterns};
