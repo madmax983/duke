@@ -36,3 +36,7 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+
+## 2024-05-24 - [Reachability Documentation]
+**Confusion:** The `get_successors` function in `reachability.rs` had documentation that simply repeated the function name ('Gets the successor...'), violating the rule against repeating the function name.
+**Clarification:** Replaced the documentation with a narrative explanation of *why* resolving successor PCs is critical (CFG construction, dead-code elimination, cyclomatic complexity).

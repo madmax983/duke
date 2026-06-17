@@ -10,11 +10,15 @@ use crate::basic_block::BasicBlock;
 #[cfg(feature = "nova")]
 use std::collections::{HashMap, HashSet, VecDeque};
 
-/// Gets the successor program counters (PCs) for a given [`BasicBlock`] based on its last instruction.
+/// Resolves the valid execution pathways exiting a [`BasicBlock`].
 ///
-/// This function examines the final instruction of the block (e.g., a branch, a return, or a regular instruction)
-/// to determine which instructions could potentially be executed next. This is fundamental for constructing
-/// a complete control flow graph.
+/// By examining the final bytecode instruction of a block (such as an `ifeq` branch, an unconditional `goto`,
+/// or a standard operation that simply falls through to the next sequential instruction), this analysis
+/// uncovers all program counters (PCs) that control flow could legitimately transition to next.
+///
+/// This resolution is the critical edge-discovery phase required for constructing an accurate
+/// Control Flow Graph (CFG) of a method, enabling advanced analysis like dead-code elimination
+/// and cyclomatic complexity measurement.
 ///
 /// # Examples
 ///
