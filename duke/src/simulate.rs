@@ -8,7 +8,7 @@ use duke_classfile::{AttributeData, ClassFile, CpEntry, CpIndex};
 fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -54,6 +54,23 @@ mod tests {
     use duke_classfile::{
         ClassAccessFlags, {ClassFile, CpEntry, CpIndex},
     };
+
+    #[test]
+    #[cfg(feature = "nova")]
+    fn test_dump_simulate_not_found() {
+        use std::panic;
+        let result = panic::catch_unwind(|| {
+            dump_simulate("non_existent_file.class", "main");
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "nova")]
+    fn test_dump_simulate_valid() {
+        dump_simulate("../tests/fixtures/Hello.class", "main");
+        dump_simulate("../tests/fixtures/Hello.class", "missingMethod");
+    }
 
     #[test]
     fn test_cp_str() {

@@ -2,10 +2,7 @@
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -18,7 +15,7 @@ use std::path::Path;
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -38,7 +35,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -179,6 +176,21 @@ fn load_jar_methods(jar_path: &str) -> HashMap<String, u64> {
 #[cfg(feature = "nova")]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(feature = "nova")]
+    fn test_load_jar_methods_valid() {
+        // Just verify it works without panicking on a real jar
+        let methods = load_jar_methods("../tests/fixtures/multi.jar");
+        assert!(!methods.is_empty());
+    }
+
+    #[test]
+    #[cfg(feature = "nova")]
+    fn test_dump_jar_diff_valid() {
+        // Just verify it works without panicking
+        dump_jar_diff("../tests/fixtures/hello.jar", "../tests/fixtures/multi.jar");
+    }
 
     #[test]
     fn test_dump_jar_diff_dummy() {

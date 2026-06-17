@@ -47,3 +47,12 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2025-02-05 - Missing type annotations in options inside of closures
+
+**Learning:** `and_then` closures on nested options/result types can lead to inference failures requiring type annotations in generic boundaries.
+**Action:** When adding or modifying options and combinations via `.and_then()` explicitly annotate types like `|slot: &Option<CpEntry>|` to ensure reliable build boundaries.
+
+## 2025-02-05 - Mock testing `dump_simulate`
+
+**Learning:** Testing logic dependent on disk and reading raw parsing byte structures can be challenging. Simulating behavior with valid known structure artifacts is best approach.
+**Action:** Used `catch_unwind` alongside an expected `assert!(result.is_err())` for missing files and a valid execution for the valid paths to test `panic` states.
