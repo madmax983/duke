@@ -1,20 +1,16 @@
-1. **Optimize String concatenation in `native_string_concat`**
-   - The function currently uses `format!("{s1}{s2}")` to concatenate two strings, which allocates a new string buffer inside `format!`, formats the arguments, and returns it.
-   - We can optimize this by pre-allocating a `String` with the exact required capacity and appending the strings:
-     ```rust
-     let mut combined = String::with_capacity(s1.len() + s2.len());
-     combined.push_str(&s1);
-     combined.push_str(&s2);
-     let r = heap.allocate_string(combined);
-     ```
-   - This eliminates the intermediate allocation and parsing overhead of `format!`, which is a common hotspot in interpreters.
-   - Add `// ⚡ Bolt: Eliminate intermediate format! allocation` comment.
-   - Ensure the tests pass.
-1. Refactor `print_report` methods in `duke-telemetry/src/lib.rs` to handle empty states gracefully (Reduces noise from empty reports).
-   - Before: Outputs headers and empty tables for empty components.
-   - After: Outputs a concise message stating no events were recorded.
-2. Complete pre commit steps to make sure proper testing, verifications, reviews and reflections are done.
-3. Submit the change using a descriptive title.
-1. **Optimize Vector Allocations in Execution (Vec::with_capacity)**: Pre-allocate vectors in `crates/duke-interpreter/src/execution.rs` for `Multianewarray` `dims` array and lambda args `impl_args` to avoid unnecessary dynamic heap reallocations.
-2. Complete pre commit steps to ensure proper testing, verification, review, and reflection are done.
-3. **Submit the PR**: Present PR titled '⚡ Bolt: Optimize Vector Allocations in Execution & Native' detailing 💡 What, 🎯 Why, 📊 Impact, and 🔭 Measurement. I will use `run_in_bash_session` to execute `git commit` with the requested PR details.
+1.  **Refactor `find_leaders` in `crates/duke-bytecode/src/basic_block.rs` to avoid `BTreeSet`**:
+    - Change the return type of `find_leaders` from `BTreeSet<usize>` to `Vec<usize>`.
+    - Change `leaders.insert(x)` to `leaders.push(x)`.
+    - At the end of `find_leaders`, sort and deduplicate the vector: `leaders.sort_unstable(); leaders.dedup();`.
+    - Update `construct_blocks` to accept `&[usize]` instead of `&BTreeSet<usize>`.
+    - Replace `leaders.contains(pc)` with `leaders.binary_search(pc).is_ok()` in `construct_blocks`.
+    - Add a doc comment explaining the optimization.
+
+2.  **Fix unresolved import error**:
+    - `jar_diff.rs` was breaking compilation due to an issue with `duke_classfile::types` missing. Refactor the `jar_diff.rs` imports and `and_then` closure type annotations to resolve compilation errors resulting from changes made during previous optimizations.
+
+3.  **Complete pre-commit steps**:
+    - Complete pre-commit steps to ensure proper testing, verification, review, and reflection are done.
+
+4.  **Submit the change**:
+    - Submit the PR with the title '⚡ Bolt: Replace BTreeSet with Vec in build_basic_blocks'.

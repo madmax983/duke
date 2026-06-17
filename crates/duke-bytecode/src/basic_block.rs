@@ -5,8 +5,6 @@
 //! code sequence with no branches in except to the entry and no branches out
 //! except at the exit.
 
-use std::collections::BTreeSet;
-
 use crate::Instruction;
 
 /// A basic block of JVM bytecode.
@@ -76,9 +74,9 @@ pub fn build_basic_blocks(instructions: &[(usize, Instruction)]) -> Vec<BasicBlo
 }
 
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
-fn find_leaders(instructions: &[(usize, Instruction)]) -> BTreeSet<usize> {
-    let mut leaders = BTreeSet::new();
-    leaders.insert(instructions[0].0);
+fn find_leaders(instructions: &[(usize, Instruction)]) -> Vec<usize> {
+    let mut leaders = Vec::new();
+    leaders.push(instructions[0].0);
 
     for (i, (pc, instr)) in instructions.iter().enumerate() {
         let is_branch_or_return = instr.is_conditional_branch()
@@ -88,27 +86,30 @@ fn find_leaders(instructions: &[(usize, Instruction)]) -> BTreeSet<usize> {
 
         // Target of any jump or branch is a leader
         for target in instr.control_flow_targets(*pc, None) {
-            leaders.insert(target);
+            leaders.push(target);
         }
 
         // The instruction immediately following any jump, branch, or return is a leader
         if is_branch_or_return && i + 1 < instructions.len() {
-            leaders.insert(instructions[i + 1].0);
+            leaders.push(instructions[i + 1].0);
         }
     }
+
+    // ⚡ Bolt: Replace BTreeSet with a sorted, deduplicated Vec.
+    // This avoids costly node-based heap allocations for multiple insertions.
+    // Memory allocations are the enemy.
+    leaders.sort_unstable();
+    leaders.dedup();
     leaders
 }
 
-fn construct_blocks(
-    instructions: &[(usize, Instruction)],
-    leaders: &BTreeSet<usize>,
-) -> Vec<BasicBlock> {
+fn construct_blocks(instructions: &[(usize, Instruction)], leaders: &[usize]) -> Vec<BasicBlock> {
     let mut blocks = Vec::with_capacity(leaders.len());
     let mut current_start_pc = instructions[0].0;
     let mut current_start_idx = 0;
 
     for (i, (pc, _)) in instructions.iter().enumerate() {
-        if leaders.contains(pc) && i > current_start_idx {
+        if leaders.binary_search(pc).is_ok() && i > current_start_idx {
             blocks.push(BasicBlock {
                 start_pc: current_start_pc,
                 end_pc: *pc,

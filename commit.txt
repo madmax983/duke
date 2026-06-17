@@ -1,0 +1,6 @@
+⚡ Bolt: Replace BTreeSet with Vec in build_basic_blocks
+
+💡 What: Replaced the `BTreeSet` used to track leader instructions during basic block construction with a `Vec` combined with `sort_unstable` and `dedup`. Updated `construct_blocks` to use `binary_search` instead of `contains`. Also resolved pending compiler errors in `jar_diff.rs` involving missing `types::` imports and `and_then` type inference that failed due to previous optimizations.
+🎯 Why: `BTreeSet::insert` causes a node-based heap allocation for each unique insertion. During basic block parsing (a very hot path when loading classes), this leads to dozens of allocations per method.
+📊 Impact: Eliminates O(N) node allocations per method parsed, replacing them with a single contiguous buffer allocation and an O(N log N) sort.
+🔬 Measurement: Run `cargo bench` or `cargo test --all-targets --all-features`.
