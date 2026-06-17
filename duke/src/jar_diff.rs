@@ -3,8 +3,7 @@
 
 #[cfg(feature = "nova")]
 use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
+    parse, AttributeData, CpEntry, CpIndex,
 };
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
@@ -16,16 +15,10 @@ use std::path::Path;
 #[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
-    cf.constant_pool
-        .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
-        .and_then(|entry| {
-            if let CpEntry::Utf8(s) = entry {
-                Some(s.as_str())
-            } else {
-                None
-            }
-        })
+    let Some(Some(CpEntry::Utf8(s))) = cf.constant_pool.get(idx.0 as usize) else {
+        return None;
+    };
+    Some(s.as_str())
 }
 
 #[cfg(feature = "nova")]
@@ -35,11 +28,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     if idx.0 == 0 {
         return "<none>".to_string();
     }
-    let class_entry = cf
-        .constant_pool
-        .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
-    if let Some(CpEntry::Class { name_index }) = class_entry {
+    if let Some(Some(CpEntry::Class { name_index })) = cf.constant_pool.get(idx.0 as usize) {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
             .to_string()
