@@ -79,6 +79,22 @@ fn crc32_checksum(data: &[u8]) -> u32 {
 ///     println!("Found {}, compressed size: {}", info.name, info.compressed_size);
 /// }
 /// ```
+/// Metadata for a single entry within a ZIP archive.
+///
+/// Extracted from the central directory, this structure provides
+/// information necessary to locate and decompress the entry's payload.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use duke_loader::ZipReader;
+/// use std::path::Path;
+///
+/// let reader = ZipReader::open(Path::new("app.jar")).expect("failed to open jar");
+/// if let Some(info) = reader.get_entry("com/example/Main.class") {
+///     println!("Found {}, compressed size: {}", info.name, info.compressed_size);
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub struct ZipEntryInfo {
     /// Entry name (e.g. `"com/example/Main.class"`).
@@ -102,6 +118,21 @@ pub struct ZipEntryInfo {
 /// ```no_run
 /// use std::path::Path;
 /// use duke_loader::ZipReader;
+///
+/// let reader = ZipReader::open(Path::new("app.jar")).expect("failed to open jar");
+/// println!("Found {} entries", reader.entry_count());
+/// ```
+/// A reader for ZIP and JAR archives.
+///
+/// `ZipReader` parses the central directory of a ZIP file to provide
+/// O(1) random access to its entries. It requires the entire archive
+/// to be buffered in memory (`Vec<u8>`).
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use duke_loader::ZipReader;
+/// use std::path::Path;
 ///
 /// let reader = ZipReader::open(Path::new("app.jar")).expect("failed to open jar");
 /// println!("Found {} entries", reader.entry_count());
@@ -373,6 +404,24 @@ impl ZipReader {
 ///     .expect("Failed to open jar file");
 ///
 /// // 2. Find a class by its internal JVM name
+/// let bytes = loader.find_class("com/example/MyClass")
+///     .expect("Class not found in archive");
+///
+/// assert_eq!(&bytes[0..4], &[0xCA, 0xFE, 0xBA, 0xBE]);
+/// ```
+/// A `ClassLoader` implementation backed by a ZIP or JAR archive.
+///
+/// `ZipLoader` handles both standard JARs and Spring Boot "fat JARs"
+/// containing nested dependencies in `BOOT-INF/lib` or `WEB-INF/lib`.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use duke_loader::ZipLoader;
+/// use duke_loader::ClassLoader;
+/// use std::path::Path;
+///
+/// let loader = ZipLoader::open(Path::new("app.jar")).expect("failed to open jar");
 /// let bytes = loader.find_class("com/example/MyClass")
 ///     .expect("Class not found in archive");
 ///

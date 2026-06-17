@@ -36,3 +36,10 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-25 - [Duke Classfile Types Documentation]
+**Confusion:** `duke_classfile::types` module was removed/flattened causing a build failure in `duke/src/jar_diff.rs` when trying to import `AttributeData`, `CpEntry`, and `CpIndex`. This breaks `cargo doc` and creates a missing `types` module error.
+**Clarification:** Changed imports to pull these structures directly from the `duke_classfile` root since they are now re-exported at the top level of the crate.
+
+## 2024-05-25 - [ZipLoader Documentation]
+**Confusion:** The `ZipReader`, `ZipEntryInfo`, and `ZipLoader` structs in `duke-loader::zip` lacked documentation, making it difficult to understand how zip archives and classloading are handled.
+**Clarification:** Added module-level documentation and executable doctests explaining how `ZipLoader` and its associated structs bridge the gap between ZIP archives and classloading.

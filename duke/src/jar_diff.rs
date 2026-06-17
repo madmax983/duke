@@ -1,18 +1,13 @@
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
-#[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
-#[cfg(feature = "nova")]
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
+
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 
-#[cfg(feature = "nova")]
 #[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
@@ -28,7 +23,6 @@ fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
         })
 }
 
-#[cfg(feature = "nova")]
 #[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
 fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
@@ -48,7 +42,6 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     }
 }
 
-#[cfg(feature = "nova")]
 #[cfg(not(tarpaulin_include))]
 #[allow(
     unexpected_cfgs,
@@ -133,7 +126,6 @@ pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
     }
 }
 
-#[cfg(feature = "nova")]
 #[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
 fn load_jar_methods(jar_path: &str) -> HashMap<String, u64> {
@@ -176,7 +168,6 @@ fn load_jar_methods(jar_path: &str) -> HashMap<String, u64> {
 }
 
 #[cfg(test)]
-#[cfg(feature = "nova")]
 mod tests {
     use super::*;
 
