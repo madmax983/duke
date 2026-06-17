@@ -58,4 +58,4 @@ pub enum Error {
 }
 
 /// Convenience alias for `Result<T, Error>`.
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, crate::Error>;

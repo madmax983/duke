@@ -187,7 +187,7 @@ pub enum VerifyError {
 ///     Ok(())
 /// }
 /// ```
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, crate::Error>;
 
 #[cfg(test)]
 mod tests {

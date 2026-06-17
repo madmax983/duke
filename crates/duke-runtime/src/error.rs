@@ -209,4 +209,4 @@ pub enum Error {
 /// assert!(might_fail(true).is_err());
 /// assert_eq!(might_fail(false).unwrap(), 42);
 /// ```
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T> = std::result::Result<T, crate::Error>;
