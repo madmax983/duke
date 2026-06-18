@@ -41,30 +41,33 @@ pub fn calculate_similarity(seq1: &[Instruction], seq2: &[Instruction]) -> f64 {
         return 0.0;
     }
 
-    let mut dp = vec![vec![0; len2 + 1]; len1 + 1];
+    let (s1, s2, l1, l2) = if len1 > len2 {
+        (seq2, seq1, len2, len1)
+    } else {
+        (seq1, seq2, len1, len2)
+    };
 
-    for (i, row) in dp.iter_mut().enumerate().take(len1 + 1) {
-        row[0] = i;
-    }
-    for (j, item) in dp[0].iter_mut().enumerate().take(len2 + 1) {
-        *item = j;
-    }
+    let mut dp: Vec<usize> = (0..=l2).collect();
 
-    for i in 1..=len1 {
-        for j in 1..=len2 {
-            let cost = usize::from(discriminant(&seq1[i - 1]) != discriminant(&seq2[j - 1]));
+    for i in 1..=l1 {
+        let mut prev_diagonal = dp[0];
+        dp[0] = i;
+        for j in 1..=l2 {
+            let old_dp_j = dp[j];
+            let cost = usize::from(discriminant(&s1[i - 1]) != discriminant(&s2[j - 1]));
 
-            dp[i][j] = std::cmp::min(
-                std::cmp::min(dp[i - 1][j] + 1, dp[i][j - 1] + 1),
-                dp[i - 1][j - 1] + cost,
+            dp[j] = std::cmp::min(
+                std::cmp::min(dp[j] + 1, dp[j - 1] + 1),
+                prev_diagonal + cost,
             );
+            prev_diagonal = old_dp_j;
         }
     }
 
     #[allow(clippy::cast_precision_loss)]
     let max_len = std::cmp::max(len1, len2) as f64;
     #[allow(clippy::cast_precision_loss)]
-    let distance = dp[len1][len2] as f64;
+    let distance = dp[l2] as f64;
 
     1.0 - (distance / max_len)
 }
