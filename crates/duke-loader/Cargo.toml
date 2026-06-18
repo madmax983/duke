@@ -11,6 +11,7 @@ flate2.workspace = true
 [dev-dependencies]
 duke-classfile = { path = "../duke-classfile" }
 proptest.workspace = true
+tempfile = "3.27.0"
 
 [lints]
 workspace = true
