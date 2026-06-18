@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**[BasicBlock Leaders Optimization]**
+**Learning:** Using `BTreeSet` for build-once-query-many collections introduces unnecessary node-based heap allocations. A pre-allocated `Vec`, combined with `sort_unstable()` and `dedup()`, and queried via `binary_search()` is much faster due to cache locality and zero node-allocation overhead.
+**Action:** Replace `BTreeSet` with sorted `Vec` and `binary_search` for collections that are populated once and queried multiple times.
