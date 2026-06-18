@@ -375,7 +375,7 @@ fn parse_location_attributes(
         if kind == ATTR_END {
             break;
         }
-        if pos + len > data.len() {
+        if pos + len > locs_end {
             break;
         }
 

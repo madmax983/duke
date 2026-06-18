@@ -1,6 +1,14 @@
-Title: 🛡️ Sentry: [test coverage improvement]
+Title: 👺 Havoc: Fix out-of-bounds read in JImage location attributes parsing
+
 Body:
-🎯 Target: `duke_loader::ZipReader::read_entry_info`, `duke_loader::parse_central_directory`, and `duke_telemetry::ser_helpers`.
-💣 Risk: Edge cases where zip central directories have truncated entries or mismatched local header offsets, and missing telemetry map empty paths could panic or fail implicitly if refactored.
-🧪 Strategy: Added specific inline tests inside `crates/duke-loader/src/zip.rs` to reach missing branches of Zip Format errors (e.g. truncated `filename_len`, exceeded `uncompressed_size`). Added tests in `crates/duke-telemetry/src/helpers.rs` for empty map serialization. Added an empty check for `print_report`.
-🔭 Verification: `cargo test -p duke-loader` and `cargo test -p duke-telemetry`
+🧨 **The Trigger:**
+`parse_location_attributes` reads `len` bytes for each attribute. It checked `pos + len > data.len()` instead of `pos + len > locs_end`. This allowed a truncated attribute at the very end of the locations table to incorrectly read bytes from the strings table as its payload.
+
+📉 **The Stack Trace:**
+(No direct panic, but memory leak/garbage data parsed. Replaced incorrect `data.len()` bounds check with `locs_end`).
+
+🧪 **Reproduction:**
+Run `cargo test --test havoc_jimage_oob_read`. The chaos test crafts a JImage with a truncated UNCOMPRESSED attribute at the end of the locs table, which leaked data from the adjacent string table before the fix.
+
+😈 **Comment:**
+You assumed `data.len()` was the only boundary. The location table ends at `locs_end`, and everything after it is the string table. You were wrong.

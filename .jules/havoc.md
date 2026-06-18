@@ -1,5 +1,3 @@
-## 2024-05-24 - [Classfile Annotation parsing OOM due to deep recursion]
-**The Trigger:** A class file containing a deeply nested `RuntimeVisibleAnnotations` attribute (e.g. nested arrays inside annotations inside annotations).
-**The Stack Trace:** The process panics with `stack overflow` or crashes due to OOM when allocating vectors at each recursion level, or exceeds system limits.
-**Reproduction:** Run `cargo test --test havoc_classfile_annotation_oom` (which we added and fixed).
-**Comment:** "You assumed the JVM specification limit of annotation depth was naturally bounded by the class file size, but deep nesting of `[` arrays with 1 element allows exponential stack growth compared to byte size. You were wrong."
+**JImage Location Attributes Bounds Check**
+**Learning:** Slices bounds checking does not magically map to logical data structure bounds when multiple structures are packed consecutively into a single array slice.
+**Action:** When extracting data based on embedded offsets/lengths inside a multi-region buffer (like a jimage index where `locs` and `strings` are sequential), always bounds-check against the logical end of the *specific region* being parsed (`locs_end`), not just the end of the entire buffer (`data.len()`).
