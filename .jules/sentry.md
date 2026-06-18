@@ -47,3 +47,7 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+
+## 2024-06-18 - Missing tests for invalid UTF-8 in JImage strings
+**Learning:** `std::str::from_utf8` returns `Result::Err` when bytes are not valid UTF-8, which the `jimage::read_str` function correctly handles via `.unwrap_or("")`. This behavior lacked unit test coverage.
+**Action:** Added a unit test to verify that `read_str` gracefully returns an empty string when encountering an invalid UTF-8 byte sequence in a JImage string table.

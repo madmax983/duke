@@ -983,3 +983,14 @@ mod tests_oob {
         }
     }
 }
+
+#[cfg(test)]
+mod read_str_tests {
+    use super::*;
+
+    #[test]
+    fn test_read_str_invalid_utf8() {
+        let data: &[u8] = b"\xff\xff\x00";
+        assert_eq!(read_str(data, 0, 0), "");
+    }
+}
