@@ -26,6 +26,24 @@ pub use manifest::parse_main_class;
 pub use zip::{ZipEntryInfo, ZipLoader, ZipReader};
 
 /// Resolved classpath resource bytes plus a stable synthetic URL.
+/// Resolved classpath resource bytes plus a stable synthetic URL.
+///
+/// This structure holds the raw byte content of a resource (like a `.class` file or a properties file)
+/// found on the classpath, along with a string representation of its origin (e.g., `jar:file:/path/to.jar!/MyClass.class`).
+///
+/// # Examples
+///
+/// ```
+/// use duke_loader::LocatedResource;
+///
+/// let resource = LocatedResource {
+///     bytes: vec![0xCA, 0xFE, 0xBA, 0xBE],
+///     url: "file:/tmp/MyClass.class".to_string(),
+/// };
+///
+/// assert_eq!(resource.bytes.len(), 4);
+/// assert!(resource.url.starts_with("file:"));
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocatedResource {
     /// The resource payload.

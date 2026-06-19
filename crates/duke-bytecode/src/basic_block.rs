@@ -27,6 +27,27 @@ use crate::Instruction;
 ///
 /// assert_eq!(block.instructions.len(), 2);
 /// ```
+/// A basic block of JVM bytecode.
+///
+/// A basic block is a straight-line code sequence with no branches in except
+/// to the entry and no branches out except at the exit.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::{Instruction, BasicBlock};
+///
+/// let block = BasicBlock {
+///     start_pc: 0,
+///     end_pc: 2,
+///     instructions: vec![
+///         (0, Instruction::Iconst1),
+///         (1, Instruction::Istore1),
+///     ],
+/// };
+///
+/// assert_eq!(block.instructions.len(), 2);
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BasicBlock {
     /// The starting program counter (PC) of this basic block.

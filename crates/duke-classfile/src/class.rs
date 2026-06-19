@@ -32,6 +32,29 @@ use crate::constant_pool::CpIndex;
 ///
 /// assert_eq!(class_file.major_version, 65);
 /// ```
+/// Parsed top-level class file structure (JVM spec §4.1).
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{ClassFile, CpIndex};
+/// use duke_classfile::ClassAccessFlags;
+///
+/// let class_file = ClassFile {
+///     minor_version: 0,
+///     major_version: 65, // Java 21
+///     constant_pool: vec![None], // 1-based index, index 0 is unused
+///     access_flags: ClassAccessFlags::PUBLIC,
+///     this_class: CpIndex(1),
+///     super_class: CpIndex(0), // java/lang/Object
+///     interfaces: vec![],
+///     fields: vec![],
+///     methods: vec![],
+///     attributes: vec![],
+/// };
+///
+/// assert_eq!(class_file.major_version, 65);
+/// ```
 #[derive(Debug, Clone)]
 pub struct ClassFile {
     /// Minor version of the class file format.
@@ -79,6 +102,27 @@ pub struct ClassFile {
 /// };
 /// assert!(field.access_flags.contains(FieldAccessFlags::PUBLIC));
 /// ```
+/// Represents a field declared within a Java class or interface (§4.5).
+///
+/// Why do we need this? A class without state is just a namespace of functions.
+/// `FieldInfo` defines the layout, type descriptors, and access modifiers of every instance
+/// and static field. Crucially, it also carries attributes—such as `ConstantValue` for
+/// primitive constants—which tell the JVM how to initialize static variables before any code runs.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{FieldInfo, CpIndex};
+/// use duke_classfile::FieldAccessFlags;
+///
+/// let field = FieldInfo {
+///     access_flags: FieldAccessFlags::PUBLIC,
+///     name_index: CpIndex(1),
+///     descriptor_index: CpIndex(2),
+///     attributes: vec![],
+/// };
+/// assert!(field.access_flags.contains(FieldAccessFlags::PUBLIC));
+/// ```
 #[derive(Debug, Clone)]
 pub struct FieldInfo {
     /// Access flags for the field.
@@ -91,6 +135,28 @@ pub struct FieldInfo {
     pub attributes: Vec<AttributeInfo>,
 }
 
+/// Represents a method or initialization routine within a class (§4.6).
+///
+/// Methods are the verbs of the JVM. This structure tells you the method's name, its descriptor
+/// (what arguments it takes and returns), and its access flags (is it `public`, `static`, or `native`?).
+///
+/// More importantly, if the method is not `native` or `abstract`, its `attributes` array will contain
+/// a [`crate::attributes::AttributeData::Code`] attribute—the raw bytecode instructions the interpreter must execute.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{MethodInfo, CpIndex};
+/// use duke_classfile::MethodAccessFlags;
+///
+/// let method = MethodInfo {
+///     access_flags: MethodAccessFlags::PUBLIC,
+///     name_index: CpIndex(3),
+///     descriptor_index: CpIndex(4),
+///     attributes: vec![],
+/// };
+/// assert!(method.access_flags.contains(MethodAccessFlags::PUBLIC));
+/// ```
 /// Represents a method or initialization routine within a class (§4.6).
 ///
 /// Methods are the verbs of the JVM. This structure tells you the method's name, its descriptor

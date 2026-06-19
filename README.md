@@ -22,6 +22,8 @@ Duke is structured as a Cargo Workspace containing several specialized crates. T
 
 * **`duke-telemetry`**: A subsystem for gathering runtime metrics. It tracks bytecode execution costs, object lineage (allocation tracking), dispatch resolution performance, and exception flow, providing observability into the VM's behavior.
 
+* **`duke`**: The main executable and command-line interface. It wires all the crates together, taking `.class` or `.jar` files as input, initializing the `ThreadRuntime`, and starting the execution of the main method.
+
 ## Goals
 
 1. **Modularity**: Strict crate boundaries ensure that the classfile parser has no dependency on the execution engine or garbage collector.
