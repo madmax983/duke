@@ -225,7 +225,9 @@ mod tests {
 /// Computes the `McCabe` Cyclomatic Complexity of a sequence of JVM instructions.
 ///
 /// Cyclomatic complexity (`v(G)`) measures the number of linearly independent paths
-/// through a program's source code. For JVM bytecode, this is equivalent to:
+/// through a program's source code. This function is essential because it allows us
+/// to automatically detect complex, hard-to-maintain Java methods directly from their bytecode.
+/// For JVM bytecode, this is equivalent to:
 /// `v(G) = E - N + 2`, where `E` is the number of edges and `N` is the number of nodes.
 ///
 /// A simplified, common way to calculate this iteratively is:
@@ -237,7 +239,7 @@ mod tests {
 ///
 /// # Examples
 ///
-/// ```
+/// ```rust
 /// use duke_bytecode::{Instruction, cyclomatic_complexity};
 ///
 /// let instructions = vec![
