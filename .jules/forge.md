@@ -85,3 +85,11 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+**Extract Structural Parsing Loops**
+**Learning:** `parse_class_members` in `crates/duke-classfile/src/parser.rs` contained sequential inline loops for parsing interfaces, fields, and methods, along with `Vec::with_capacity` math. This cluttered the function, burying the high-level intent of decoding the components of a class file structure.
+**Action:** Always extract the internal inline loops of large file-format decoding functions into strictly-typed helper functions (e.g. `parse_interfaces`, `parse_fields`, `parse_methods`) to flatten code, keep the parent function declarative, and clearly delineate the phases of decoding.
+
+**Automated Refactoring Trailing Semicolons**
+**Learning:** When using Python patch scripts to extract block expressions (such as inline `for` loops) into helper function calls that are assigned to a `let` statement (e.g. `let methods = parse_methods(c)?;`), omitting the trailing semicolon will result in an `expected expression, found let statement` compilation error.
+**Action:** When extracting statements and assigning the result to variables in Rust using automated scripting, always ensure trailing semicolons are appended to complete the variable declaration.

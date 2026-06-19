@@ -15,6 +15,33 @@ const MAGIC: u32 = 0xCAFE_BABE;
 /// Java SE 21 = class file version 65.
 const MAX_MAJOR_VERSION: u16 = 65;
 
+fn parse_interfaces(c: &mut Cursor<'_>) -> Result<Vec<CpIndex>> {
+    let interfaces_count = c.read_u16()?;
+    let mut interfaces = Vec::with_capacity(c.safe_capacity(interfaces_count as usize, 2));
+    for _ in 0..interfaces_count {
+        interfaces.push(c.read_cp_index()?);
+    }
+    Ok(interfaces)
+}
+
+fn parse_fields(c: &mut Cursor<'_>, cp_len: usize) -> Result<Vec<FieldInfo>> {
+    let fields_count = c.read_u16()?;
+    let mut fields = Vec::with_capacity(c.safe_capacity(fields_count as usize, 8));
+    for _ in 0..fields_count {
+        fields.push(parse_field(c, cp_len)?);
+    }
+    Ok(fields)
+}
+
+fn parse_methods(c: &mut Cursor<'_>, cp_len: usize) -> Result<Vec<MethodInfo>> {
+    let methods_count = c.read_u16()?;
+    let mut methods = Vec::with_capacity(c.safe_capacity(methods_count as usize, 8));
+    for _ in 0..methods_count {
+        methods.push(parse_method(c, cp_len)?);
+    }
+    Ok(methods)
+}
+
 // ---------------------------------------------------------------------------
 // Cursor
 // ---------------------------------------------------------------------------
@@ -182,26 +209,9 @@ fn parse_class_members(
     let this_class = c.read_cp_index()?;
     let super_class = c.read_cp_index()?;
 
-    // interfaces
-    let interfaces_count = c.read_u16()?;
-    let mut interfaces = Vec::with_capacity(c.safe_capacity(interfaces_count as usize, 2));
-    for _ in 0..interfaces_count {
-        interfaces.push(c.read_cp_index()?);
-    }
-
-    // fields
-    let fields_count = c.read_u16()?;
-    let mut fields = Vec::with_capacity(c.safe_capacity(fields_count as usize, 8));
-    for _ in 0..fields_count {
-        fields.push(parse_field(c, cp_len)?);
-    }
-
-    // methods
-    let methods_count = c.read_u16()?;
-    let mut methods = Vec::with_capacity(c.safe_capacity(methods_count as usize, 8));
-    for _ in 0..methods_count {
-        methods.push(parse_method(c, cp_len)?);
-    }
+    let interfaces = parse_interfaces(c)?;
+    let fields = parse_fields(c, cp_len)?;
+    let methods = parse_methods(c, cp_len)?;
 
     // class-level attributes
     let attributes = parse_attributes(c, cp_len)?;
