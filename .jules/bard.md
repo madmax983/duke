@@ -36,3 +36,7 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+
+## 2024-05-25 - [Jar Diff Compilation Fix]
+**Confusion:** The `duke` binary crate failed to compile because `AttributeData` was moved directly to the crate root of `duke-classfile` instead of being nested under `types`, and type inference failed for `slot` and `s` in `and_then` closures.
+**Clarification:** Updated `jar_diff.rs` imports to correctly reference `duke_classfile::{AttributeData, CpEntry, CpIndex}` directly, and explicitly typed the closure arguments `|slot: &Option<CpEntry>|` and `|s: &Option<CpEntry>|` to resolve the type inference errors.
