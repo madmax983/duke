@@ -366,7 +366,7 @@ fn main() {
             std::process::exit(1);
         }
         #[cfg(feature = "nova")]
-        jar_diff::dump_jar_diff(&args[2], &args[3]);
+        { let mut stdout = std::io::stdout(); jar_diff::dump_jar_diff(&args[2], &args[3], &mut stdout).unwrap(); }
         #[cfg(not(feature = "nova"))]
         eprintln!("duke: 'jar-diff' command requires the 'nova' feature flag.");
         return;
