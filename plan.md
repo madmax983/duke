@@ -1,20 +1,6 @@
-1. **Optimize String concatenation in `native_string_concat`**
-   - The function currently uses `format!("{s1}{s2}")` to concatenate two strings, which allocates a new string buffer inside `format!`, formats the arguments, and returns it.
-   - We can optimize this by pre-allocating a `String` with the exact required capacity and appending the strings:
-     ```rust
-     let mut combined = String::with_capacity(s1.len() + s2.len());
-     combined.push_str(&s1);
-     combined.push_str(&s2);
-     let r = heap.allocate_string(combined);
-     ```
-   - This eliminates the intermediate allocation and parsing overhead of `format!`, which is a common hotspot in interpreters.
-   - Add `// ⚡ Bolt: Eliminate intermediate format! allocation` comment.
-   - Ensure the tests pass.
-1. Refactor `print_report` methods in `duke-telemetry/src/lib.rs` to handle empty states gracefully (Reduces noise from empty reports).
-   - Before: Outputs headers and empty tables for empty components.
-   - After: Outputs a concise message stating no events were recorded.
-2. Complete pre commit steps to make sure proper testing, verifications, reviews and reflections are done.
-3. Submit the change using a descriptive title.
-1. **Optimize Vector Allocations in Execution (Vec::with_capacity)**: Pre-allocate vectors in `crates/duke-interpreter/src/execution.rs` for `Multianewarray` `dims` array and lambda args `impl_args` to avoid unnecessary dynamic heap reallocations.
-2. Complete pre commit steps to ensure proper testing, verification, review, and reflection are done.
-3. **Submit the PR**: Present PR titled '⚡ Bolt: Optimize Vector Allocations in Execution & Native' detailing 💡 What, 🎯 Why, 📊 Impact, and 🔭 Measurement. I will use `run_in_bash_session` to execute `git commit` with the requested PR details.
+1.  **Fix compilation issue**: The PR contains some fixes for `duke/src/jar_diff.rs` where type inference wasn't working and an unused attribute was imported.
+2.  **Refactoring - Extract Helper Function**: The `parse_class_file` function in `crates/duke-classfile/src/parser.rs` violates the single responsibility principle and contains too many distinct parsing operations inside the same function scope. I will extract the file header parsing into a separate `parse_class_header` helper function. This directly aligns with Forge's philosophy of avoiding "God Functions" and flattening code.
+3.  **Refactoring - Consolidate Instruction matching**: The `is_terminal` method does not exist on `Instruction`, and basic block discovery relies on an inline chain of `instr.is_conditional_branch() || instr.is_unconditional_jump() || instr.is_switch() || instr.is_return()`. I'll introduce `is_terminal` to `Instruction` and replace the inline code in `basic_block.rs`. This will improve readability without changing behavior.
+4.  **Verification**: After implementing the refactoring, I will use `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-features` to ensure zero behavior changes and to polish the structure.
+5.  **Pre-commit steps**: Complete pre-commit steps to ensure proper testing, verification, review, and reflection are done.
+6.  **Submit**: Call the submit tool to create a PR titled '⚒️ Forge: Extract class parsing phases and terminal instruction matcher' detailing 🚮 Smell, ✨ Solution, 🧼 Benefit, and 🛡️ Verification.

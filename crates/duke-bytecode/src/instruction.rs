@@ -780,6 +780,15 @@ impl Instruction {
         matches!(self, Self::Tableswitch { .. } | Self::Lookupswitch { .. })
     }
 
+    /// Returns `true` if this instruction terminates a basic block (e.g. branch, jump, switch, or return).
+    #[must_use]
+    pub const fn is_terminal(&self) -> bool {
+        self.is_conditional_branch()
+            || self.is_unconditional_jump()
+            || self.is_switch()
+            || self.is_return()
+    }
+
     /// Returns `true` if the instruction halts execution in the current frame.
     #[must_use]
     pub const fn is_return(&self) -> bool {

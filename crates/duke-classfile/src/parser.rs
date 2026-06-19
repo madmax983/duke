@@ -220,7 +220,7 @@ fn parse_class_members(
     })
 }
 
-fn parse_class_file(c: &mut Cursor<'_>) -> Result<ClassFile> {
+fn parse_class_header(c: &mut Cursor<'_>) -> Result<(u16, u16)> {
     // §4.1 — magic
     let magic = c.read_u32()?;
     if magic != MAGIC {
@@ -236,6 +236,11 @@ fn parse_class_file(c: &mut Cursor<'_>) -> Result<ClassFile> {
         });
     }
 
+    Ok((minor_version, major_version))
+}
+
+fn parse_class_file(c: &mut Cursor<'_>) -> Result<ClassFile> {
+    let (minor_version, major_version) = parse_class_header(c)?;
     let constant_pool = parse_constant_pool(c)?;
     parse_class_members(c, minor_version, major_version, constant_pool)
 }
