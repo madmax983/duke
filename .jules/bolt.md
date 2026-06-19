@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**Pre-allocate String capacity instead of format! macro or String::from**
+**Learning:** Initializing strings with `String::from("graph TD\\n")` or `String::new()` before a loop that appends to it will result in multiple underlying memory reallocations as the string grows.
+**Action:** When the eventual size of the string can be estimated (e.g. based on the number of elements in a loop), use `String::with_capacity(estimated_len)` to allocate the necessary heap memory up front, preventing resizing overhead during the operations.
