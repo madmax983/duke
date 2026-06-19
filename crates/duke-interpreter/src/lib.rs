@@ -18,13 +18,13 @@
 #![cfg_attr(test, allow(clippy::large_stack_arrays))]
 
 /// Core execution context types for methods and classes.
-pub(crate) mod context;
-pub(crate) mod execution;
+mod context;
+mod execution;
 /// Repositories for loaded classes and registered native methods.
-pub(crate) mod registry;
+mod registry;
 /// Core standard library classes and methods bootstrap.
-pub(crate) mod stdlib;
-pub(crate) mod threading;
+mod stdlib;
+mod threading;
 
 pub use context::*;
 pub use registry::*;
