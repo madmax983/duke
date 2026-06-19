@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**Refactoring Array Clone Operations**
+**Learning:** `heap.get(manager_ref)?.fields.clone()` is a heavy operation to clone elements when we could just read the values directly from `heap.get()?.fields[idx]`. However, due to lifetimes and temporary borrow drops, chaining `heap.get()?.fields.get()` inside `match` expressions might require extracting lengths upfront.
+**Action:** When iterating over heap objects without needing to hold a lock or modify the elements, extract lengths directly via `let count = heap.get()?.fields.len()` or `first()` then loop iteratively reading via `heap.get(..).fields.get(i).copied()`.

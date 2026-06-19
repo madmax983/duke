@@ -555,16 +555,15 @@ fn jul_manager_find_logger_by_name(
     manager_ref: u64,
     name: &str,
 ) -> Result<Option<u64>> {
-    let fields = heap.get(manager_ref)?.fields.clone();
     let count = jul_manager_count(heap, manager_ref);
     for idx in 0..count {
         let name_idx = JUL_MANAGER_LOGGERS_START + idx * 2;
         let logger_idx = name_idx + 1;
-        let Some(Slot::Reference(Some(name_ref))) = fields.get(name_idx).copied() else {
+        let Some(Slot::Reference(Some(name_ref))) = heap.get(manager_ref)?.fields.get(name_idx).copied() else {
             continue;
         };
         if string_value_from_ref(heap, name_ref)? == name
-            && let Some(Slot::Reference(Some(logger_ref))) = fields.get(logger_idx).copied()
+            && let Some(Slot::Reference(Some(logger_ref))) = heap.get(manager_ref)?.fields.get(logger_idx).copied()
         {
             return Ok(Some(logger_ref));
         }
@@ -25639,11 +25638,10 @@ pub(crate) fn native_arrays_copyof_int(
         Some(Slot::Int(n)) => return Err(Error::NegativeArraySize { size: *n }),
         _ => 0,
     };
-    let src_fields = heap.get(src_ref)?.fields.clone();
     let dst_ref = heap.allocate("[I".to_string(), new_len);
-    let dst = heap.get_mut(dst_ref)?;
     for i in 0..new_len {
-        dst.fields[i] = src_fields.get(i).copied().unwrap_or(Slot::Int(0));
+        let val = heap.get(src_ref)?.fields.get(i).copied().unwrap_or(Slot::Int(0));
+        heap.get_mut(dst_ref)?.fields[i] = val;
     }
     Ok(Some(Slot::Reference(Some(dst_ref))))
 }
@@ -25661,11 +25659,10 @@ pub(crate) fn native_arrays_copyof_object(
         Some(Slot::Int(n)) => return Err(Error::NegativeArraySize { size: *n }),
         _ => 0,
     };
-    let src_fields = heap.get(src_ref)?.fields.clone();
     let dst_ref = heap.allocate("[Ljava/lang/Object;".to_string(), new_len);
-    let dst = heap.get_mut(dst_ref)?;
     for i in 0..new_len {
-        dst.fields[i] = src_fields.get(i).copied().unwrap_or(Slot::Reference(None));
+        let val = heap.get(src_ref)?.fields.get(i).copied().unwrap_or(Slot::Reference(None));
+        heap.get_mut(dst_ref)?.fields[i] = val;
     }
     Ok(Some(Slot::Reference(Some(dst_ref))))
 }
@@ -25733,11 +25730,10 @@ pub(crate) fn native_arrays_copy_of_range_int(
         _ => 0,
     };
     let new_len = to.saturating_sub(from);
-    let src_fields = heap.get(src_ref)?.fields.clone();
     let dst_ref = heap.allocate("[I".to_string(), new_len);
     for i in 0..new_len {
-        heap.get_mut(dst_ref)?.fields[i] =
-            src_fields.get(from + i).copied().unwrap_or(Slot::Int(0));
+        let val = heap.get(src_ref)?.fields.get(from + i).copied().unwrap_or(Slot::Int(0));
+        heap.get_mut(dst_ref)?.fields[i] = val;
     }
     Ok(Some(Slot::Reference(Some(dst_ref))))
 }
@@ -30873,8 +30869,9 @@ pub(crate) fn native_set_of(
 
     match extract_slot_arg(args, 0) {
         Slot::Reference(Some(array_ref)) => {
-            let elements = heap.get(array_ref)?.fields.clone();
-            for element in elements {
+            let element_count = heap.get(array_ref)?.fields.len();
+            for i in 0..element_count {
+                let element = heap.get(array_ref)?.fields[i];
                 native_hashset_add(
                     &[Slot::Reference(Some(set_ref)), element],
                     heap,
@@ -33693,8 +33690,9 @@ pub(crate) fn native_map_of_entries(
     native_hashmap_init(&[Slot::Reference(Some(map_ref))], heap, out, control)?;
     // args[0] is the Object[] array of Map.Entry objects (anewarray layout: fields = elements)
     if let Some(Slot::Reference(Some(arr_ref))) = args.first().copied() {
-        let entries: Vec<Slot> = heap.get(arr_ref)?.fields.clone();
-        for entry_slot in entries {
+        let entry_count = heap.get(arr_ref)?.fields.len();
+        for i in 0..entry_count {
+            let entry_slot = heap.get(arr_ref)?.fields[i];
             let Slot::Reference(Some(entry_ref)) = entry_slot else {
                 continue;
             };
