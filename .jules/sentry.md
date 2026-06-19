@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Testing Simulate Module Error Cases
+**Learning:** Found untested panic edges in `duke/src/simulate.rs` where the parser invokes `unwrap()` or `expect()`, which needed test coverage for situations like missing files and corrupt classfiles.
+**Action:** Wrote explicit tests wrapping executions in `std::panic::catch_unwind` and asserting `result.is_err()` to capture unhandled panics from file read or parser failures securely.

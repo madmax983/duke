@@ -1,0 +1,6 @@
+🛡️ Sentry: [test coverage improvement] added simulate error cases
+
+Targets: duke/src/simulate.rs
+Risk: Prevents unhandled parsing and IO errors from bubbling up un-tested.
+Strategy: Added invalid dummy class file to test error propagation through std::panic::catch_unwind using tempfile to avoid global state conflicts.
+Verification: cargo test --all-features
