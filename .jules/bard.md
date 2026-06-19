@@ -36,3 +36,7 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+
+## 2024-06-19 - [Missing Telemetry Test Docs in havoc_classfile_proptest]
+**Confusion:** The `havoc_classfile_proptest.rs` generated a missing documentation warning because it lacked `#![allow(missing_docs)]` or crate documentation, which is required by linting rules.
+**Clarification:** Added `#![allow(missing_docs)]` to `crates/duke-classfile/tests/havoc_classfile_proptest.rs`.
