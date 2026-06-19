@@ -20,6 +20,8 @@ pub(crate) mod opcodes;
 pub(crate) mod reachability;
 #[cfg(feature = "nova")]
 pub(crate) mod similarity;
+#[cfg(feature = "nova")]
+pub(crate) mod statistics;
 pub(crate) mod verifier;
 
 #[cfg(feature = "nova")]
@@ -35,6 +37,8 @@ pub use instruction::{ArrayType, Instruction};
 pub use reachability::{find_dead_blocks, find_shortest_path, get_successors};
 #[cfg(feature = "nova")]
 pub use similarity::calculate_similarity;
+#[cfg(feature = "nova")]
+pub use statistics::instruction_frequencies;
 pub use verifier::verify;
 
 #[cfg(test)]
