@@ -16603,16 +16603,18 @@ pub(crate) fn native_string_split(
     let parts: Vec<String> = if delim.is_empty() {
         s.chars().map(|c| c.to_string()).collect()
     } else {
-        regex::Regex::new(&delim).map_or_else(
-            |_| s.split(delim.as_str()).map(str::to_string).collect(),
-            |re| {
+        let re_result = regex::Regex::new(&delim)
+            .or_else(|_| regex::Regex::new(&regex::escape(&delim)));
+        match re_result {
+            Err(e) => return Err(regex_pattern_syntax_error(e.to_string())),
+            Ok(re) => {
                 let mut v: Vec<String> = re.split(&s).map(str::to_string).collect();
                 while v.last().is_some_and(String::is_empty) {
                     v.pop();
                 }
                 v
-            },
-        )
+            }
+        }
     };
     let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), parts.len());
     for (i, part) in parts.iter().enumerate() {
@@ -16652,8 +16654,12 @@ pub(crate) fn native_string_split_limit(
             chars
         }
     } else {
-        let re = regex::Regex::new(&delim)
-            .unwrap_or_else(|_| regex::Regex::new(&regex::escape(&delim)).unwrap());
+        let re_result = regex::Regex::new(&delim)
+            .or_else(|_| regex::Regex::new(&regex::escape(&delim)));
+        let re = match re_result {
+            Err(e) => return Err(regex_pattern_syntax_error(e.to_string())),
+            Ok(r) => r,
+        };
         if limit > 0 {
             re.splitn(&s, limit as usize).map(str::to_string).collect()
         } else {
