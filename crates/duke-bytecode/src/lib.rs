@@ -13,6 +13,8 @@ pub(crate) mod basic_block;
 pub(crate) mod call_graph;
 pub(crate) mod cfg;
 pub(crate) mod decoder;
+#[cfg(feature = "nova")]
+pub(crate) mod decompiler;
 pub(crate) mod error;
 pub(crate) mod instruction;
 pub(crate) mod opcodes;
@@ -29,6 +31,8 @@ pub use call_graph::generate_mermaid_call_graph;
 pub use cfg::generate_basic_block_cfg;
 pub use cfg::{cyclomatic_complexity, generate_mermaid_cfg};
 pub use decoder::decode;
+#[cfg(feature = "nova")]
+pub use decompiler::decompile;
 pub use error::{DecodeError, Error, Result, VerifyError};
 pub use instruction::{ArrayType, Instruction};
 #[cfg(feature = "nova")]
