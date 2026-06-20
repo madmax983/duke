@@ -2,6 +2,29 @@
 //!
 //! Handles command-line argument parsing, environment initialization,
 //! class loading, and the main execution loop for the JVM.
+//!
+//! # Overview
+//!
+//! The Duke JVM is designed as a modular execution engine with separate
+//! components handling distinct phases of execution. The `duke` binary itself
+//! is a thin wrapper that initializes the `BootstrapLoader`, configures the `Heap`
+//! and thread runtime, and bridges arguments to the `execute_class_to_completion` entry.
+//!
+//! It also includes extensive sub-commands (e.g. `cfg`, `html`, `jar-analyze`) for
+//! analyzing, instrumenting, and visualizing JVM bytecode, independent of execution.
+//!
+//! # Examples
+//!
+//! ```bash
+//! # Execute a compiled class
+//! duke run HelloWorld
+//!
+//! # Generate a Mermaid Control Flow Graph for a specific method
+//! duke cfg HelloWorld main
+//!
+//! # Dump class structure as HTML
+//! duke html HelloWorld index.html
+//! ```
 
 use std::process;
 
