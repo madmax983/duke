@@ -86,28 +86,32 @@ pub fn find_dead_blocks(blocks: &[BasicBlock], entry_pc: usize) -> Vec<usize> {
         return Vec::new();
     }
 
-    // ⚡ Bolt: Pre-allocate capacities based on known block count to eliminate heap reallocations
-    let mut block_map = HashMap::with_capacity(blocks.len());
-    for block in blocks {
-        block_map.insert(block.start_pc, block);
-    }
+    // Ensure blocks are sorted by start_pc, which is guaranteed by build_basic_blocks
+    debug_assert!(
+        blocks.windows(2).all(|w| w[0].start_pc < w[1].start_pc),
+        "Basic blocks must be sorted by start_pc"
+    );
 
     let mut visited = HashSet::with_capacity(blocks.len());
+    // Store indices in the queue to avoid O(log N) lookup on pop
     let mut queue = VecDeque::with_capacity(blocks.len());
 
-    if block_map.contains_key(&entry_pc) {
-        queue.push_back(entry_pc);
+    if let Ok(entry_idx) = blocks.binary_search_by_key(&entry_pc, |b| b.start_pc) {
+        queue.push_back(entry_idx);
         visited.insert(entry_pc);
     }
 
-    while let Some(current_pc) = queue.pop_front() {
-        if let Some(block) = block_map.get(&current_pc) {
-            let successors = get_successors(block);
-            for next_pc in successors {
-                if block_map.contains_key(&next_pc) && !visited.contains(&next_pc) {
-                    visited.insert(next_pc);
-                    queue.push_back(next_pc);
+    while let Some(current_idx) = queue.pop_front() {
+        let block = &blocks[current_idx];
+        let successors = get_successors(block);
+        for next_pc in successors {
+            // ⚡ Bolt: Removed HashMap allocation for block lookup. Lookups now use zero-allocation binary_search.
+            if let Ok(next_idx) = blocks.binary_search_by_key(&next_pc, |b| b.start_pc) {
+                if visited.contains(&next_pc) {
+                    continue;
                 }
+                visited.insert(next_pc);
+                queue.push_back(next_idx);
             }
         }
     }
@@ -118,7 +122,6 @@ pub fn find_dead_blocks(blocks: &[BasicBlock], entry_pc: usize) -> Vec<usize> {
         .map(|b| b.start_pc)
         .collect()
 }
-
 /// Finds the shortest execution path (in terms of basic block transitions)
 /// from the entry block to a target block.
 ///
@@ -167,13 +170,19 @@ pub fn find_shortest_path(
         return None;
     }
 
-    // ⚡ Bolt: Pre-allocate capacities based on known block count to eliminate heap reallocations
-    let mut block_map = HashMap::with_capacity(blocks.len());
-    for block in blocks {
-        block_map.insert(block.start_pc, block);
-    }
+    // Ensure blocks are sorted by start_pc, which is guaranteed by build_basic_blocks
+    debug_assert!(
+        blocks.windows(2).all(|w| w[0].start_pc < w[1].start_pc),
+        "Basic blocks must be sorted by start_pc"
+    );
 
-    if !block_map.contains_key(&start_pc) || !block_map.contains_key(&target_pc) {
+    let Ok(start_idx) = blocks.binary_search_by_key(&start_pc, |b| b.start_pc) else {
+        return None;
+    };
+    if blocks
+        .binary_search_by_key(&target_pc, |b| b.start_pc)
+        .is_err()
+    {
         return None;
     }
 
@@ -181,24 +190,27 @@ pub fn find_shortest_path(
     let mut queue = VecDeque::with_capacity(blocks.len());
     let mut parents: HashMap<usize, usize> = HashMap::with_capacity(blocks.len());
 
-    queue.push_back(start_pc);
+    queue.push_back((start_idx, start_pc));
     visited.insert(start_pc);
 
     let mut found = false;
 
-    while let Some(current_pc) = queue.pop_front() {
+    while let Some((current_idx, current_pc)) = queue.pop_front() {
         if current_pc == target_pc {
             found = true;
             break;
         }
 
-        if let Some(block) = block_map.get(&current_pc) {
-            for next_pc in get_successors(block) {
-                if block_map.contains_key(&next_pc) && !visited.contains(&next_pc) {
-                    visited.insert(next_pc);
-                    parents.insert(next_pc, current_pc);
-                    queue.push_back(next_pc);
+        let block = &blocks[current_idx];
+        for next_pc in get_successors(block) {
+            // ⚡ Bolt: Removed HashMap allocation for block lookup. Lookups now use zero-allocation binary_search.
+            if let Ok(next_idx) = blocks.binary_search_by_key(&next_pc, |b| b.start_pc) {
+                if visited.contains(&next_pc) {
+                    continue;
                 }
+                visited.insert(next_pc);
+                parents.insert(next_pc, current_pc);
+                queue.push_back((next_idx, next_pc));
             }
         }
     }
@@ -217,7 +229,6 @@ pub fn find_shortest_path(
         None
     }
 }
-
 #[cfg(test)]
 #[cfg(feature = "nova")]
 mod tests {
