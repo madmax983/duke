@@ -2,10 +2,7 @@
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -18,7 +15,7 @@ use std::path::Path;
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -38,7 +35,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -88,49 +85,57 @@ pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
     removed.sort();
     modified.sort();
 
+    print_diff_summary(
+        jar1_path,
+        jar2_path,
+        added.len(),
+        removed.len(),
+        modified.len(),
+        unchanged,
+    );
+    print_method_list("Added", "+", &added);
+    print_method_list("Removed", "-", &removed);
+    print_method_list("Modified", "~", &modified);
+}
+
+#[cfg(feature = "nova")]
+#[cfg(not(tarpaulin_include))]
+#[allow(unexpected_cfgs, clippy::print_stdout)]
+fn print_diff_summary(
+    jar1_path: &str,
+    jar2_path: &str,
+    added_len: usize,
+    removed_len: usize,
+    modified_len: usize,
+    unchanged: usize,
+) {
     println!("======================================");
     println!(" JAR Bytecode Diff Analysis");
     println!("======================================");
     println!("File 1:               {jar1_path}");
     println!("File 2:               {jar2_path}");
-    println!("Methods Added:        {}", added.len());
-    println!("Methods Removed:      {}", removed.len());
-    println!("Methods Modified:     {}", modified.len());
+    println!("Methods Added:        {added_len}");
+    println!("Methods Removed:      {removed_len}");
+    println!("Methods Modified:     {modified_len}");
     println!("Methods Unchanged:    {unchanged}");
     println!();
+}
 
-    if !added.is_empty() {
-        println!("--- Top 10 Added Methods ---");
-        for m in added.iter().take(10) {
-            println!("  + {m}");
-        }
-        if added.len() > 10 {
-            println!("  ... and {} more", added.len() - 10);
-        }
-        println!();
+#[cfg(feature = "nova")]
+#[cfg(not(tarpaulin_include))]
+#[allow(unexpected_cfgs, clippy::print_stdout)]
+fn print_method_list(title: &str, prefix: &str, methods: &[String]) {
+    if methods.is_empty() {
+        return;
     }
-
-    if !removed.is_empty() {
-        println!("--- Top 10 Removed Methods ---");
-        for m in removed.iter().take(10) {
-            println!("  - {m}");
-        }
-        if removed.len() > 10 {
-            println!("  ... and {} more", removed.len() - 10);
-        }
-        println!();
+    println!("--- Top 10 {title} Methods ---");
+    for m in methods.iter().take(10) {
+        println!("  {prefix} {m}");
     }
-
-    if !modified.is_empty() {
-        println!("--- Top 10 Modified Methods ---");
-        for m in modified.iter().take(10) {
-            println!("  ~ {m}");
-        }
-        if modified.len() > 10 {
-            println!("  ... and {} more", modified.len() - 10);
-        }
-        println!();
+    if methods.len() > 10 {
+        println!("  ... and {} more", methods.len() - 10);
     }
+    println!();
 }
 
 #[cfg(feature = "nova")]
