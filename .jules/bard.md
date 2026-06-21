@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2025-06-20 - [ZipLoader and ZipReader Documentation]
+**Confusion:** The `open` and `from_bytes` methods in `ZipReader` and the `open` method in `ZipLoader` lacked `///` doc comments, leaving error states and basic usage unexplained.
+**Clarification:** Added comprehensive `///` doc comments for these methods, including `# Errors` blocks detailing failure conditions, and `## Examples` blocks providing copy-pasteable usage demonstrations.

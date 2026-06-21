@@ -118,6 +118,11 @@ impl ZipReader {
     /// Reads the entire file into memory, parses the end-of-central-directory
     /// record and central directory, and builds an in-memory index.
     ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Io`] if the file cannot be read, or [`Error::ZipFormat`]
+    /// if the file is not a valid ZIP archive.
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -125,11 +130,8 @@ impl ZipReader {
     /// use duke_loader::ZipReader;
     ///
     /// let reader = ZipReader::open(Path::new("app.jar")).unwrap();
+    /// println!("Loaded {} entries", reader.entry_count());
     /// ```
-    ///
-    /// # Errors
-    /// Returns [`Error::Io`] on read failure, or [`Error::ZipFormat`]
-    /// if the file is not a valid ZIP archive.
     pub fn open(path: &Path) -> Result<Self> {
         let data = std::fs::read(path).map_err(|source| Error::Io {
             path: path.display().to_string(),
@@ -138,23 +140,30 @@ impl ZipReader {
         Self::from_bytes(data)
     }
 
-    /// Build a `ZipReader` from raw bytes (useful for tests).
+    /// Build a `ZipReader` from raw bytes (useful for tests or memory buffers).
+    ///
+    /// This performs the same parsing and indexing as [`ZipReader::open`], but
+    /// directly on the provided byte vector.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::ZipFormat`] if the bytes do not form a valid ZIP archive.
     ///
     /// # Examples
     ///
     /// ```
     /// use duke_loader::ZipReader;
     ///
-    /// let archive_data = vec![
+    /// // Example with a minimal, dummy ZIP file (just the End of Central Directory record)
+    /// let dummy_zip = vec![
     ///     0x50, 0x4b, 0x05, 0x06, 0x00, 0x00, 0x00, 0x00,
     ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    ///     0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     /// ];
-    /// let reader = ZipReader::from_bytes(archive_data).unwrap();
-    /// ```
     ///
-    /// # Errors
-    /// Returns [`Error::ZipFormat`] if the data is not a valid ZIP archive.
+    /// let reader = ZipReader::from_bytes(dummy_zip).unwrap();
+    /// assert_eq!(reader.entry_count(), 0);
+    /// ```
     pub fn from_bytes(data: Vec<u8>) -> Result<Self> {
         let eocd_pos = find_eocd(&data)?;
         let index = parse_eocd_and_central_directory(&data, eocd_pos)?;
@@ -402,6 +411,15 @@ impl ZipLoader {
     /// * The file does not exist or cannot be read.
     /// * The file is not a structurally valid ZIP archive (missing End of Central Directory).
     /// * The archive uses unsupported features (like ZIP64 or encryption).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::path::Path;
+    /// use duke_loader::ZipLoader;
+    ///
+    /// let loader = ZipLoader::open(Path::new("app.jar")).unwrap();
+    /// ```
     pub fn open(path: &Path) -> Result<Self> {
         let container_spec = path_to_file_url(path);
         Self::from_reader(ZipReader::open(path)?, container_spec)
