@@ -35,7 +35,7 @@
 //! let json = store.to_json();
 //! ```
 
-pub(crate) mod helpers;
+pub mod helpers;
 
 pub(crate) mod bytecode_cost;
 pub use bytecode_cost::*;
