@@ -45,6 +45,9 @@ fn test_interrupted_threads_leak() {
         t2.join().unwrap();
 
         // If the thread has unregistered, it should NOT be in the interrupted set
-        assert!(state.read().unwrap().interrupted.is_empty(), "Thread ID leaked in interrupted_host_threads!");
+        assert!(
+            state.read().unwrap().interrupted.is_empty(),
+            "Thread ID leaked in interrupted_host_threads!"
+        );
     });
 }
