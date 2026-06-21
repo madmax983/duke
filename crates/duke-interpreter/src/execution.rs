@@ -2510,7 +2510,8 @@ pub fn run_execution(
                         } else {
                             resolve_cp_string(cp, bsm_args[0].0 as usize)?
                         };
-                        let mut consts = Vec::new();
+                        // ⚡ Bolt: Eliminate dynamic vector reallocations by pre-sizing for constants
+                        let mut consts = Vec::with_capacity(bsm_args.len().saturating_sub(1));
                         for arg_idx in bsm_args.iter().skip(1) {
                             if let Ok(s) = resolve_cp_string(cp, arg_idx.0 as usize) {
                                 consts.push(s);

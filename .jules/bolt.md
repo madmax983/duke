@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**Pre-allocate String Constants Vector in Execution**
+**Learning:** In the bytecode interpreter's execution loop, `Vec::new()` was used to allocate an array for `bsm_args` constants, causing unnecessary dynamic heap reallocations. The number of constants is known upfront since it skips the first argument (`bsm_args.len() - 1`).
+**Action:** When mapping or extracting elements from an array or slice into a new `Vec`, always use `Vec::with_capacity()` based on the source collection's length (using `.saturating_sub(1)` if elements are skipped) to eliminate dynamic allocations in hot loops.
