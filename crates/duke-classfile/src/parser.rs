@@ -773,4 +773,14 @@ mod tests {
         };
         assert_eq!(values.len(), 2);
     }
+
+    #[test]
+    fn test_return_error_for_invalid_method_handle_kind() {
+        // Tag 15 (MethodHandle), invalid kind 10
+        let data = [15, 10, 0x00, 0x01];
+        let mut cursor = Cursor::new(&data);
+        let tag = cursor.read_u8().unwrap();
+        let err = parse_cp_entry(&mut cursor, tag, 1).unwrap_err();
+        assert!(matches!(err, Error::InvalidMethodHandleKind { kind: 10 }));
+    }
 }

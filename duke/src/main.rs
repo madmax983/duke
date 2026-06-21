@@ -1203,6 +1203,17 @@ mod cfg_tests {
         // but we can ensure it doesn't panic.
         dump_html(p.to_str().unwrap(), None);
     }
+
+    #[test]
+    fn test_generate_native_stubs_code() {
+        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("../tests/fixtures/HelloWorld.class");
+        let bytes = std::fs::read(&p).expect("read class");
+        let cf = parse(&bytes).expect("parse class");
+
+        let out = generate_native_stubs_code(&cf);
+        assert!(out.contains("No native methods found in class HelloWorld"));
+    }
 }
 
 fn generate_stubs(cf: &ClassFile) {

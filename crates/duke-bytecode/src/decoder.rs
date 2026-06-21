@@ -597,6 +597,15 @@ mod tests {
             })
         ));
     }
+
+    #[test]
+    fn test_decoder_cursor_read_i32_out_of_bounds() {
+        let mut cursor = Cursor::new(&[0x01, 0x02, 0x03]);
+        assert!(matches!(
+            cursor.read_i32(),
+            Err(crate::Error::Decode(DecodeError::UnexpectedEof { pc: 0 }))
+        ));
+    }
     #[test]
     fn test_decoder_invalid_wide_prefix() {
         // Wide followed by an invalid opcode (e.g. NOP)
