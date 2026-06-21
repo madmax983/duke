@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**[Eliminate `format!` overhead vs Pre-allocation]**
+**Learning:** Replacing `writeln!(string)` with `write!(buf)` + `string.push_str(&buf)` inside loops is a de-optimization that adds copying without removing formatting overhead.
+**Action:** Instead, pre-calculate capacity using `String::with_capacity()` for the target string upfront to eliminate heap reallocations without losing the convenience of formatting macros.

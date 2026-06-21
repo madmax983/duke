@@ -507,7 +507,7 @@ impl ClassLoader for ZipLoader {
     }
 
     fn find_resources(&self, name: &str) -> Result<Vec<Vec<u8>>> {
-        let mut resources = Vec::new();
+        let mut resources = Vec::with_capacity(1 + self.nested_libs.len());
         match self.reader.read_entry(name) {
             Ok(bytes) => resources.push(bytes),
             Err(Error::NotFound { .. }) => {}
@@ -567,7 +567,7 @@ impl ClassLoader for ZipLoader {
     }
 
     fn find_resource_entries(&self, name: &str) -> Result<Vec<LocatedResource>> {
-        let mut resources = Vec::new();
+        let mut resources = Vec::with_capacity(1 + self.nested_libs.len());
         match self.reader.read_entry(name) {
             Ok(bytes) => resources.push(LocatedResource {
                 bytes,

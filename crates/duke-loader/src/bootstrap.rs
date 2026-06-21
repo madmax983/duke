@@ -156,7 +156,7 @@ impl ClassLoader for BootstrapLoader {
     }
 
     fn find_resources(&self, name: &str) -> Result<Vec<Vec<u8>>> {
-        let mut resources = Vec::new();
+        let mut resources = Vec::with_capacity(self.classpath.len());
         for entry in &self.classpath {
             resources.extend(entry.find_resources(name)?);
         }
@@ -176,7 +176,7 @@ impl ClassLoader for BootstrapLoader {
     }
 
     fn find_resource_entries(&self, name: &str) -> Result<Vec<LocatedResource>> {
-        let mut resources = Vec::new();
+        let mut resources = Vec::with_capacity(self.classpath.len());
         for entry in &self.classpath {
             resources.extend(entry.find_resource_entries(name)?);
         }

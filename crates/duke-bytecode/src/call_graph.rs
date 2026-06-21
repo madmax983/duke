@@ -110,7 +110,9 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
 #[must_use]
 /// ⚡ Bolt: Using `BTreeSet<String>` removes the need to collect and sort a `Vec` and avoids cloning `source_id` in the hot loop.
 pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
-    let mut cg = String::from("graph TD\n");
+    // ⚡ Bolt: Pre-calculate capacity based on methods length to eliminate heap reallocations
+    let mut cg = String::with_capacity(9 + cf.methods.len() * 256);
+    cg.push_str("graph TD\n");
     let mut edges = BTreeSet::new();
 
     let this_class_name = resolve_class_name(cf, cf.this_class);

@@ -42,7 +42,9 @@ use crate::Instruction;
 )]
 #[must_use]
 pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {
-    let mut cfg = String::from("graph TD\n");
+    // ⚡ Bolt: Pre-calculate capacity based on instructions length to eliminate heap reallocations
+    let mut cfg = String::with_capacity(9 + instructions.len() * 128);
+    cfg.push_str("graph TD\n");
 
     for (i, (pc, instr)) in instructions.iter().enumerate() {
         let mnemonic = instr.mnemonic();
@@ -383,14 +385,15 @@ mod complexity_tests {
 #[must_use]
 pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> String {
     use std::fmt::Write;
-    let mut cfg = String::with_capacity(1024);
+    // ⚡ Bolt: Pre-calculate capacity based on block length to eliminate heap reallocations
+    let mut cfg = String::with_capacity(9 + blocks.len() * 256);
     cfg.push_str("graph TD\n");
     if blocks.is_empty() {
         return cfg;
     }
 
     // Map PC to Block ID (start_pc) for edge resolution
-    let mut pc_to_block = std::collections::HashMap::new();
+    let mut pc_to_block = std::collections::HashMap::with_capacity(blocks.len());
     for block in blocks {
         pc_to_block.insert(block.start_pc, block.start_pc);
     }
