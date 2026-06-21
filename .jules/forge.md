@@ -85,3 +85,6 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+**Extract Hash Logic (God Block)**
+**Learning:** `load_jar_methods` in `duke/src/jar_diff.rs` contained an incredibly deep "Pyramid of Doom" block nested 4-levels deep (`for`, `if let`, `if let`, `for`), embedding raw parsing, variable resolution, and hashing directly within control flow iteration. This severely damages readability and muddles the function's core responsibility.
+**Action:** Always extract the internal logic of deeply nested iterative blocks (e.g. hashing the `cf.methods`) into strictly-typed helper functions like `hash_class_methods` to flatten the caller. Use guard clauses (`let Some(...) = ... else { continue; }`) to remove the remaining outer `if let` nesting.
