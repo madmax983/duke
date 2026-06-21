@@ -780,6 +780,15 @@ impl Instruction {
         matches!(self, Self::Tableswitch { .. } | Self::Lookupswitch { .. })
     }
 
+    /// Returns `true` if the instruction alters control flow (branch, jump, switch, or return).
+    #[must_use]
+    pub const fn is_control_flow(&self) -> bool {
+        self.is_conditional_branch()
+            || self.is_unconditional_jump()
+            || self.is_switch()
+            || self.is_return()
+    }
+
     /// Returns `true` if the instruction halts execution in the current frame.
     #[must_use]
     pub const fn is_return(&self) -> bool {
@@ -1452,6 +1461,23 @@ mod tests {
         assert_eq!(iter.collect::<Vec<_>>(), vec![(10, 100), (20, 200)]);
 
         assert!(Instruction::Iconst0.switch_targets().is_none());
+    }
+
+    #[test]
+    fn test_is_control_flow() {
+        assert!(Instruction::Ifeq(0).is_control_flow());
+        assert!(Instruction::Goto(0).is_control_flow());
+        assert!(Instruction::Return.is_control_flow());
+        assert!(
+            Instruction::Tableswitch {
+                default: 0,
+                low: 0,
+                high: 0,
+                offsets: vec![]
+            }
+            .is_control_flow()
+        );
+        assert!(!Instruction::Iconst0.is_control_flow());
     }
 
     #[test]

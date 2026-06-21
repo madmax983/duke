@@ -85,3 +85,11 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+**Extract duplicate `ZipLoader` resource lookup logic**
+**Learning:** `crates/duke-loader/src/zip.rs` contained four extremely repetitive methods (`find_resource`, `find_resources`, `find_resource_entry`, `find_resource_entries`). Each sequentially probed the current Zip for a specific path, then the BOOT-INF path, and finally iterated over all `nested_libs`. This boilerplate violated DRY and bloated the struct implementation.
+**Action:** Extract repetitive sequential path probing and nested fallbacks into private, highly generic helper functions (`find_first_entry` and `find_all_entries`) using inline closures, dramatically collapsing the API surface into single-statement method calls.
+
+**Extract control flow check logic**
+**Learning:** Checking whether an `Instruction` was a branch, jump, switch, or return required inline chaining (`instr.is_conditional_branch() || instr.is_unconditional_jump() || instr.is_switch() || instr.is_return()`) duplicated across multiple sites (e.g., `basic_block.rs` and `cfg.rs`).
+**Action:** Centralize compound capability checks into single predicate methods on the enum itself (`pub const fn is_control_flow(&self) -> bool`) to compress calling logic and clearly state the semantic intent.

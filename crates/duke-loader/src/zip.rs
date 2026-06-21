@@ -482,114 +482,111 @@ impl ClassLoader for ZipLoader {
     }
 
     fn find_resource(&self, name: &str) -> Result<Vec<u8>> {
-        match self.reader.read_entry(name) {
-            Err(Error::NotFound { .. }) => {}
-            result => return result,
-        }
-
-        // ⚡ Bolt: Eliminate intermediate String allocation and format! macro overhead
-        let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
-        match self.reader.read_entry(&boot_inf_name) {
-            Err(Error::NotFound { .. }) => {}
-            result => return result,
-        }
-
-        for nested_lib in &self.nested_libs {
-            match nested_lib.find_resource(name) {
-                Err(Error::NotFound { .. }) => {}
-                result => return result,
-            }
-        }
-        Err(Error::NotFound {
-            name: name.to_string(),
-        })
+        self.find_first_entry(
+            name,
+            |s, p| s.reader.read_entry(p),
+            |n: &Self, p| n.find_resource(p),
+        )
     }
 
     fn find_resources(&self, name: &str) -> Result<Vec<Vec<u8>>> {
-        let mut resources = Vec::new();
-        match self.reader.read_entry(name) {
-            Ok(bytes) => resources.push(bytes),
-            Err(Error::NotFound { .. }) => {}
-            Err(err) => return Err(err),
-        }
-
-        // ⚡ Bolt: Eliminate intermediate String allocation and format! macro overhead
-        let mut boot_inf_name = String::with_capacity(name.len() + 17);
-        Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
-        match self.reader.read_entry(&boot_inf_name) {
-            Ok(bytes) => resources.push(bytes),
-            Err(Error::NotFound { .. }) => {}
-            Err(err) => return Err(err),
-        }
-
-        for nested_lib in &self.nested_libs {
-            resources.extend(nested_lib.find_resources(name)?);
-        }
-        Ok(resources)
+        self.find_all_entries(
+            name,
+            |s, p| s.reader.read_entry(p),
+            |n: &Self, p| n.find_resources(p),
+        )
     }
 
     fn find_resource_entry(&self, name: &str) -> Result<LocatedResource> {
-        match self.reader.read_entry(name) {
-            Ok(bytes) => {
-                return Ok(LocatedResource {
+        self.find_first_entry(
+            name,
+            |s, p| {
+                s.reader.read_entry(p).map(|bytes| LocatedResource {
                     bytes,
-                    url: self.resource_url(name),
-                });
-            }
+                    url: s.resource_url(p),
+                })
+            },
+            |n: &Self, p| n.find_resource_entry(p),
+        )
+    }
+
+    fn find_resource_entries(&self, name: &str) -> Result<Vec<LocatedResource>> {
+        self.find_all_entries(
+            name,
+            |s, p| {
+                s.reader.read_entry(p).map(|bytes| LocatedResource {
+                    bytes,
+                    url: s.resource_url(p),
+                })
+            },
+            |n: &Self, p| n.find_resource_entries(p),
+        )
+    }
+}
+
+impl ZipLoader {
+    #[inline]
+    fn find_first_entry<T, F, G>(
+        &self,
+        name: &str,
+        mut check_self: F,
+        mut check_nested: G,
+    ) -> Result<T>
+    where
+        F: FnMut(&Self, &str) -> Result<T>,
+        G: FnMut(&Self, &str) -> Result<T>,
+    {
+        match check_self(self, name) {
             Err(Error::NotFound { .. }) => {}
-            Err(err) => return Err(err),
+            result => return result,
         }
 
         let mut boot_inf_name = String::with_capacity(name.len() + 17);
         Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
-        match self.reader.read_entry(&boot_inf_name) {
-            Ok(bytes) => {
-                return Ok(LocatedResource {
-                    bytes,
-                    url: self.resource_url(&boot_inf_name),
-                });
-            }
+        match check_self(self, &boot_inf_name) {
             Err(Error::NotFound { .. }) => {}
-            Err(err) => return Err(err),
+            result => return result,
         }
 
         for nested_lib in &self.nested_libs {
-            match nested_lib.find_resource_entry(name) {
+            match check_nested(nested_lib, name) {
                 Err(Error::NotFound { .. }) => {}
                 result => return result,
             }
         }
-
         Err(Error::NotFound {
             name: name.to_string(),
         })
     }
 
-    fn find_resource_entries(&self, name: &str) -> Result<Vec<LocatedResource>> {
+    #[inline]
+    fn find_all_entries<T, F, G>(
+        &self,
+        name: &str,
+        mut check_self: F,
+        mut check_nested: G,
+    ) -> Result<Vec<T>>
+    where
+        F: FnMut(&Self, &str) -> Result<T>,
+        G: FnMut(&Self, &str) -> Result<Vec<T>>,
+    {
         let mut resources = Vec::new();
-        match self.reader.read_entry(name) {
-            Ok(bytes) => resources.push(LocatedResource {
-                bytes,
-                url: self.resource_url(name),
-            }),
+        match check_self(self, name) {
+            Ok(res) => resources.push(res),
             Err(Error::NotFound { .. }) => {}
             Err(err) => return Err(err),
         }
 
         let mut boot_inf_name = String::with_capacity(name.len() + 17);
         Self::append_boot_inf_classes_path(&mut boot_inf_name, name);
-        match self.reader.read_entry(&boot_inf_name) {
-            Ok(bytes) => resources.push(LocatedResource {
-                bytes,
-                url: self.resource_url(&boot_inf_name),
-            }),
+        match check_self(self, &boot_inf_name) {
+            Ok(res) => resources.push(res),
             Err(Error::NotFound { .. }) => {}
             Err(err) => return Err(err),
         }
 
         for nested_lib in &self.nested_libs {
-            resources.extend(nested_lib.find_resource_entries(name)?);
+            resources.extend(check_nested(nested_lib, name)?);
         }
 
         Ok(resources)
