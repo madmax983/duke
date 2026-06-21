@@ -3,8 +3,7 @@
 
 #[cfg(feature = "nova")]
 use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
+    parse, AttributeData, CpEntry, CpIndex,
 };
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
@@ -13,12 +12,12 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 
 #[cfg(feature = "nova")]
-#[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
+#[cfg(not(tarpaulin_include))]
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -29,8 +28,8 @@ fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
 }
 
 #[cfg(feature = "nova")]
-#[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
+#[cfg(not(tarpaulin_include))]
 fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     if idx.0 == 0 {
         return "<none>".to_string();
@@ -38,7 +37,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -59,7 +58,22 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
 pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
     let map1 = load_jar_methods(jar1_path);
     let map2 = load_jar_methods(jar2_path);
+    dump_jar_diff_internal(jar1_path, jar2_path, &map1, &map2);
+}
 
+#[cfg(feature = "nova")]
+#[allow(
+    unexpected_cfgs,
+    clippy::print_stdout,
+    clippy::use_debug,
+    clippy::collapsible_if
+)]
+fn dump_jar_diff_internal(
+    jar1_path: &str,
+    jar2_path: &str,
+    map1: &HashMap<String, u64>,
+    map2: &HashMap<String, u64>,
+) {
     let keys1: HashSet<_> = map1.keys().collect();
     let keys2: HashSet<_> = map2.keys().collect();
 
@@ -134,8 +148,8 @@ pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
 }
 
 #[cfg(feature = "nova")]
-#[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
+#[cfg(not(tarpaulin_include))]
 fn load_jar_methods(jar_path: &str) -> HashMap<String, u64> {
     let Ok(loader) = ZipLoader::open(Path::new(jar_path)) else {
         return HashMap::new(); // If we cannot load, treat as empty
@@ -178,6 +192,38 @@ fn load_jar_methods(jar_path: &str) -> HashMap<String, u64> {
 #[cfg(test)]
 #[cfg(feature = "nova")]
 mod tests {
+    use duke_classfile::ClassFile;
+
+    #[test]
+    fn test_resolve_class_name() {
+        let cf = ClassFile {
+            minor_version: 0,
+            major_version: 0,
+            constant_pool: vec![
+                None,
+                Some(CpEntry::Utf8("java/lang/Object".to_string())),
+                Some(CpEntry::Class {
+                    name_index: CpIndex(1),
+                }),
+            ],
+            access_flags: duke_classfile::ClassAccessFlags::empty(),
+            this_class: CpIndex(0),
+            super_class: CpIndex(0),
+            interfaces: vec![],
+            fields: vec![],
+            methods: vec![],
+            attributes: vec![],
+        };
+
+        let name = super::resolve_class_name(&cf, CpIndex(2));
+        assert_eq!(name, "java/lang/Object");
+
+        let name_none = super::resolve_class_name(&cf, CpIndex(0));
+        assert_eq!(name_none, "<none>");
+
+        let name_invalid = super::resolve_class_name(&cf, CpIndex(99));
+        assert_eq!(name_invalid, "<not a class ref>");
+    }
     use super::*;
 
     #[test]
@@ -189,5 +235,31 @@ mod tests {
         let path2 = "dummy2.jar";
 
         dump_jar_diff(path1, path2);
+    }
+
+    #[test]
+    fn test_dump_jar_diff_internal_with_differences() {
+        let mut map1 = HashMap::new();
+        map1.insert("MethodA".to_string(), 123);
+        map1.insert("MethodB".to_string(), 456);
+        map1.insert("MethodC".to_string(), 789);
+
+        // Let's add 12 elements to test the top 10 truncations
+        for i in 0..12 {
+            map1.insert(format!("MethodR{i:02}"), 0);
+        }
+
+        let mut map2 = HashMap::new();
+        map2.insert("MethodB".to_string(), 456); // Unchanged
+        map2.insert("MethodC".to_string(), 999); // Modified
+        map2.insert("MethodD".to_string(), 111); // Added
+
+        for i in 0..12 {
+            map2.insert(format!("MethodA{i:02}"), 0); // Added
+            map1.insert(format!("MethodM{i:02}"), 0); // Modified base
+            map2.insert(format!("MethodM{i:02}"), 1); // Modified new
+        }
+
+        dump_jar_diff_internal("test1.jar", "test2.jar", &map1, &map2);
     }
 }

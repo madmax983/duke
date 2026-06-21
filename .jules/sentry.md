@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-06-21 - Extract jar diff analysis output to allow testing
+**Learning:** Functions that only print to stdout (like `dump_jar_diff`) are hard to test and achieve coverage for, especially if they internally read from the filesystem.
+**Action:** Extract the internal logic (comparing hashmaps and printing) into an internal function (`dump_jar_diff_internal`) that accepts mockable maps as arguments, making it testable.
