@@ -90,6 +90,37 @@ mod tests {
     use duke_classfile::ClassFile;
 
     #[test]
+    fn test_search_class_file_cp_str_non_utf8() {
+        use duke_classfile::{
+            ClassAccessFlags, ClassFile, CpEntry, CpIndex, MethodAccessFlags, MethodInfo,
+        };
+        let cf = ClassFile {
+            minor_version: 0,
+            major_version: 0,
+            constant_pool: vec![
+                None,                                      // 0
+                Some(CpEntry::Integer(42)),                // 1
+                Some(CpEntry::Utf8("target".to_string())), // 2
+                Some(CpEntry::Integer(43)),                // 3
+            ],
+            access_flags: ClassAccessFlags::PUBLIC,
+            this_class: CpIndex(1),
+            super_class: CpIndex(0),
+            interfaces: vec![],
+            fields: vec![],
+            methods: vec![MethodInfo {
+                access_flags: MethodAccessFlags::PUBLIC,
+                name_index: CpIndex(1),       // not utf8!
+                descriptor_index: CpIndex(3), // not utf8!
+                attributes: vec![],
+            }],
+            attributes: vec![],
+        };
+        // search for "target"
+        assert_eq!(cp_str(&cf, CpIndex(1)), None);
+    }
+
+    #[test]
     fn test_dump_search_valid() {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../tests/fixtures/HelloWorld.class");

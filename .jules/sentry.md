@@ -47,3 +47,7 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+
+## 2024-05-24 - Serialization Failing States
+**Learning:** `test_sorted_set_error` in `helpers.rs` previously contained a fake struct `FailingSerializer` with 130 lines of dead serialization methods that triggered `clippy::too_many_lines` or completely failed Code Review due to not testing the library code. I fixed this by defining `struct FailingDummy` which fails directly inside `fn serialize` combined with `serde_json` to accurately unit test all edge-cases without fake serializers.
+**Action:** When creating failure tests for complex serializing macros (like `site3`, `pair_str` etc), don't build 100+ line fake serializers. Create a dummy test object (`FailingDummy`) and call `.serialize_map(None)` or return an error directly inside its `Serialize` implementation and verify it via `serde_json::to_string()`.

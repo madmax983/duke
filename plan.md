@@ -1,20 +1,9 @@
-1. **Optimize String concatenation in `native_string_concat`**
-   - The function currently uses `format!("{s1}{s2}")` to concatenate two strings, which allocates a new string buffer inside `format!`, formats the arguments, and returns it.
-   - We can optimize this by pre-allocating a `String` with the exact required capacity and appending the strings:
-     ```rust
-     let mut combined = String::with_capacity(s1.len() + s2.len());
-     combined.push_str(&s1);
-     combined.push_str(&s2);
-     let r = heap.allocate_string(combined);
-     ```
-   - This eliminates the intermediate allocation and parsing overhead of `format!`, which is a common hotspot in interpreters.
-   - Add `// ⚡ Bolt: Eliminate intermediate format! allocation` comment.
-   - Ensure the tests pass.
-1. Refactor `print_report` methods in `duke-telemetry/src/lib.rs` to handle empty states gracefully (Reduces noise from empty reports).
-   - Before: Outputs headers and empty tables for empty components.
-   - After: Outputs a concise message stating no events were recorded.
-2. Complete pre commit steps to make sure proper testing, verifications, reviews and reflections are done.
-3. Submit the change using a descriptive title.
-1. **Optimize Vector Allocations in Execution (Vec::with_capacity)**: Pre-allocate vectors in `crates/duke-interpreter/src/execution.rs` for `Multianewarray` `dims` array and lambda args `impl_args` to avoid unnecessary dynamic heap reallocations.
-2. Complete pre commit steps to ensure proper testing, verification, review, and reflection are done.
-3. **Submit the PR**: Present PR titled '⚡ Bolt: Optimize Vector Allocations in Execution & Native' detailing 💡 What, 🎯 Why, 📊 Impact, and 🔭 Measurement. I will use `run_in_bash_session` to execute `git commit` with the requested PR details.
+1. **Increase search branch coverage (`cp_str` mapping on invalid index)**
+   - Add a test in `duke/src/search.rs` to exercise the failure to cast or map strings in `cp_str`, pushing coverage for that function towards 100%. I've written the patch but it failed because `search_class_file` is not public in `lib.rs` scope or it was an issue with how `cf` was constructed.
+   - We will write a specific unit test in `duke/src/search.rs` testing `search_class_file` indirectly via `dump_search_no_match` and also we will craft a test testing `cp_str` logic indirectly via testing `search_class_file` and constructing a ClassFile with non-UTF8 constant pool entries or calling `dump_search` with an empty mock file.
+2. **Fix type inference errors on `jar_diff.rs` & `jar_search.rs`**
+   - The type error when chaining combinators over `Option` will be fixed by properly adding type annotations.
+3. **Write `failing_serializer` unit tests in `duke-telemetry`**
+   - Implement `test_failing_serializer_methods` covering all dummy failing serialize implementations in `helpers.rs` to reach >80% coverage locally for that file.
+4. **Complete pre-commit steps**
+   - Complete pre-commit steps to ensure proper testing, verification, review, and reflection are done.
