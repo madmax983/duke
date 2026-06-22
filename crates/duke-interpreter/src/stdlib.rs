@@ -39,11 +39,18 @@ fn empty_synthetic_context(name: &str, super_class: &str) -> ClassContext {
     }
 }
 
-fn synthetic_field(name: &str, descriptor: &str, is_static: bool) -> FieldEntry {
+#[derive(Default, Copy, Clone)]
+pub struct SyntheticFieldConfig<'a> {
+    pub name: &'a str,
+    pub descriptor: &'a str,
+    pub is_static: bool,
+}
+
+fn synthetic_field(config: SyntheticFieldConfig<'_>) -> FieldEntry {
     FieldEntry {
-        name: name.to_string(),
-        descriptor: descriptor.to_string(),
-        is_static,
+        name: config.name.to_string(),
+        descriptor: config.descriptor.to_string(),
+        is_static: config.is_static,
     }
 }
 
@@ -141,9 +148,19 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
     ];
     let mut level_fields: Vec<FieldEntry> = level_specs
         .iter()
-        .map(|(name, _)| synthetic_field(name, "Ljava/util/logging/Level;", true))
+        .map(|(name, _)| {
+            synthetic_field(SyntheticFieldConfig {
+                name,
+                descriptor: "Ljava/util/logging/Level;",
+                is_static: true,
+            })
+        })
         .collect();
-    level_fields.push(synthetic_field("value", "I", false));
+    level_fields.push(synthetic_field(SyntheticFieldConfig {
+        name: "value",
+        descriptor: "I",
+        is_static: false,
+    }));
     let level_static_fields: Vec<Slot> = level_specs
         .iter()
         .map(|(name, value)| jul_allocate_level(heap, name, *value))
@@ -170,11 +187,31 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
-            synthetic_field("name", "Ljava/lang/String;", false),
-            synthetic_field("level", "Ljava/util/logging/Level;", false),
-            synthetic_field("useParentHandlers", "Z", false),
-            synthetic_field("parent", "Ljava/util/logging/Logger;", false),
-            synthetic_field("handlerCount", "I", false),
+            synthetic_field(SyntheticFieldConfig {
+                name: "name",
+                descriptor: "Ljava/lang/String;",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "level",
+                descriptor: "Ljava/util/logging/Level;",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "useParentHandlers",
+                descriptor: "Z",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "parent",
+                descriptor: "Ljava/util/logging/Logger;",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "handlerCount",
+                descriptor: "I",
+                is_static: false,
+            }),
         ],
         static_fields: Vec::new(),
         instance_field_count: 5,
@@ -189,8 +226,16 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
-            synthetic_field("level", "Ljava/util/logging/Level;", false),
-            synthetic_field("formatter", "Ljava/util/logging/Formatter;", false),
+            synthetic_field(SyntheticFieldConfig {
+                name: "level",
+                descriptor: "Ljava/util/logging/Level;",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "formatter",
+                descriptor: "Ljava/util/logging/Formatter;",
+                is_static: false,
+            }),
         ],
         static_fields: Vec::new(),
         instance_field_count: 2,
@@ -221,12 +266,36 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
-            synthetic_field("level", "Ljava/util/logging/Level;", false),
-            synthetic_field("message", "Ljava/lang/String;", false),
-            synthetic_field("loggerName", "Ljava/lang/String;", false),
-            synthetic_field("thrown", "Ljava/lang/Throwable;", false),
-            synthetic_field("millis", "J", false),
-            synthetic_field("parameters", "[Ljava/lang/Object;", false),
+            synthetic_field(SyntheticFieldConfig {
+                name: "level",
+                descriptor: "Ljava/util/logging/Level;",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "message",
+                descriptor: "Ljava/lang/String;",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "loggerName",
+                descriptor: "Ljava/lang/String;",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "thrown",
+                descriptor: "Ljava/lang/Throwable;",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "millis",
+                descriptor: "J",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "parameters",
+                descriptor: "[Ljava/lang/Object;",
+                is_static: false,
+            }),
         ],
         static_fields: Vec::new(),
         instance_field_count: 6,
@@ -245,8 +314,16 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
-            synthetic_field("index", "I", false),
-            synthetic_field("count", "I", false),
+            synthetic_field(SyntheticFieldConfig {
+                name: "index",
+                descriptor: "I",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "count",
+                descriptor: "I",
+                is_static: false,
+            }),
         ],
         static_fields: Vec::new(),
         instance_field_count: 2,
@@ -260,8 +337,16 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
-            synthetic_field("index", "I", false),
-            synthetic_field("count", "I", false),
+            synthetic_field(SyntheticFieldConfig {
+                name: "index",
+                descriptor: "I",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "count",
+                descriptor: "I",
+                is_static: false,
+            }),
         ],
         static_fields: Vec::new(),
         instance_field_count: 2,
@@ -303,9 +388,21 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
-            synthetic_field("INSTANCE", "Ljava/util/logging/LogManager;", true),
-            synthetic_field("rootLogger", "Ljava/util/logging/Logger;", false),
-            synthetic_field("loggerCount", "I", false),
+            synthetic_field(SyntheticFieldConfig {
+                name: "INSTANCE",
+                descriptor: "Ljava/util/logging/LogManager;",
+                is_static: true,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "rootLogger",
+                descriptor: "Ljava/util/logging/Logger;",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "loggerCount",
+                descriptor: "I",
+                is_static: false,
+            }),
         ],
         static_fields: vec![Slot::Reference(Some(manager_ref))],
         instance_field_count: 2,
@@ -1388,16 +1485,16 @@ fn register_locks_stdlib(registry: &mut ClassRegistry) {
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
-            synthetic_field(
-                "readerLock",
-                "Ljava/util/concurrent/locks/ReentrantReadWriteLock$ReadLock;",
-                false,
-            ),
-            synthetic_field(
-                "writerLock",
-                "Ljava/util/concurrent/locks/ReentrantReadWriteLock$WriteLock;",
-                false,
-            ),
+            synthetic_field(SyntheticFieldConfig {
+                name: "readerLock",
+                descriptor: "Ljava/util/concurrent/locks/ReentrantReadWriteLock$ReadLock;",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "writerLock",
+                descriptor: "Ljava/util/concurrent/locks/ReentrantReadWriteLock$WriteLock;",
+                is_static: false,
+            }),
         ],
         static_fields: Vec::new(),
         instance_field_count: 2,
@@ -1598,11 +1695,11 @@ fn register_sync_primitives_stdlib(registry: &mut ClassRegistry) {
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: vec![synthetic_field(
-            "barrierAction",
-            "Ljava/lang/Runnable;",
-            false,
-        )],
+        fields: vec![synthetic_field(SyntheticFieldConfig {
+            name: "barrierAction",
+            descriptor: "Ljava/lang/Runnable;",
+            is_static: false,
+        })],
         static_fields: Vec::new(),
         instance_field_count: 1,
         interfaces: Vec::new(),
@@ -1772,8 +1869,16 @@ fn register_executor_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::He
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
-            synthetic_field("shutdown", "Z", false),
-            synthetic_field("awaitDeadlineNanos", "J", false),
+            synthetic_field(SyntheticFieldConfig {
+                name: "shutdown",
+                descriptor: "Z",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "awaitDeadlineNanos",
+                descriptor: "J",
+                is_static: false,
+            }),
         ],
         static_fields: Vec::new(),
         instance_field_count: 2,
@@ -1791,11 +1896,31 @@ fn register_executor_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::He
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
-            synthetic_field("state", "I", false),
-            synthetic_field("result", "Ljava/lang/Object;", false),
-            synthetic_field("exception", "Ljava/lang/Throwable;", false),
-            synthetic_field("waitDeadlineNanos", "J", false),
-            synthetic_field("task", "Ljava/lang/Object;", false),
+            synthetic_field(SyntheticFieldConfig {
+                name: "state",
+                descriptor: "I",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "result",
+                descriptor: "Ljava/lang/Object;",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "exception",
+                descriptor: "Ljava/lang/Throwable;",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "waitDeadlineNanos",
+                descriptor: "J",
+                is_static: false,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "task",
+                descriptor: "Ljava/lang/Object;",
+                is_static: false,
+            }),
         ],
         static_fields: Vec::new(),
         instance_field_count: 5,
@@ -1815,9 +1940,19 @@ fn register_executor_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::He
     ];
     let mut time_unit_fields: Vec<FieldEntry> = time_units
         .iter()
-        .map(|(name, _, _)| synthetic_field(name, "Ljava/util/concurrent/TimeUnit;", true))
+        .map(|(name, _, _)| {
+            synthetic_field(SyntheticFieldConfig {
+                name,
+                descriptor: "Ljava/util/concurrent/TimeUnit;",
+                is_static: true,
+            })
+        })
         .collect();
-    time_unit_fields.push(synthetic_field("nanosPerUnit", "J", false));
+    time_unit_fields.push(synthetic_field(SyntheticFieldConfig {
+        name: "nanosPerUnit",
+        descriptor: "J",
+        is_static: false,
+    }));
     let time_unit_static_fields: Vec<Slot> = time_units
         .iter()
         .map(|(name, ordinal, nanos)| allocate_time_unit(heap, name, *ordinal, *nanos))
@@ -9268,9 +9403,19 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     ];
     let mut pattern_fields: Vec<FieldEntry> = pattern_flag_fields
         .iter()
-        .map(|(name, _)| synthetic_field(name, "I", true))
+        .map(|(name, _)| {
+            synthetic_field(SyntheticFieldConfig {
+                name,
+                descriptor: "I",
+                is_static: true,
+            })
+        })
         .collect();
-    pattern_fields.push(synthetic_field("flags", "I", false));
+    pattern_fields.push(synthetic_field(SyntheticFieldConfig {
+        name: "flags",
+        descriptor: "I",
+        is_static: false,
+    }));
     let pattern_static_fields: Vec<Slot> = pattern_flag_fields
         .iter()
         .map(|(_, value)| Slot::Int(*value))
@@ -12127,17 +12272,21 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
-            synthetic_field("ISO_INSTANT", "Ljava/time/format/DateTimeFormatter;", true),
-            synthetic_field(
-                "ISO_LOCAL_DATE",
-                "Ljava/time/format/DateTimeFormatter;",
-                true,
-            ),
-            synthetic_field(
-                "ISO_LOCAL_DATE_TIME",
-                "Ljava/time/format/DateTimeFormatter;",
-                true,
-            ),
+            synthetic_field(SyntheticFieldConfig {
+                name: "ISO_INSTANT",
+                descriptor: "Ljava/time/format/DateTimeFormatter;",
+                is_static: true,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "ISO_LOCAL_DATE",
+                descriptor: "Ljava/time/format/DateTimeFormatter;",
+                is_static: true,
+            }),
+            synthetic_field(SyntheticFieldConfig {
+                name: "ISO_LOCAL_DATE_TIME",
+                descriptor: "Ljava/time/format/DateTimeFormatter;",
+                is_static: true,
+            }),
         ],
         static_fields: vec![
             Slot::Reference(Some(iso_instant_formatter_ref)),
