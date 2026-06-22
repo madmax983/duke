@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-06-21 - [cp_utf8 Documentation]
+**Confusion:** The `cp_utf8` helper function was entirely undocumented, lacking an explanation of its purpose, error conditions, and an executable example, triggering documentation gaps.
+**Clarification:** Added complete module-level documentation and an executable doctest for `cp_utf8`, explaining how it resolves `CpIndex` to UTF-8 strings.

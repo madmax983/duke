@@ -615,6 +615,29 @@ fn parse_code_attribute(c: &mut Cursor<'_>) -> Result<CodeAttribute> {
 // ---------------------------------------------------------------------------
 
 /// Look up a UTF-8 string in the constant pool.
+///
+/// Many class file structures refer to names and descriptors via an index into the
+/// constant pool. This helper function dereferences a `CpIndex`, verifies it points
+/// to a valid `CONSTANT_Utf8_info` entry, and returns the underlying string slice.
+///
+/// # Errors
+///
+/// Returns an error if the index is out of bounds, points to a phantom slot, or
+/// points to a constant pool entry that is not a UTF-8 string.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{CpIndex, CpEntry};
+/// use duke_classfile::cp_utf8;
+///
+/// let pool = vec![
+///     None, // index 0 is reserved
+///     Some(CpEntry::Utf8("Hello, World!".to_string())),
+/// ];
+/// let result = cp_utf8(&pool, CpIndex(1));
+/// assert_eq!(result.unwrap(), "Hello, World!");
+/// ```
 pub fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> Result<&str> {
     let i = idx.0 as usize;
     if i == 0 {
