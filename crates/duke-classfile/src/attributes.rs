@@ -98,36 +98,54 @@ pub enum ElementValue {
 }
 
 /// Typed attribute payload.
+///
+/// The `AttributeData` enum represents the specific data associated with an attribute in a `.class` file.
+/// Each variant corresponds to a known attribute type defined in the JVM specification. If an attribute
+/// is not explicitly supported or parsed, it is represented as a `Raw` byte array.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{AttributeData, CpIndex};
+///
+/// let const_val = AttributeData::ConstantValue {
+///     constant_value_index: CpIndex(10),
+/// };
+///
+/// if let AttributeData::ConstantValue { constant_value_index } = const_val {
+///     assert_eq!(constant_value_index.0, 10);
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub enum AttributeData {
-    /// Code attribute (§4.7.3) — method bytecode.
+    /// Code attribute (§4.7.3) — method bytecode. Contains instructions, local variables, and exceptions.
     Code(CodeAttribute),
     /// `ConstantValue` attribute (§4.7.2) — compile-time constant for static fields.
     ConstantValue {
         /// Index into the constant pool.
         constant_value_index: CpIndex,
     },
-    /// `SourceFile` attribute (§4.7.10).
+    /// `SourceFile` attribute (§4.7.10) - Optional debugging information associating a class file with a source file.
     SourceFile {
         /// Index into the constant pool representing the name of the source file.
         sourcefile_index: CpIndex,
     },
-    /// `LineNumberTable` (§4.7.12).
+    /// `LineNumberTable` (§4.7.12) - Optional debugging information to map bytecode offsets to line numbers.
     LineNumberTable(Vec<LineNumberEntry>),
-    /// `LocalVariableTable` (§4.7.13).
+    /// `LocalVariableTable` (§4.7.13) - Optional debugging information about local variables in a method.
     LocalVariableTable(Vec<LocalVariableEntry>),
-    /// Exceptions attribute (§4.7.5).
+    /// Exceptions attribute (§4.7.5) - Checked exceptions a method is declared to throw.
     Exceptions {
         /// Table of exception indices.
         exception_index_table: Vec<CpIndex>,
     },
-    /// `BootstrapMethods` attribute (§4.7.23) — required for invokedynamic.
+    /// `BootstrapMethods` attribute (§4.7.23) — required for `invokedynamic` instructions.
     BootstrapMethods(Vec<BootstrapMethodEntry>),
-    /// `RuntimeVisibleAnnotations` (§4.7.16).
+    /// `RuntimeVisibleAnnotations` (§4.7.16) - Annotations on classes, methods, or fields that are available at runtime.
     RuntimeVisibleAnnotations(Vec<Annotation>),
-    /// `AnnotationDefault` (§4.7.22) default value for an annotation element.
+    /// `AnnotationDefault` (§4.7.22) - Default value for an annotation element.
     AnnotationDefault(ElementValue),
-    /// Any attribute we don't parse in detail yet.
+    /// Any attribute we don't parse in detail yet, stored safely as a raw byte array.
     Raw(Vec<u8>),
 }
 
