@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-25 - [Constant Pool Enums Documentation]
+**Confusion:** The massive `CpEntry` enum lacked individual variant documentation, and simply repeated "Tag 1", "Tag 3", which doesn't clarify what each variant represents.
+**Clarification:** I added specific details and explanations for each tag according to the JVM Specification §4.4. I also clarified the behavior where `Long` and `Double` occupy two slots.

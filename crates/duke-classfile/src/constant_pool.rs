@@ -23,48 +23,85 @@ pub struct CpIndex(pub u16);
 /// All constant pool entry kinds defined in JVM SE 21 (§4.4).
 #[derive(Debug, Clone, PartialEq)]
 pub enum CpEntry {
-    /// Tag 1
+    /// A `CONSTANT_Utf8` structure (Tag 1).
+    ///
+    /// Contains a string of valid JVM-modified UTF-8 text. Used for names of classes, methods, and fields,
+    /// as well as string literals in the bytecode.
+    ///
+    /// # Details
+    ///
+    /// Modified UTF-8 uses a slightly different encoding than standard UTF-8 (e.g. representing the null character
+    /// `\0` as a two-byte sequence). The parser automatically converts these sequences into standard Rust `String`s.
     Utf8(String),
-    /// Tag 3
+    /// A `CONSTANT_Integer` structure (Tag 3).
+    ///
+    /// Represents a 32-bit integer constant.
     Integer(i32),
-    /// Tag 4
+    /// A `CONSTANT_Float` structure (Tag 4).
+    ///
+    /// Represents a 32-bit floating-point constant.
     Float(f32),
-    /// Tag 5 — occupies two slots; next slot will be `None`
+    /// A `CONSTANT_Long` structure (Tag 5).
+    ///
+    /// Represents a 64-bit integer constant.
+    ///
+    /// # Usage
+    ///
+    /// In the JVM constant pool, a `CONSTANT_Long` occupies **two** slots.
+    /// The parsing phase accounts for this by leaving the next index in the pool array empty (`None`).
     Long(i64),
-    /// Tag 6 — occupies two slots; next slot will be `None`
+    /// A `CONSTANT_Double` structure (Tag 6).
+    ///
+    /// Represents a 64-bit floating-point constant.
+    ///
+    /// # Usage
+    ///
+    /// Like `CONSTANT_Long`, this occupies **two** slots in the constant pool array.
     Double(f64),
-    /// Tag 7
+    /// A `CONSTANT_Class` structure (Tag 7).
+    ///
+    /// Represents a class or interface type.
     Class {
         /// Index to a `CONSTANT_Utf8` structure representing a valid binary class or interface name.
         name_index: CpIndex,
     },
-    /// Tag 8
+    /// A `CONSTANT_String` structure (Tag 8).
+    ///
+    /// Represents a constant string object.
     String {
         /// Index to a `CONSTANT_Utf8` structure representing the string's value.
         string_index: CpIndex,
     },
-    /// Tag 9
+    /// A `CONSTANT_Fieldref` structure (Tag 9).
+    ///
+    /// Represents a reference to a field.
     Fieldref {
         /// Index to a `CONSTANT_Class` structure.
         class_index: CpIndex,
         /// Index to a `CONSTANT_NameAndType` structure.
         name_and_type_index: CpIndex,
     },
-    /// Tag 10
+    /// A `CONSTANT_Methodref` structure (Tag 10).
+    ///
+    /// Represents a reference to a class's method.
     Methodref {
         /// Index to a `CONSTANT_Class` structure.
         class_index: CpIndex,
         /// Index to a `CONSTANT_NameAndType` structure.
         name_and_type_index: CpIndex,
     },
-    /// Tag 11
+    /// A `CONSTANT_InterfaceMethodref` structure (Tag 11).
+    ///
+    /// Represents a reference to an interface's method.
     InterfaceMethodref {
         /// Index to a `CONSTANT_Class` structure.
         class_index: CpIndex,
         /// Index to a `CONSTANT_NameAndType` structure.
         name_and_type_index: CpIndex,
     },
-    /// Tag 12
+    /// A `CONSTANT_NameAndType` structure (Tag 12).
+    ///
+    /// Represents a field or method, without indicating which class or interface type it belongs to.
     NameAndType {
         /// Index to a `CONSTANT_Utf8` structure representing a valid unqualified name.
         name_index: CpIndex,
@@ -78,19 +115,25 @@ pub enum CpEntry {
         /// The reference index for the method handle.
         reference_index: CpIndex,
     },
-    /// Tag 16
+    /// A `CONSTANT_MethodType` structure (Tag 16).
+    ///
+    /// Represents a method type.
     MethodType {
         /// Index to a `CONSTANT_Utf8` structure representing a method descriptor.
         descriptor_index: CpIndex,
     },
-    /// Tag 17
+    /// A `CONSTANT_Dynamic` structure (Tag 17).
+    ///
+    /// Used by an `invokedynamic` instruction to specify a dynamically-computed constant.
     Dynamic {
         /// An index into the bootstrap method table.
         bootstrap_method_attr_index: u16,
         /// Index to a `CONSTANT_NameAndType` structure.
         name_and_type_index: CpIndex,
     },
-    /// Tag 18
+    /// A `CONSTANT_InvokeDynamic` structure (Tag 18).
+    ///
+    /// Used by an `invokedynamic` instruction to specify a dynamically-computed call site.
     InvokeDynamic {
         /// An index into the bootstrap method table.
         bootstrap_method_attr_index: u16,
