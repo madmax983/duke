@@ -17171,7 +17171,6 @@ pub(crate) fn native_system_arraycopy(
             length: src_len,
         });
     }
-    let src_elems: Vec<Slot> = heap.get(src_ref)?.fields[src_pos..src_pos + length].to_vec();
     let dst_len = heap.get(dst_ref)?.fields.len();
     if dst_pos + length > dst_len {
         return Err(Error::ArrayIndexOutOfBounds {
@@ -17179,9 +17178,16 @@ pub(crate) fn native_system_arraycopy(
             length: dst_len,
         });
     }
-    let dst_fields = &mut heap.get_mut(dst_ref)?.fields;
-    for (i, slot) in src_elems.into_iter().enumerate() {
-        dst_fields[dst_pos + i] = slot;
+    if src_ref == dst_ref && dst_pos > src_pos {
+        for i in (0..length).rev() {
+            let slot = heap.get(src_ref)?.fields[src_pos + i];
+            heap.get_mut(dst_ref)?.fields[dst_pos + i] = slot;
+        }
+    } else {
+        for i in 0..length {
+            let slot = heap.get(src_ref)?.fields[src_pos + i];
+            heap.get_mut(dst_ref)?.fields[dst_pos + i] = slot;
+        }
     }
     Ok(None)
 }
@@ -25639,11 +25645,15 @@ pub(crate) fn native_arrays_copyof_int(
         Some(Slot::Int(n)) => return Err(Error::NegativeArraySize { size: *n }),
         _ => 0,
     };
-    let src_fields = heap.get(src_ref)?.fields.clone();
+    let count = heap.get(src_ref)?.fields.len();
     let dst_ref = heap.allocate("[I".to_string(), new_len);
-    let dst = heap.get_mut(dst_ref)?;
     for i in 0..new_len {
-        dst.fields[i] = src_fields.get(i).copied().unwrap_or(Slot::Int(0));
+        let val = if i < count {
+            heap.get(src_ref)?.fields.get(i).copied().unwrap_or(Slot::Int(0))
+        } else {
+            Slot::Int(0)
+        };
+        heap.get_mut(dst_ref)?.fields[i] = val;
     }
     Ok(Some(Slot::Reference(Some(dst_ref))))
 }
@@ -25661,11 +25671,15 @@ pub(crate) fn native_arrays_copyof_object(
         Some(Slot::Int(n)) => return Err(Error::NegativeArraySize { size: *n }),
         _ => 0,
     };
-    let src_fields = heap.get(src_ref)?.fields.clone();
+    let count = heap.get(src_ref)?.fields.len();
     let dst_ref = heap.allocate("[Ljava/lang/Object;".to_string(), new_len);
-    let dst = heap.get_mut(dst_ref)?;
     for i in 0..new_len {
-        dst.fields[i] = src_fields.get(i).copied().unwrap_or(Slot::Reference(None));
+        let val = if i < count {
+            heap.get(src_ref)?.fields.get(i).copied().unwrap_or(Slot::Reference(None))
+        } else {
+            Slot::Reference(None)
+        };
+        heap.get_mut(dst_ref)?.fields[i] = val;
     }
     Ok(Some(Slot::Reference(Some(dst_ref))))
 }

@@ -37,3 +37,8 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+## 2024-05-18 - Replacing `.clone()` with iterative array assignments
+
+**Learning:** When removing intermediate `Vec` allocations during array copying, you must handle overlapping source and destination arrays. Rust's strict mutability rules can be satisfied by iteratively reading and dropping the borrow before performing the subsequent mutable write per element, avoiding the need for `unsafe`.
+**Action:** Always check for `src_ref == dst_ref` to gracefully handle overlapping ranges by copying in reverse when `dst_pos > src_pos` during `System.arraycopy` implementations.
