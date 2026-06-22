@@ -3664,13 +3664,23 @@ fn stack_trace_element_text(heap: &duke_gc::Heap, element_ref: u64) -> Result<St
         Some(Slot::Int(line)) => *line,
         _ => -1,
     };
-    let location = match (file_name, line_number) {
-        (_, -2) => "Native Method".to_string(),
-        (Some(file), line) if line >= 0 => format!("{file}:{line}"),
-        (Some(file), _) => file,
-        (None, _) => "Unknown Source".to_string(),
-    };
-    Ok(format!("{class_name}.{method_name}({location})"))
+    let mut result = String::with_capacity(class_name.len() + method_name.len() + 32);
+    result.push_str(&class_name);
+    result.push('.');
+    result.push_str(&method_name);
+    result.push('(');
+    match (file_name, line_number) {
+        (_, -2) => result.push_str("Native Method"),
+        (Some(file), line) if line >= 0 => {
+            result.push_str(&file);
+            result.push(':');
+            let _ = std::fmt::Write::write_fmt(&mut result, format_args!("{line}"));
+        }
+        (Some(file), _) => result.push_str(&file),
+        (None, _) => result.push_str("Unknown Source"),
+    }
+    result.push(')');
+    Ok(result)
 }
 
 fn append_throwable_trace(
