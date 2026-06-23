@@ -1,5 +1,29 @@
 //! `duke-loader` — Class file loaders and container formats.
 //!
+//! Welcome to the library of Alexandria for Duke JVM! This crate handles locating and reading
+//! raw `.class` files and auxiliary resources from various storage backends. It provides a unified
+//! interface (`ClassLoader`) that abstracts away the underlying file system, archives, or JVM-specific formats.
+//!
+//! ## The `ClassLoader` Trait
+//! The `ClassLoader` trait is the core API of this crate. The JVM calls into it when it needs to
+//! resolve a class name (e.g., `java/lang/Object`) into its raw bytecode representation.
+//!
+//! ## Storage Backends
+//! We provide multiple implementations of `ClassLoader` to support the diverse ways Java code is packaged:
+//! - **`DirectoryLoader`**: Reads files directly from the filesystem. Excellent for development or executing
+//!   locally compiled `.class` files.
+//! - **`ZipLoader`**: Reads files directly from `.jar` or `.zip` archives. It uses a memory-mapped, lazy-loading
+//!   strategy to keep memory overhead incredibly low while avoiding full extraction.
+//! - **`JImageReader`**: Support for the modern Java 9+ module system (`lib/modules`). Parses the highly-optimized
+//!   custom container format introduced to replace `rt.jar`.
+//! - **`BootstrapLoader`**: The orchestrator. It sits at the top of the hierarchy, first attempting to load
+//!   core JDK classes via `JImageReader`, and then falling back to user-provided `DirectoryLoader` or `ZipLoader`
+//!   instances for application code.
+//!
+//! ## Robustness
+//! Loaders must never panic on missing files or malformed archives. The `Result` type is strictly enforced, ensuring
+//! the JVM can gracefully throw a `ClassNotFoundException` rather than crashing the host process.
+//!
 //! # Modules
 //!
 //! - `bootstrap` — The system bootstrap classloader.
@@ -62,9 +86,35 @@ pub(crate) fn path_to_file_url(path: &Path) -> String {
 /// Abstraction over class file loading sources.
 ///
 /// `name` is internal form: `"java/lang/Object"` (no `.class` suffix).
+///
+/// # Examples
+///
+/// ```
+/// use duke_loader::{ClassLoader, DirectoryLoader};
+/// use std::path::PathBuf;
+///
+/// let loader = DirectoryLoader::new(PathBuf::from("../../tests/fixtures"));
+/// // 1. Find a class
+/// let class_bytes = loader.find_class("HelloWorld").unwrap();
+/// assert_eq!(&class_bytes[0..4], &[0xCA, 0xFE, 0xBA, 0xBE]);
+///
+/// // 2. Find a non-class resource (The hello_world.txt is in our fixtures)
+/// let resource_bytes = loader.find_resource("hello_world.txt").unwrap();
+/// assert!(resource_bytes.starts_with(b"Hello World"));
+/// ```
 pub trait ClassLoader {
     /// Load the raw `.class` bytes for a class.
     ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_loader::{ClassLoader, DirectoryLoader};
+    /// use std::path::PathBuf;
+    ///
+    /// let loader = DirectoryLoader::new(PathBuf::from("../../tests/fixtures"));
+    /// let bytes = loader.find_class("HelloWorld").unwrap();
+    /// assert_eq!(&bytes[0..4], &[0xCA, 0xFE, 0xBA, 0xBE]);
+    /// ```
     /// # Errors
     ///
     /// Returns [`Error::NotFound`] if the class cannot be found, or
@@ -78,6 +128,16 @@ pub trait ClassLoader {
     /// the same backing entry as class loading, but without appending
     /// `.class`.
     ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_loader::{ClassLoader, DirectoryLoader};
+    /// use std::path::PathBuf;
+    ///
+    /// let loader = DirectoryLoader::new(PathBuf::from("../../tests/fixtures"));
+    /// let bytes = loader.find_resource("hello_world.txt").unwrap();
+    /// assert!(bytes.starts_with(b"Hello World"));
+    /// ```
     /// # Errors
     ///
     /// Returns [`Error::NotFound`] if the resource is not present, or another
@@ -93,6 +153,16 @@ pub trait ClassLoader {
     /// By default loaders report the resource as not found until they opt into
     /// the richer metadata surface.
     ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_loader::{ClassLoader, DirectoryLoader};
+    /// use std::path::PathBuf;
+    ///
+    /// let loader = DirectoryLoader::new(PathBuf::from("../../tests/fixtures"));
+    /// let resource_res = loader.find_resource_entry("hello_world.txt").unwrap();
+    /// assert!(resource_res.url.starts_with("file://"));
+    /// ```
     /// # Errors
     ///
     /// Returns [`Error::NotFound`] if the resource is not present, or another
@@ -109,6 +179,16 @@ pub trait ClassLoader {
     /// `META-INF/services/<binary-name>` files, not just the first hit. Simple
     /// loaders return zero or one entry; aggregate loaders concatenate child
     /// results in their search order.
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_loader::{ClassLoader, DirectoryLoader};
+    /// use std::path::PathBuf;
+    ///
+    /// let loader = DirectoryLoader::new(PathBuf::from("../../tests/fixtures"));
+    /// let resources = loader.find_resources("hello_world.txt").unwrap();
+    /// assert_eq!(resources.len(), 1);
+    /// ```
     ///
     /// # Errors
     ///
@@ -122,6 +202,16 @@ pub trait ClassLoader {
     }
 
     /// Return every matching resource with stable synthetic URLs.
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_loader::{ClassLoader, DirectoryLoader};
+    /// use std::path::PathBuf;
+    ///
+    /// let loader = DirectoryLoader::new(PathBuf::from("../../tests/fixtures"));
+    /// let resources = loader.find_resource_entries("hello_world.txt").unwrap();
+    /// assert_eq!(resources.len(), 1);
+    /// ```
     ///
     /// # Errors
     ///
@@ -141,6 +231,17 @@ pub trait ClassLoader {
     /// `META-INF/services/<service_binary_name>` across the loader in
     /// deterministic classpath order, preserving each file's bytes and leaving
     /// UTF-8/comment parsing to the caller.
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_loader::{ClassLoader, DirectoryLoader};
+    /// use std::path::PathBuf;
+    ///
+    /// let loader = DirectoryLoader::new(PathBuf::from("../../tests/fixtures"));
+    /// // In a real project, this would read all META-INF/services/java.sql.Driver files
+    /// let configs = loader.service_configuration_files("java.sql.Driver").unwrap();
+    /// assert_eq!(configs.len(), 0);
+    /// ```
     ///
     /// # Errors
     ///

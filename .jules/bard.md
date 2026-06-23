@@ -36,3 +36,7 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+
+## 2024-06-23 - Core Trait Methods Missing Examples
+**Confusion:** Core traits like `ClassLoader` in `duke-loader` lack doctest examples for their required methods (`find_class`, `find_resource`, etc.), leaving developers confused on how to correctly call or implement them.
+**Clarification:** Added `# Examples` with executable doctests using mock data (`DirectoryLoader` over `tests/fixtures`) directly onto the trait methods, ensuring the expected inputs and outputs are clearly demonstrated.
