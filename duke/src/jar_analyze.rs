@@ -11,14 +11,13 @@ use duke_classfile::{
 };
 use duke_loader::{ClassLoader, ZipLoader};
 use std::path::Path;
-use std::process;
 
 #[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -37,7 +36,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -68,10 +67,10 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
 #[cfg(not(tarpaulin_include))]
 #[allow(unexpected_cfgs)]
 pub fn dump_jar_analyze(jar_path: &str) {
-    let loader = ZipLoader::open(Path::new(jar_path)).unwrap_or_else(|e| {
-        eprintln!("duke: failed to open JAR '{jar_path}': {e}");
-        process::exit(1);
-    });
+    let Ok(loader) = ZipLoader::open(Path::new(jar_path)) else {
+        eprintln!("duke: failed to open JAR '{jar_path}'");
+        return;
+    };
 
     let mut total_classes = 0;
     let mut total_methods = 0;
@@ -155,6 +154,11 @@ mod tests {
     use super::*;
     use duke_classfile::ClassAccessFlags;
     use duke_classfile::ClassFile;
+
+    #[test]
+    fn test_dump_jar_analyze_invalid() {
+        super::dump_jar_analyze("invalid_path.jar");
+    }
 
     #[test]
     fn test_dump_jar_analyze_valid() {

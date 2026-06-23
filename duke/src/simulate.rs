@@ -56,6 +56,31 @@ mod tests {
     };
 
     #[test]
+    fn test_dump_simulate_valid() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../tests/fixtures/HelloWorld.class");
+        let path = path.to_str().unwrap();
+
+        super::dump_simulate(path, "main");
+        super::dump_simulate(path, "nonexistentmethod");
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to read class file")]
+    fn test_dump_simulate_invalid_file() {
+        super::dump_simulate("invalid_path.class", "main");
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to parse class file")]
+    fn test_dump_simulate_invalid_parse() {
+        // Use a dummy file that is not a class file, e.g. Cargo.toml
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let path = path.to_str().unwrap();
+        super::dump_simulate(path, "main");
+    }
+
+    #[test]
     fn test_cp_str() {
         let cf1 = ClassFile {
             major_version: 52,

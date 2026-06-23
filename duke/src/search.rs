@@ -2,7 +2,6 @@ use duke_bytecode::decode;
 use duke_classfile::{
     parse, {AttributeData, CpEntry, CpIndex},
 };
-use std::process;
 
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
@@ -37,14 +36,14 @@ fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
 /// dump_search("MyClass.class", "invokevirtual");
 /// ```
 pub fn dump_search(path: &str, query: &str) {
-    let bytes = std::fs::read(path).unwrap_or_else(|e| {
-        eprintln!("duke: cannot read '{path}': {e}");
-        process::exit(1);
-    });
-    let cf = parse(&bytes).unwrap_or_else(|e| {
-        eprintln!("duke: parse error: {e}");
-        process::exit(1);
-    });
+    let Ok(bytes) = std::fs::read(path) else {
+        eprintln!("duke: cannot read '{path}'");
+        return;
+    };
+    let Ok(cf) = parse(&bytes) else {
+        eprintln!("duke: parse error on '{path}'");
+        return;
+    };
 
     let query_lower = query.to_lowercase();
     let mut found_any = false;
@@ -88,6 +87,14 @@ mod tests {
     use super::*;
     use duke_classfile::ClassAccessFlags;
     use duke_classfile::ClassFile;
+
+    #[test]
+    fn test_dump_search_invalid() {
+        super::dump_search("invalid_path.class", "invokevirtual");
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let path = path.to_str().unwrap();
+        super::dump_search(path, "invokevirtual");
+    }
 
     #[test]
     fn test_dump_search_valid() {
