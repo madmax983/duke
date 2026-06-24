@@ -782,6 +782,19 @@ impl Instruction {
 
     /// Returns `true` if the instruction halts execution in the current frame.
     #[must_use]
+    pub const fn is_method_return(&self) -> bool {
+        matches!(
+            self,
+            Self::Return
+                | Self::Ireturn
+                | Self::Lreturn
+                | Self::Freturn
+                | Self::Dreturn
+                | Self::Areturn
+        )
+    }
+
+    #[must_use]
     pub const fn is_return(&self) -> bool {
         matches!(
             self,

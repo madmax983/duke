@@ -82,7 +82,7 @@ pub fn verify(
         }
 
         // Empty-stack-on-return check
-        if is_return(instr) && depth != 0 {
+        if instr.is_method_return() && depth != 0 {
             return Err(crate::Error::Verify(VerifyError::NonEmptyStackOnReturn {
                 pc,
                 depth,
@@ -357,18 +357,6 @@ const fn stack_effect(instr: &Instruction) -> (usize, usize) {
 
         Instruction::Monitorenter | Instruction::Monitorexit => (1, 0),
     }
-}
-
-const fn is_return(instr: &Instruction) -> bool {
-    matches!(
-        instr,
-        Instruction::Return
-            | Instruction::Ireturn
-            | Instruction::Lreturn
-            | Instruction::Freturn
-            | Instruction::Dreturn
-            | Instruction::Areturn
-    )
 }
 
 /// Check that any local variable accesses are within `max_locals`.
