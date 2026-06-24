@@ -1,0 +1,36 @@
+<<<<<<< SEARCH
+#[cfg(feature = "nova")]
+use duke_classfile::{
+    parse,
+    types::{AttributeData, CpEntry, CpIndex},
+};
+=======
+#[cfg(feature = "nova")]
+use duke_classfile::{
+    parse, AttributeData, CpEntry, CpIndex,
+};
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
+    cf.constant_pool
+        .get(idx.0 as usize)
+        .and_then(|slot| slot.as_ref())
+        .and_then(|entry| {
+=======
+fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
+    cf.constant_pool
+        .get(idx.0 as usize)
+        .and_then(|slot: &Option<CpEntry>| slot.as_ref())
+        .and_then(|entry| {
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+    let class_entry = cf
+        .constant_pool
+        .get(idx.0 as usize)
+        .and_then(|s| s.as_ref());
+=======
+    let class_entry = cf
+        .constant_pool
+        .get(idx.0 as usize)
+        .and_then(|s: &Option<CpEntry>| s.as_ref());
+>>>>>>> REPLACE
