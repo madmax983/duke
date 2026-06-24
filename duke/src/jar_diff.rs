@@ -1,11 +1,17 @@
+//! JVM Bytecode Difference Analysis.
+//!
+//! This module provides utilities to compare two Java Archives (`.jar` files) and determine what
+//! structural bytecode changes have occurred between them. Instead of a simple textual file diff,
+//! it actually parses the `.class` files, extracts the raw `Code` attributes (the actual JVM instructions)
+//! for every method, and computes a cryptographic hash. This allows the JVM developer to
+//! quickly identify newly added methods, removed legacy methods, and modified method bodies between
+//! versions, ignoring trivial changes like timestamps or file ordering.
+
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -18,7 +24,7 @@ use std::path::Path;
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -38,7 +44,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -48,6 +54,23 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     }
 }
 
+/// Analyzes two JAR files and prints a structural bytecode difference report to standard output.
+///
+/// **Why it exists:** Provides developers a tool for tracking codebase evolution, auditing backwards
+/// compatibility, and verifying that refactorings haven't inadvertently changed underlying compiled
+/// method logic. It helps spot accidental runtime regressions before they are deployed.
+///
+/// This iterates over all classes and methods in both JARs, computing hashes of the raw `Code` attributes,
+/// and then prints a summary of methods that were added, removed, or modified between the two versions.
+///
+/// # Examples
+///
+/// ```ignore
+/// // Assumes 'v1.jar' and 'v2.jar' are available on disk
+/// use duke::jar_diff::dump_jar_diff;
+///
+/// dump_jar_diff("v1.jar", "v2.jar");
+/// ```
 #[cfg(feature = "nova")]
 #[cfg(not(tarpaulin_include))]
 #[allow(
