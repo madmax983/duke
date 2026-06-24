@@ -1,11 +1,13 @@
+//! `jar_diff` — JAR Bytecode Difference Analyzer
+//!
+//! This module provides utilities to compare two Java Archives (JARs) and report
+//! on the differences in their method signatures and bytecodes.
+
 #![allow(clippy::items_after_statements)]
 #![allow(clippy::case_sensitive_file_extension_comparisons)]
 
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::collections::{HashMap, HashSet};
@@ -18,7 +20,7 @@ use std::path::Path;
 fn cp_str(cf: &duke_classfile::ClassFile, idx: CpIndex) -> Option<&str> {
     cf.constant_pool
         .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
+        .and_then(|slot: &Option<CpEntry>| slot.as_ref())
         .and_then(|entry| {
             if let CpEntry::Utf8(s) = entry {
                 Some(s.as_str())
@@ -38,7 +40,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     let class_entry = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
+        .and_then(|s: &Option<CpEntry>| s.as_ref());
     if let Some(CpEntry::Class { name_index }) = class_entry {
         cp_str(cf, *name_index)
             .unwrap_or("<invalid utf8>")
@@ -56,6 +58,14 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     clippy::use_debug,
     clippy::collapsible_if
 )]
+/// Compares two JAR files and prints a diff of their methods to standard output.
+///
+/// # Examples
+///
+/// ```no_run
+/// # #[cfg(feature = "nova")]
+/// # duke::jar_diff::dump_jar_diff("old.jar", "new.jar");
+/// ```
 pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
     let map1 = load_jar_methods(jar1_path);
     let map2 = load_jar_methods(jar2_path);
