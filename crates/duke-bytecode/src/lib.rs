@@ -15,9 +15,9 @@ pub(crate) mod cfg;
 pub(crate) mod decoder;
 pub(crate) mod error;
 pub(crate) mod instruction;
-pub(crate) mod opcodes;
 #[cfg(feature = "nova")]
 pub mod loop_detection;
+pub(crate) mod opcodes;
 #[cfg(feature = "nova")]
 pub(crate) mod reachability;
 #[cfg(feature = "nova")]
