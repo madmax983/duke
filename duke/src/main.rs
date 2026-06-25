@@ -24,6 +24,8 @@ mod jar_diff;
 mod jar_search;
 mod jdwp;
 #[cfg(feature = "nova")]
+mod method_similarity;
+#[cfg(feature = "nova")]
 mod pathfinding;
 #[cfg(feature = "nova")]
 mod purity;
@@ -463,6 +465,15 @@ fn main() {
     // Dispatch `bbcfg`: dump basic block control flow graph for a method.
     if args.len() >= 4 && args[1] == "bbcfg" {
         dump_bbcfg(&args[2], &args[3]);
+        return;
+    }
+
+    // Dispatch `similarity`: calculate bytecode similarity between two methods in a JAR.
+    if args.len() >= 5 && args[1] == "similarity" {
+        #[cfg(feature = "nova")]
+        method_similarity::dump_method_similarity(&args[2], &args[3], &args[4]);
+        #[cfg(not(feature = "nova"))]
+        eprintln!("duke: 'similarity' command requires the 'nova' feature flag.");
         return;
     }
 
