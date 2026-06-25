@@ -85,3 +85,7 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+**Flatten Decoder Cursor**
+**Learning:** The `Cursor::read_*` methods in `parser.rs` used chained sequential `read_u8()` and recursive calls. This created unnecessary nesting, multiple bound checks, and was generally less idiomatic.
+**Action:** Replaced chained `read_u8()` and bit shifts with slice-based bound checks `self.pos + n > self.data.len()` and `from_be_bytes(bytes)` to improve clarity and reduce sequential call overhead.
