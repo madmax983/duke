@@ -115,6 +115,32 @@ fn atomic_bool_arg(args: &[Slot], idx: usize) -> Result<bool> {
     extract_int_arg(args, idx).map(|value| value != 0)
 }
 
+
+#[inline]
+fn extract_string_arg(args: &[Slot], idx: usize, heap: &duke_gc::Heap) -> Result<Option<String>> {
+    match args.get(idx) {
+        Some(Slot::Reference(Some(r))) => Ok(heap.get(*r)?.string_value.clone()),
+        _ => Ok(None),
+    }
+}
+
+#[inline]
+fn extract_int_arg_or(args: &[Slot], idx: usize, default: i32) -> i32 {
+    match args.get(idx) {
+        Some(Slot::Int(n)) => *n,
+        _ => default,
+    }
+}
+
+#[inline]
+fn extract_usize_arg_or(args: &[Slot], idx: usize, default: usize) -> usize {
+    match args.get(idx) {
+        Some(Slot::Int(n)) => usize::try_from(*n.max(&0)).unwrap_or(default),
+        Some(Slot::Long(n)) => usize::try_from(*n.max(&0)).unwrap_or(default),
+        _ => default,
+    }
+}
+
 #[inline]
 fn extract_ref_arg(args: &[Slot], idx: usize) -> Result<u64> {
     match args.get(idx) {
@@ -3826,10 +3852,7 @@ pub(crate) fn native_throwable_init_string(
     control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let msg = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
+    let msg = extract_string_arg(args, 1, heap)?;
     heap.get_mut(this_ref)?.string_value = msg;
     fill_throwable_stack_trace_from_control(heap, this_ref, control)?;
     Ok(None)
@@ -3843,10 +3866,7 @@ pub(crate) fn native_throwable_init_string_cause(
     control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let msg = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
+    let msg = extract_string_arg(args, 1, heap)?;
     heap.get_mut(this_ref)?.string_value = msg;
     // Store cause in fields[0] (Throwable.cause field)
     if let Some(&cause_slot) = args.get(2)
@@ -7168,11 +7188,7 @@ pub(crate) fn native_stream_limit(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let max_size = match args.get(1).copied() {
-        Some(Slot::Long(n)) => usize::try_from(n.max(0)).unwrap_or(0),
-        Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
-        _ => 0,
-    };
+    let max_size = extract_usize_arg_or(args, 1, 0);
     let class_name = heap.get(stream_ref)?.class_name.clone();
 
     // Lazy generators: materialise N elements on limit().
@@ -7249,11 +7265,7 @@ pub(crate) fn native_stream_skip(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let skip_n = match args.get(1).copied() {
-        Some(Slot::Long(n)) => usize::try_from(n.max(0)).unwrap_or(0),
-        Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
-        _ => 0,
-    };
+    let skip_n = extract_usize_arg_or(args, 1, 0);
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -7377,10 +7389,7 @@ pub(crate) fn native_int_stream_range(
         Some(Slot::Int(n)) => n,
         _ => 0,
     };
-    let end = match args.get(1).copied() {
-        Some(Slot::Int(n)) => n,
-        _ => 0,
-    };
+    let end = extract_int_arg_or(args, 1, 0);
     let values: Vec<i32> = (start..end).collect();
     Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
 }
@@ -7397,10 +7406,7 @@ pub(crate) fn native_int_stream_range_closed(
         Some(Slot::Int(n)) => n,
         _ => 0,
     };
-    let end = match args.get(1).copied() {
-        Some(Slot::Int(n)) => n,
-        _ => 0,
-    };
+    let end = extract_int_arg_or(args, 1, 0);
     let values: Vec<i32> = (start..=end).collect();
     Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
 }
@@ -7780,10 +7786,7 @@ pub(crate) fn native_string_init_copy(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let src_val = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
-        _ => None,
-    };
+    let src_val = extract_string_arg(args, 1, heap)?;
     heap.get_mut(this_ref)?.string_value = src_val;
     Ok(None)
 }
@@ -15580,14 +15583,8 @@ pub(crate) fn native_arrays_stream_int_range(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let arr_ref = extract_ref_arg(args, 0)?;
-    let from = match args.get(1) {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let to = match args.get(2) {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let from = extract_usize_arg_or(args, 1, 0);
+    let to = extract_usize_arg_or(args, 2, 0);
     let arr_obj = heap.get(arr_ref)?;
     let values: Vec<i32> = arr_obj
         .fields
@@ -15760,10 +15757,7 @@ pub(crate) fn native_int_stream_reduce_identity(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let identity = match args.get(1) {
-        Some(Slot::Int(n)) => *n,
-        _ => 0,
-    };
+    let identity = extract_int_arg_or(args, 1, 0);
     let fn_slot = extract_slot_arg(args, 2);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Int(identity)));
@@ -16637,10 +16631,7 @@ pub(crate) fn native_string_split_limit(
         .string_value
         .clone()
         .unwrap_or_default();
-    let limit = match args.get(2) {
-        Some(Slot::Int(n)) => *n,
-        _ => 0,
-    };
+    let limit = extract_int_arg_or(args, 2, 0);
     #[allow(clippy::cast_sign_loss)] // limit is validated > 0 before the cast
     let parts: Vec<String> = if delim.is_empty() {
         let chars: Vec<String> = s.chars().map(|c| c.to_string()).collect();
@@ -25724,14 +25715,8 @@ pub(crate) fn native_arrays_copy_of_range_int(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let src_ref = extract_ref_arg(args, 0)?;
-    let from = match args.get(1) {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let to = match args.get(2) {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let from = extract_usize_arg_or(args, 1, 0);
+    let to = extract_usize_arg_or(args, 2, 0);
     let new_len = to.saturating_sub(from);
     let src_fields = heap.get(src_ref)?.fields.clone();
     let dst_ref = heap.allocate("[I".to_string(), new_len);
@@ -25750,14 +25735,8 @@ pub(crate) fn native_arrays_copy_of_range_object(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let src_ref = extract_ref_arg(args, 0)?;
-    let from = match args.get(1) {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let to = match args.get(2) {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let from = extract_usize_arg_or(args, 1, 0);
+    let to = extract_usize_arg_or(args, 2, 0);
     let new_len = to.saturating_sub(from);
     let (src_class, src_fields) = {
         let obj = heap.get(src_ref)?;
@@ -25781,14 +25760,8 @@ pub(crate) fn native_arraylist_sub_list(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let from = match args.get(1) {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
-    let to = match args.get(2) {
-        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
-        _ => 0,
-    };
+    let from = extract_usize_arg_or(args, 1, 0);
+    let to = extract_usize_arg_or(args, 2, 0);
     let new_len = to.saturating_sub(from);
     // ArrayList layout: fields[0]=size, fields[1..]=elements
     let src_elems: Vec<Slot> = {

@@ -85,3 +85,7 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+**Extract Argument Boilerplate**
+**Learning:** `crates/duke-interpreter/src/native.rs` had numerous repetitive inline matching patterns for extracting and unwrapping string, int, and long arguments from the `args: &[Slot]` slice.
+**Action:** Extract repetitive matching patterns that unwrap expected arguments into robust, generic helper functions (like `extract_string_arg`, `extract_int_arg_or`, etc.) to significantly reduce boilerplate and increase readability. Ensure that types and variable scopes are identical.
