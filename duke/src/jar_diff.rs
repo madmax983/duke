@@ -3,8 +3,7 @@
 
 #[cfg(feature = "nova")]
 use duke_classfile::{
-    parse,
-    types::{AttributeData, CpEntry, CpIndex},
+    parse, AttributeData, CpEntry, CpIndex,
 };
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
