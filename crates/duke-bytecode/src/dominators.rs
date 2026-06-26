@@ -15,7 +15,10 @@ use std::collections::{HashMap, HashSet};
 /// A block `D` dominates block `N` if every path from the entry block to `N` must go through `D`.
 #[cfg(feature = "nova")]
 #[must_use]
-pub fn compute_dominators(blocks: &[BasicBlock], entry_pc: usize) -> HashMap<usize, HashSet<usize>> {
+pub fn compute_dominators(
+    blocks: &[BasicBlock],
+    entry_pc: usize,
+) -> HashMap<usize, HashSet<usize>> {
     let mut doms: HashMap<usize, HashSet<usize>> = HashMap::new();
     if blocks.is_empty() {
         return doms;
@@ -45,7 +48,9 @@ pub fn compute_dominators(blocks: &[BasicBlock], entry_pc: usize) -> HashMap<usi
     while changed {
         changed = false;
         for block in blocks {
-            if block.start_pc == entry_pc { continue; }
+            if block.start_pc == entry_pc {
+                continue;
+            }
 
             let empty_preds = Vec::new();
             let preds = preds_map.get(&block.start_pc).unwrap_or(&empty_preds);
@@ -101,7 +106,9 @@ pub fn find_natural_loops(blocks: &[BasicBlock], entry_pc: usize) -> Vec<(usize,
                             continue;
                         }
                         for p in blocks {
-                            if get_successors(p).contains(&node) && !loop_nodes.contains(&p.start_pc) {
+                            if get_successors(p).contains(&node)
+                                && !loop_nodes.contains(&p.start_pc)
+                            {
                                 loop_nodes.insert(p.start_pc);
                                 stack.push(p.start_pc);
                             }
@@ -143,7 +150,6 @@ mod tests {
             assert!(doms.get(&b.start_pc).unwrap().contains(&0));
         }
     }
-
 
     #[test]
     fn test_find_natural_loops() {
