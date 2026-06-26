@@ -46,7 +46,9 @@ impl Slot {
     /// Extract as `i32`, or return a `TypeMismatch` error.
     ///
     /// # Errors
-    /// Returns [`Error::TypeMismatch`] if the slot is not `Int`.
+    /// Extracts the value if the slot holds an integer, otherwise fails.
+    ///
+    /// Returns `Err` with `Error::TypeMismatch` if the slot contains a float, reference, or other type.
     ///
     /// # Examples
     ///
@@ -73,7 +75,9 @@ impl Slot {
     /// Extract as `i64`, or return a `TypeMismatch` error.
     ///
     /// # Errors
-    /// Returns [`Error::TypeMismatch`] if the slot is not `Long`.
+    /// Extracts the value if the slot holds a long, otherwise fails.
+    ///
+    /// Returns `Err` with `Error::TypeMismatch` if the slot contains an int, reference, or other type.
     ///
     /// # Examples
     ///
@@ -100,7 +104,9 @@ impl Slot {
     /// Extract as `f32`, or return a `TypeMismatch` error.
     ///
     /// # Errors
-    /// Returns [`Error::TypeMismatch`] if the slot is not `Float`.
+    /// Extracts the value if the slot holds a float, otherwise fails.
+    ///
+    /// Returns `Err` with `Error::TypeMismatch` if the slot contains an int, reference, or other type.
     ///
     /// # Examples
     ///
@@ -127,7 +133,9 @@ impl Slot {
     /// Extract as `f64`, or return a `TypeMismatch` error.
     ///
     /// # Errors
-    /// Returns [`Error::TypeMismatch`] if the slot is not `Double`.
+    /// Extracts the value if the slot holds a double, otherwise fails.
+    ///
+    /// Returns `Err` with `Error::TypeMismatch` if the slot contains an int, reference, or other type.
     ///
     /// # Examples
     ///

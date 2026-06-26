@@ -39,7 +39,11 @@ pub enum ArrayType {
 }
 
 impl ArrayType {
-    /// Returns the array type from a raw byte value.
+    /// Attempts to map a raw byte value to an `ArrayType`.
+    ///
+    /// The byte value must match one of the predefined constant codes defined
+    /// by the JVM specification (e.g., `4` for `T_BOOLEAN`). If the value does not
+    /// correspond to any valid type, `None` is returned.
     #[must_use]
     pub const fn from_u8(v: u8) -> Option<Self> {
         Some(match v {
@@ -696,7 +700,20 @@ impl Instruction {
         )
     }
 
-    /// Returns the branch target offset for a conditional branch.
+    /// Calculates the raw byte offset for conditional jump instructions.
+    ///
+    /// The offset is signed and relative to the start of the instruction itself.
+    /// Returns `None` if this instruction is not a conditional branch.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_bytecode::Instruction;
+    /// let jump = Instruction::Ifeq(12);
+    /// assert_eq!(jump.conditional_branch_target(), Some(12));
+    /// let nop = Instruction::Nop;
+    /// assert_eq!(nop.conditional_branch_target(), None);
+    /// ```
     #[must_use]
     pub const fn conditional_branch_target(&self) -> Option<isize> {
         match self {
@@ -735,7 +752,19 @@ impl Instruction {
         matches!(self, Self::Jsr(_) | Self::JsrW(_))
     }
 
-    /// Returns the target offset for an unconditional jump.
+    /// Calculates the raw byte offset for unconditional jump instructions.
+    ///
+    /// The offset is signed and relative to the start of the instruction itself.
+    /// Both standard (`goto`, `jsr`) and wide (`goto_w`, `jsr_w`) variants are supported.
+    /// Returns `None` if this instruction is not an unconditional jump.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_bytecode::Instruction;
+    /// let jump = Instruction::Goto(12);
+    /// assert_eq!(jump.unconditional_jump_target(), Some(12));
+    /// ```
     #[must_use]
     pub const fn unconditional_jump_target(&self) -> Option<isize> {
         match self {
@@ -745,7 +774,11 @@ impl Instruction {
         }
     }
 
-    /// Returns the switch targets if the instruction is a switch statement.
+    /// Extracts the default offset and branch targets for a switch statement.
+    ///
+    /// For both `tableswitch` and `lookupswitch`, this provides unified access to the
+    /// default fallback branch and an iterator over all other match values and their offsets.
+    /// Returns `None` if this instruction is not a switch statement.
     /// It returns `Some((default_offset, targets_iterator))`.
     ///
     /// ⚡ Bolt: By returning an iterator instead of allocating and collecting into
@@ -894,7 +927,10 @@ impl Instruction {
         edges
     }
 
-    /// Returns the mnemonic string for display/debugging.
+    /// Returns the standard string representation of this instruction as defined in the JVM spec.
+    ///
+    /// This is useful when formatting trace logs or building decompilers. Wide variants
+    /// return the base mnemonic (e.g., `wide iload` will return `"iload"`).
     #[must_use]
     #[allow(clippy::too_many_lines)]
     pub const fn mnemonic(&self) -> &'static str {

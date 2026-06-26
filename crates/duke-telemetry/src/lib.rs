@@ -118,7 +118,7 @@ impl TelemetryStore {
     ///
     /// # Errors
     ///
-    /// Returns an error if writing to `w` fails.
+    /// Returns `Err` with an `std::io::Error` if the underlying writer `w` fails.
     ///
     /// # Examples
     ///

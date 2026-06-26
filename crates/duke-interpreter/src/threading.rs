@@ -257,7 +257,9 @@ impl ThreadRuntime {
     /// the runtime so that `live_workers` can decrement, unblocking `Thread.join()`
     /// calls and potentially allowing the JVM to shut down safely.
     ///
-    /// Returns `true` if the thread was found and marked as finished; `false` otherwise.
+    /// The return value indicates whether the thread state was actually mutated.
+    /// It returns `true` if the thread was found and marked as finished, or `false`
+    /// if the thread ID was invalid or already terminated.
     ///
     /// ## Examples
     ///
@@ -285,7 +287,9 @@ impl ThreadRuntime {
     /// the native ID. This is heavily utilized when resolving `Thread.join()` invocations,
     /// where the caller only holds a reference to the target Java thread object.
     ///
-    /// Returns `true` if the thread was found and marked as finished; `false` otherwise.
+    /// The return value indicates whether the thread state was actually mutated.
+    /// It returns `true` if the thread was found and marked as finished, or `false`
+    /// if the thread ID was invalid or already terminated.
     ///
     /// ## Examples
     ///

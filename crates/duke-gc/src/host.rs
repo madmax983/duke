@@ -324,7 +324,10 @@ impl Heap {
         Ok(code)
     }
 
-    /// Returns the child's exit code if it has already terminated.
+    /// Non-blocking check for the child process exit status.
+    ///
+    /// Returns `Ok(Some(exit_code))` if the child has terminated, or `Ok(None)` if it
+    /// is still running.
     ///
     /// # Errors
     /// Returns `IOException` if the process id is invalid or querying status fails.
@@ -477,7 +480,10 @@ impl Heap {
         Ok((reader_id, writer_id))
     }
 
-    /// Returns the local port of a bound server socket.
+    /// Retrieves the dynamically allocated local port for a bound server socket.
+    ///
+    /// This is primarily useful when a server socket is bound to port `0`, allowing the OS
+    /// to select an available port. This method allows the JVM to discover which port was chosen.
     ///
     /// # Errors
     /// Returns `IOException` if the id is invalid.

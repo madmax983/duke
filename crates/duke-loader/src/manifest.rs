@@ -6,8 +6,11 @@
 /// know the entry point of the application. This function isolates the logic required
 /// to quickly scan the manifest and extract this critical routing information.
 ///
-/// Returns the class name in internal form (e.g. `"com/example/App"`).
-/// Returns `None` if no `Main-Class` header is found.
+/// Parses the `Main-Class` attribute from a standard Java `MANIFEST.MF` file.
+///
+/// The returned class name is automatically converted from the external dot notation
+/// (`com.example.App`) to the JVM internal slash notation (`com/example/App`).
+/// Returns `None` if the manifest does not declare a main class entry point.
 ///
 /// # Examples
 ///

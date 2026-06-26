@@ -878,7 +878,10 @@ impl Heap {
 
     // ── Heap stats ───────────────────────────────────────────────────────────
 
-    /// Returns the total number of live objects across both generations.
+    /// Counts the total number of live allocated objects in the heap.
+    ///
+    /// This includes objects in both the young and old generations. Dead objects that have not
+    /// yet been reclaimed by a garbage collection cycle are still counted as "live" by this metric.
     ///
     /// # Examples
     ///
@@ -910,7 +913,10 @@ impl Heap {
         self.live_count == 0
     }
 
-    /// Returns the number of live objects in the old generation.
+    /// Counts the number of live allocated objects specifically in the old generation.
+    ///
+    /// Objects are promoted to the old generation if they survive a minor garbage collection
+    /// cycle. This metric is useful for tuning the `GC_OLD_THRESHOLD` limit.
     #[must_use]
     pub fn old_live_count(&self) -> usize {
         self.old.iter().filter(|s| s.is_some()).count()

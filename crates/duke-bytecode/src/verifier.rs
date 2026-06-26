@@ -29,7 +29,8 @@ use crate::{
 ///
 /// # Errors
 ///
-/// Returns the first [`VerifyError`] encountered.
+/// Returns `Err` with the first `VerifyError` encountered if the code array fails structural
+/// verification (e.g., jumping to an invalid offset or exceeding `max_stack`).
 ///
 /// # Examples
 ///

@@ -304,7 +304,10 @@ impl ClassLoader for JImageReader {
 // Header parsing
 // ---------------------------------------------------------------------------
 
-/// Returns `(resource_count, table_length, locations_size, strings_size)`.
+/// Parses the `jimage` file header to extract key metadata sizes.
+///
+/// Returns a tuple containing `(resource_count, table_length, locations_size, strings_size)`
+/// which determine the boundaries of the perfect hash tables and string pools.
 fn parse_header(data: &[u8]) -> Result<(u32, u32, u32, u32)> {
     if data.len() < HEADER_SIZE {
         return Err(Error::JImageFormat {
@@ -586,7 +589,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     /// Construct a test data array: string table followed by location entries.
-    /// Returns (data, `locs_offset`, `locs_size`, `str_offset`).
+    /// Returns a tuple of `(data, locs_offset, locs_size, str_offset)` mimicking a parsed jimage.
     fn make_build_index_data(locs: &[u8]) -> (Vec<u8>, usize, usize, usize) {
         // String table: "\0mod\0Foo\0"
         //   idx=0: '' (empty)

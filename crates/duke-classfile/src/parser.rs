@@ -121,12 +121,14 @@ impl<'a> Cursor<'a> {
 
 /// Parse a JVM `.class` file from raw bytes.
 ///
-/// Returns a fully-parsed [`ClassFile`] or a [`Error`] describing
+/// This parser executes a strict, bounded descent over the byte array to guarantee safety.
+///
+/// On success, it returns a fully-parsed [`ClassFile`] or a [`Error`] describing
 /// exactly why the input is invalid.
 ///
 /// # Errors
 ///
-/// Returns an error if the input is truncated, has an invalid magic number,
+/// Fails with `Err` if the input is truncated, has an invalid magic number,
 /// an unsupported version, or any structural inconsistency.
 ///
 /// # Examples
