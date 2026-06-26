@@ -399,14 +399,19 @@ pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> St
         let block_id = block.start_pc;
 
         // Node definition
-        let mut node_label = String::with_capacity(32 + block.instructions.len() * 16);
-        let _ = writeln!(node_label, "Block {block_id}");
+        let _ = writeln!(cfg, "    block{block_id}[\"Block {block_id}");
         for (pc, instr) in &block.instructions {
-            let _ = writeln!(node_label, "{}: {}", pc, instr.mnemonic());
+            let _ = write!(cfg, "{pc}: ");
+            for c in instr.mnemonic().chars() {
+                if c == '"' {
+                    cfg.push_str("\\\"");
+                } else {
+                    cfg.push(c);
+                }
+            }
+            cfg.push('\n');
         }
-        // Escape quotes
-        let node_label = node_label.replace('"', "\\\"");
-        let _ = writeln!(cfg, "    block{block_id}[\"{node_label}\"]");
+        cfg.push_str("\"]\n");
 
         // Edge definition based on the last instruction
         if let Some((last_pc, last_instr)) = block.instructions.last() {
