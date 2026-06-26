@@ -1,4 +1,8 @@
-//! `duke-classfile::parser` — JVM `.class` file parser implementation
+//! JVM `.class` file parser implementation.
+//!
+//! This module implements the main parsing logic for reading raw binary byte slices
+//! and decoding them into a structured `ClassFile` representation according to the JVM
+//! specification. It is designed to be panic-free on arbitrary input.
 
 use crate::{
     access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags},

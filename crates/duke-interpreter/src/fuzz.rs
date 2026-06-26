@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::large_stack_arrays)]
