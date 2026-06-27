@@ -16548,10 +16548,22 @@ pub(crate) fn native_string_replace_char(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let old_char = char::from_u32(extract_int_arg(args, 1)?.cast_unsigned()).unwrap_or('?');
     let new_char = char::from_u32(extract_int_arg(args, 2)?.cast_unsigned()).unwrap_or('?');
-    let result = s.replace(old_char, &new_char.to_string());
+
+    let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default();
+
+    // ⚡ Bolt: Use a single pass over string chars, appending conditionally.
+    // This avoids the intermediate String allocation from s.replace(), and new_char.to_string()
+    let mut result = String::with_capacity(s.len());
+    for c in s.chars() {
+        if c == old_char {
+            result.push(new_char);
+        } else {
+            result.push(c);
+        }
+    }
+
     let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -16564,20 +16576,17 @@ pub(crate) fn native_string_replace_charsequence(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let target_ref = extract_ref_arg(args, 1)?;
-    let target = heap
-        .get(target_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
     let replacement_ref = extract_ref_arg(args, 2)?;
-    let replacement = heap
-        .get(replacement_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
-    let result = s.replace(&*target, &replacement);
+
+    // ⚡ Bolt: Eliminate multiple `String` heap allocations by avoiding `.clone()` and retrieving string slices
+    let result = {
+        let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default();
+        let target = heap.get(target_ref)?.string_value.as_deref().unwrap_or_default();
+        let replacement = heap.get(replacement_ref)?.string_value.as_deref().unwrap_or_default();
+        s.replace(target, replacement)
+    };
+
     let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
 }
