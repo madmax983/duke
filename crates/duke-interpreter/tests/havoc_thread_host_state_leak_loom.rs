@@ -44,9 +44,13 @@ fn test_thread_host_state_leak() {
 
         t1.join().unwrap();
         t2.join().unwrap();
-                let final_state = state.read().unwrap();
+        let final_state = state.read().unwrap();
         for id in &final_state.interrupted {
-            assert!(final_state.hosts.values().any(|v| v == id), "Memory leak detected!");
+            assert!(
+                final_state.hosts.values().any(|v| v == id),
+                "Memory leak detected!"
+            );
         }
+        drop(final_state);
     });
 }

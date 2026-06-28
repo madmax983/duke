@@ -13366,6 +13366,7 @@ pub(crate) fn native_thread_interrupt(
     if let Some(host_thread_id) = state.hosts.get(&host_key).copied() {
         state.interrupted.insert(host_thread_id);
     }
+    drop(state);
     Ok(None)
 }
 
@@ -13385,13 +13386,15 @@ pub(crate) fn native_thread_is_interrupted(
         _ => -1,
     };
 
-    let state = java_host_state()
-        .read()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let host_interrupted = {
+        let state = java_host_state()
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-    let host_interrupted = state.hosts.get(&host_key).is_some_and(|host_thread_id| {
-        state.interrupted.contains(host_thread_id)
-    });
+        state.hosts.get(&host_key).is_some_and(|host_thread_id| {
+            state.interrupted.contains(host_thread_id)
+        })
+    };
 
     Ok(Some(Slot::Int(i32::from(
         field_interrupted || host_interrupted,
