@@ -16520,9 +16520,16 @@ pub(crate) fn native_string_touppercase(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
+    // ⚡ Bolt Optimization: Eliminated intermediate String heap allocation by using
+    // `.as_deref()` inside a scoped block. This allows us to perform the `to_uppercase`
+    // operation directly on the borrowed string slice (`&str`) without cloning the original,
+    // and correctly drops the immutable heap borrow before calling `heap.allocate_string()`.
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let r = heap.allocate_string(s.to_uppercase());
+    let result = {
+        let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default();
+        s.to_uppercase()
+    };
+    let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
 }
 
@@ -16533,9 +16540,16 @@ pub(crate) fn native_string_tolowercase(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
+    // ⚡ Bolt Optimization: Eliminated intermediate String heap allocation by using
+    // `.as_deref()` inside a scoped block. This allows us to perform the `to_lowercase`
+    // operation directly on the borrowed string slice (`&str`) without cloning the original,
+    // and correctly drops the immutable heap borrow before calling `heap.allocate_string()`.
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
-    let r = heap.allocate_string(s.to_lowercase());
+    let result = {
+        let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default();
+        s.to_lowercase()
+    };
+    let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
 }
 
@@ -16547,11 +16561,19 @@ pub(crate) fn native_string_replace_char(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
+    // ⚡ Bolt Optimization: Eliminated intermediate String heap allocation for both
+    // the target string and the replacement character.
+    // 1. Used `.as_deref()` in a scoped block to borrow the original string without cloning.
+    // 2. Used `char::encode_utf8(&mut [0; 4])` with a stack-allocated buffer instead of
+    //    `new_char.to_string()` to create a zero-cost `&str` for the replacement.
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let old_char = char::from_u32(extract_int_arg(args, 1)?.cast_unsigned()).unwrap_or('?');
     let new_char = char::from_u32(extract_int_arg(args, 2)?.cast_unsigned()).unwrap_or('?');
-    let result = s.replace(old_char, &new_char.to_string());
+    let result = {
+        let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default();
+        let mut b = [0; 4];
+        s.replace(old_char, new_char.encode_utf8(&mut b))
+    };
     let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -16563,21 +16585,22 @@ pub(crate) fn native_string_replace_charsequence(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
+    // ⚡ Bolt Optimization: Eliminated three intermediate String heap allocations by
+    // replacing `.clone()` with `.as_deref()` inside a scoped block. This allows
+    // `str::replace` to operate directly on the borrowed string slices (`&str`),
+    // keeping memory footprint minimal and properly managing lifetimes before the
+    // final `heap.allocate_string()` call.
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let target_ref = extract_ref_arg(args, 1)?;
-    let target = heap
-        .get(target_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
     let replacement_ref = extract_ref_arg(args, 2)?;
-    let replacement = heap
-        .get(replacement_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
-    let result = s.replace(&*target, &replacement);
+
+    let result = {
+        let s = heap.get(this_ref)?.string_value.as_deref().unwrap_or_default();
+        let target = heap.get(target_ref)?.string_value.as_deref().unwrap_or_default();
+        let replacement = heap.get(replacement_ref)?.string_value.as_deref().unwrap_or_default();
+        s.replace(target, replacement)
+    };
+
     let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
 }
