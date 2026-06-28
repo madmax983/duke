@@ -11597,72 +11597,66 @@ fn next_thread_host_key() -> i32 {
     NEXT_THREAD_HOST_KEY.fetch_add(1, Ordering::Relaxed)
 }
 
-fn java_thread_hosts() -> &'static RwLock<HashMap<i32, std::thread::ThreadId>> {
-    static HOSTS: OnceLock<RwLock<HashMap<i32, std::thread::ThreadId>>> = OnceLock::new();
-    HOSTS.get_or_init(|| RwLock::new(HashMap::new()))
+struct JavaHostState {
+    hosts: HashMap<i32, std::thread::ThreadId>,
+    interrupted: HashSet<std::thread::ThreadId>,
 }
 
-fn interrupted_host_threads() -> &'static RwLock<HashSet<std::thread::ThreadId>> {
-    static INTERRUPTED: OnceLock<RwLock<HashSet<std::thread::ThreadId>>> = OnceLock::new();
-    INTERRUPTED.get_or_init(|| RwLock::new(HashSet::new()))
+fn java_host_state() -> &'static RwLock<JavaHostState> {
+    static STATE: OnceLock<RwLock<JavaHostState>> = OnceLock::new();
+    STATE.get_or_init(|| RwLock::new(JavaHostState {
+        hosts: HashMap::new(),
+        interrupted: HashSet::new(),
+    }))
 }
 
 fn register_java_host_thread(host_key: i32, host_thread_id: std::thread::ThreadId) {
-    java_thread_hosts()
+    java_host_state()
         .write()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(host_key, host_thread_id);
+        .hosts.insert(host_key, host_thread_id);
 }
 
 fn unregister_java_host_thread(host_key: i32) {
-    let removed_host_thread = java_thread_hosts()
+    let mut state = java_host_state()
         .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .remove(&host_key);
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let removed_host_thread = state.hosts.remove(&host_key);
     if let Some(host_thread_id) = removed_host_thread {
-        interrupted_host_threads()
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(&host_thread_id);
+        state.interrupted.remove(&host_thread_id);
     }
 }
 
-fn host_thread_for_java_thread(host_key: i32) -> Option<std::thread::ThreadId> {
-    java_thread_hosts()
-        .read()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .get(&host_key)
-        .copied()
-}
+
 
 fn java_host_key_for_current_host() -> Option<i32> {
     let host_thread_id = current_host_thread_id();
-    java_thread_hosts()
+    java_host_state()
         .read()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .iter()
+        .hosts.iter()
         .find_map(|(host_key, mapped_host)| (*mapped_host == host_thread_id).then_some(*host_key))
 }
 
 fn interrupt_host_thread(host_thread_id: std::thread::ThreadId) {
-    interrupted_host_threads()
+    java_host_state()
         .write()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(host_thread_id);
+        .interrupted.insert(host_thread_id);
 }
 
 fn current_host_thread_is_interrupted() -> bool {
-    interrupted_host_threads()
+    java_host_state()
         .read()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .contains(&current_host_thread_id())
+        .interrupted.contains(&current_host_thread_id())
 }
 
 fn take_current_host_thread_interrupted() -> bool {
-    interrupted_host_threads()
+    java_host_state()
         .write()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .remove(&current_host_thread_id())
+        .interrupted.remove(&current_host_thread_id())
 }
 
 pub(crate) fn native_thread_current_thread(
@@ -13366,8 +13360,11 @@ pub(crate) fn native_thread_interrupt(
         _ => -1,
     };
     heap.write_field(thread_ref, THREAD_INTERRUPTED_SLOT, Slot::Int(1))?;
-    if let Some(host_thread_id) = host_thread_for_java_thread(host_key) {
-        interrupt_host_thread(host_thread_id);
+    let mut state = java_host_state()
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(host_thread_id) = state.hosts.get(&host_key).copied() {
+        state.interrupted.insert(host_thread_id);
     }
     Ok(None)
 }
@@ -13387,13 +13384,15 @@ pub(crate) fn native_thread_is_interrupted(
         Some(Slot::Int(host_key)) => *host_key,
         _ => -1,
     };
-    let host_interrupted = host_thread_for_java_thread(host_key)
-        .is_some_and(|host_thread_id| {
-            interrupted_host_threads()
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .contains(&host_thread_id)
-        });
+
+    let state = java_host_state()
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    let host_interrupted = state.hosts.get(&host_key).is_some_and(|host_thread_id| {
+        state.interrupted.contains(host_thread_id)
+    });
+
     Ok(Some(Slot::Int(i32::from(
         field_interrupted || host_interrupted,
     ))))
