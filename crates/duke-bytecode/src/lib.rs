@@ -9,9 +9,11 @@
 //! - `error` — [`DecodeError`] and [`VerifyError`]
 
 #[cfg(feature = "nova")]
-pub(crate) mod basic_block;
+pub mod basic_block;
 pub(crate) mod call_graph;
 pub(crate) mod cfg;
+#[cfg(feature = "nova")]
+pub(crate) mod clone_detection;
 pub(crate) mod decoder;
 pub(crate) mod error;
 pub(crate) mod instruction;
@@ -19,7 +21,7 @@ pub(crate) mod opcodes;
 #[cfg(feature = "nova")]
 pub(crate) mod reachability;
 #[cfg(feature = "nova")]
-pub(crate) mod similarity;
+pub mod similarity;
 pub(crate) mod verifier;
 
 #[cfg(feature = "nova")]
@@ -28,6 +30,8 @@ pub use call_graph::generate_mermaid_call_graph;
 #[cfg(feature = "nova")]
 pub use cfg::generate_basic_block_cfg;
 pub use cfg::{cyclomatic_complexity, generate_mermaid_cfg};
+#[cfg(feature = "nova")]
+pub use clone_detection::{CloneReport, detect_clones};
 pub use decoder::decode;
 pub use error::{DecodeError, Error, Result, VerifyError};
 pub use instruction::{ArrayType, Instruction};

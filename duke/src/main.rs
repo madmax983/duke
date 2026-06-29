@@ -312,7 +312,10 @@ fn main() {
         #[cfg(feature = "nova")]
         eprintln!("       duke purity <classfile.class>");
         eprintln!("       duke load <ClassName>");
-        eprintln!("       duke cfg <classfile.class> <method>");
+        eprintln!(
+            "       duke clone-detect <classfile.class> <threshold>
+       duke cfg <classfile.class> <method>"
+        );
         eprintln!("       duke bbcfg <classfile.class> <method>");
         #[cfg(feature = "nova")]
         eprintln!("       duke shortest-path <classfile.class> <method> <start_pc> <target_pc>");
@@ -480,6 +483,79 @@ fn main() {
         return;
     }
 
+    // Dispatch `clone-detect`: detect duplicated basic blocks in a class.
+    if args.len() >= 3 && args[1] == "clone-detect" {
+        let path = &args[2];
+        let threshold: f64 = if args.len() > 3 {
+            args[3].parse().unwrap_or(0.9)
+        } else {
+            0.9
+        };
+
+        #[cfg(feature = "nova")]
+        {
+            use duke_bytecode::{basic_block::build_basic_blocks, detect_clones};
+
+            let bytes = std::fs::read(path).unwrap_or_else(|e| {
+                eprintln!("duke: cannot read '{path}': {e}");
+                process::exit(1);
+            });
+            let cf = parse(&bytes).unwrap_or_else(|e| {
+                eprintln!("duke: invalid class '{path}': {e}");
+                process::exit(1);
+            });
+
+            println!("Analyzing {path} for basic block clones (threshold: {threshold:.2})...");
+
+            let mut found_clones = false;
+
+            for method in &cf.methods {
+                let mname = cp_str(&cf, method.name_index).unwrap_or("?");
+                let desc = cp_str(&cf, method.descriptor_index).unwrap_or("?");
+
+                for attr in &method.attributes {
+                    #[allow(clippy::collapsible_if)]
+                    if let duke_classfile::AttributeData::Code(code) = &attr.data {
+                        if let Ok(decoded) = duke_bytecode::decode(&code.code) {
+                            let blocks = build_basic_blocks(&decoded);
+                            let clones = detect_clones(&blocks, threshold);
+
+                            if !clones.is_empty() {
+                                found_clones = true;
+                                println!(
+                                    "
+Found {} clone(s) in {mname} {desc}:",
+                                    clones.len()
+                                );
+                                for clone in clones {
+                                    println!(
+                                        "  - Block at PC {} is a clone of Block at PC {} (Similarity: {:.2}%)",
+                                        clone.block_b_start_pc,
+                                        clone.block_a_start_pc,
+                                        clone.similarity_score * 100.0
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !found_clones {
+                println!(
+                    "
+No clones found meeting the threshold."
+                );
+            }
+        }
+
+        #[cfg(not(feature = "nova"))]
+        {
+            let _ = threshold; // Suppress unused variable warning
+            eprintln!("duke: 'clone-detect' command requires the 'nova' feature flag.");
+        }
+        return;
+    }
     // Dispatch `cg`: dump call graph for a class.
     if args.len() >= 3 && args[1] == "cg" {
         dump_cg(&args[2]);
