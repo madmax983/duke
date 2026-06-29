@@ -1,6 +1,7 @@
-Title: 🛡️ Sentry: [test coverage improvement]
-Body:
-🎯 Target: `duke_loader::ZipReader::read_entry_info`, `duke_loader::parse_central_directory`, and `duke_telemetry::ser_helpers`.
-💣 Risk: Edge cases where zip central directories have truncated entries or mismatched local header offsets, and missing telemetry map empty paths could panic or fail implicitly if refactored.
-🧪 Strategy: Added specific inline tests inside `crates/duke-loader/src/zip.rs` to reach missing branches of Zip Format errors (e.g. truncated `filename_len`, exceeded `uncompressed_size`). Added tests in `crates/duke-telemetry/src/helpers.rs` for empty map serialization. Added an empty check for `print_report`.
-🔭 Verification: `cargo test -p duke-loader` and `cargo test -p duke-telemetry`
+Title: 👺 Havoc: TOCTOU Race Condition in thread unregistration
+
+Description:
+🧨 **The Trigger:** A thread is unregistered (`unregister_java_host_thread`) at the exact same moment another thread attempts to interrupt it.
+📉 **The Stack Trace:** (Modeled as a Memory Leak in Loom Test - thread ID permanently left in `interrupted_host_threads`)
+🧪 **Reproduction:** Run `cargo test --test havoc_thread_loom --features loom` (Fails on unpatched `native.rs`)
+😈 **Comment:** You assumed acquiring two separate locks sequentially was thread-safe. You were wrong. Unregistering could interleave, leading to a permanently orphaned thread ID.
