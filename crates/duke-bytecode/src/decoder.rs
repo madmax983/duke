@@ -145,9 +145,8 @@ fn decode_constant_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
         _ => unreachable!(),
     })
 }
-fn decode_load_store_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
+fn decode_load_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
     Ok(match opcode {
-        // -- Loads -----------------------------------------------------------
         op::ILOAD => Instruction::Iload(c.read_u8()?),
         op::LLOAD => Instruction::Lload(c.read_u8()?),
         op::FLOAD => Instruction::Fload(c.read_u8()?),
@@ -181,7 +180,12 @@ fn decode_load_store_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
         op::BALOAD => Instruction::Baload,
         op::CALOAD => Instruction::Caload,
         op::SALOAD => Instruction::Saload,
-        // -- Stores ----------------------------------------------------------
+        _ => unreachable!(),
+    })
+}
+
+fn decode_store_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
+    Ok(match opcode {
         op::ISTORE => Instruction::Istore(c.read_u8()?),
         op::LSTORE => Instruction::Lstore(c.read_u8()?),
         op::FSTORE => Instruction::Fstore(c.read_u8()?),
@@ -218,6 +222,22 @@ fn decode_load_store_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
         _ => unreachable!(),
     })
 }
+#[allow(clippy::unnecessary_wraps)]
+fn decode_stack_op(opcode: u8) -> Result<Instruction> {
+    Ok(match opcode {
+        op::POP => Instruction::Pop,
+        op::POP2 => Instruction::Pop2,
+        op::DUP => Instruction::Dup,
+        op::DUP_X1 => Instruction::DupX1,
+        op::DUP_X2 => Instruction::DupX2,
+        op::DUP2 => Instruction::Dup2,
+        op::DUP2_X1 => Instruction::Dup2X1,
+        op::DUP2_X2 => Instruction::Dup2X2,
+        op::SWAP => Instruction::Swap,
+        _ => unreachable!(),
+    })
+}
+
 fn decode_math_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
     Ok(match opcode {
         op::IADD => Instruction::Iadd,
@@ -398,19 +418,9 @@ fn decode_extended_op(c: &mut Cursor<'_>, opcode: u8) -> Result<Instruction> {
 fn decode_one(c: &mut Cursor<'_>, opcode: u8, pc: usize) -> Result<Instruction> {
     match opcode {
         op::NOP..=op::LDC2_W => decode_constant_op(c, opcode),
-        op::ILOAD..=op::SASTORE => decode_load_store_op(c, opcode),
-        op::POP..=op::SWAP => Ok(match opcode {
-            op::POP => Instruction::Pop,
-            op::POP2 => Instruction::Pop2,
-            op::DUP => Instruction::Dup,
-            op::DUP_X1 => Instruction::DupX1,
-            op::DUP_X2 => Instruction::DupX2,
-            op::DUP2 => Instruction::Dup2,
-            op::DUP2_X1 => Instruction::Dup2X1,
-            op::DUP2_X2 => Instruction::Dup2X2,
-            op::SWAP => Instruction::Swap,
-            _ => unreachable!(),
-        }),
+        op::ILOAD..=op::SALOAD => decode_load_op(c, opcode),
+        op::ISTORE..=op::SASTORE => decode_store_op(c, opcode),
+        op::POP..=op::SWAP => decode_stack_op(opcode),
         op::IADD..=op::IINC => decode_math_op(c, opcode),
         op::I2L..=op::I2S => decode_conversion_op(opcode),
         op::LCMP..=op::RETURN => decode_control_flow_op(c, opcode, pc),
