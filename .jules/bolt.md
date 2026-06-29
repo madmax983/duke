@@ -37,3 +37,6 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+**[Borrow Scoping]
+**Learning:** [To resolve borrow checker conflicts where an immutable borrow must end before a mutable borrow begins on the same structure (like extracting a string from a heap then pushing to the same heap), wrapping the extraction in a block `{ ... }` explicitly drops the immutable borrow early.]
+**Action:** [Always scope immutable borrows tightly in blocks when a mutable borrow on the same container is required shortly after.]

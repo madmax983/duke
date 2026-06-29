@@ -16548,10 +16548,16 @@ pub(crate) fn native_string_replace_char(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let old_char = char::from_u32(extract_int_arg(args, 1)?.cast_unsigned()).unwrap_or('?');
     let new_char = char::from_u32(extract_int_arg(args, 2)?.cast_unsigned()).unwrap_or('?');
-    let result = s.replace(old_char, &new_char.to_string());
+
+    let result = {
+        let obj = heap.get(this_ref)?;
+        let s = obj.string_value.as_deref().unwrap_or_default();
+        let mut buf = [0; 4];
+        s.replace(old_char, new_char.encode_utf8(&mut buf))
+    };
+
     let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
 }
