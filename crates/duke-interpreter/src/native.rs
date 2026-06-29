@@ -18317,6 +18317,7 @@ fn format_java_double(v: f64) -> String {
     clippy::too_many_lines,
     clippy::cognitive_complexity
 )]
+#[allow(missing_docs)]
 pub fn execute(
     instructions: &[(usize, Instruction)],
     cp: &[Option<CpEntry>],
@@ -20459,6 +20460,7 @@ const fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
     clippy::items_after_statements,
     clippy::used_underscore_binding
 )]
+#[allow(missing_docs)]
 pub fn execute_class(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,

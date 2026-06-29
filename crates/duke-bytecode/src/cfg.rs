@@ -41,6 +41,7 @@ use crate::Instruction;
     clippy::cast_possible_truncation
 )]
 #[must_use]
+#[allow(missing_docs)]
 pub fn generate_mermaid_cfg(instructions: &[(usize, Instruction)]) -> String {
     let mut cfg = String::from("graph TD\n");
 
@@ -250,6 +251,7 @@ mod tests {
 /// assert_eq!(cyclomatic_complexity(&instructions), 2);
 /// ```
 #[must_use]
+#[allow(missing_docs)]
 pub fn cyclomatic_complexity(instructions: &[(usize, Instruction)]) -> usize {
     let mut complexity = 1;
 
@@ -381,6 +383,7 @@ mod complexity_tests {
     clippy::cast_possible_truncation
 )]
 #[must_use]
+#[allow(missing_docs)]
 pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> String {
     use std::fmt::Write;
     let mut cfg = String::with_capacity(1024);
