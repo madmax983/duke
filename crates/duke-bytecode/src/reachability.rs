@@ -122,7 +122,10 @@ pub fn find_dead_blocks(blocks: &[BasicBlock], entry_pc: usize) -> Vec<usize> {
 /// Finds the shortest execution path (in terms of basic block transitions)
 /// from the entry block to a target block.
 ///
-/// This uses Breadth-First Search (BFS) to traverse the control flow graph.
+/// This uses Breadth-First Search (BFS) to traverse the control flow graph constructed from
+/// the given `blocks`. It finds the shortest sequence of block transitions starting from the
+/// block with `start_pc` to the block with `target_pc`.
+///
 /// It is useful for test generation, coverage analysis, and finding the
 /// quickest way to reach a specific block of bytecode.
 ///

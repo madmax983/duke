@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-25 - [Ghost Parameters in Documentation]
+**Confusion:** Many public functions have undocumented parameters (Ghost Params) that are not mentioned in their docstrings, violating the 'Ghost Param' rule.
+**Clarification:** Updated docstrings to explicitly mention and explain the purpose of all parameters, especially for core utility functions like `cp_utf8` and `resolve_attributes`.

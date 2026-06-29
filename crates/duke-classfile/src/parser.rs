@@ -408,6 +408,9 @@ fn parse_attribute(c: &mut Cursor<'_>, _cp_len: usize) -> Result<AttributeInfo> 
 
 /// Resolve raw attributes into typed forms using the constant pool.
 ///
+/// Modifies the `attrs` slice in place, decoding `Raw` bytes into structured attributes like `Code`
+/// or `LineNumberTable` using the entries from the `pool`.
+///
 /// Called after the whole class file is parsed, when we have the full CP.
 /// ⚡ Bolt: Pre-allocates vectors for known attribute table sizes to eliminate intermediate heap allocations.
 pub fn resolve_attributes(attrs: &mut [AttributeInfo], pool: &[Option<CpEntry>]) -> Result<()> {
@@ -615,6 +618,9 @@ fn parse_code_attribute(c: &mut Cursor<'_>) -> Result<CodeAttribute> {
 // ---------------------------------------------------------------------------
 
 /// Look up a UTF-8 string in the constant pool.
+///
+/// Retrieves the `Utf8` entry at the specified `idx` from the `pool`. Returns an error
+/// if the index is invalid or points to a different entry type.
 pub fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> Result<&str> {
     let i = idx.0 as usize;
     if i == 0 {

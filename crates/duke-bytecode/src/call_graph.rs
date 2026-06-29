@@ -75,7 +75,7 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
 ///
 /// **Why it exists:** Navigating method invocations across a codebase manually is
 /// error-prone. This function automates the creation of a visual Call Graph by tracing
-/// all `invoke*` instructions, making it easier to see dependencies and side effects.
+/// all `invoke*` instructions in the given `cf` (`ClassFile`), making it easier to see dependencies and side effects.
 ///
 /// Generates a Mermaid call graph (CFG) from a given Java class file.
 ///
