@@ -1,0 +1,4 @@
+📖 Chapter: The `duke_interpreter::native` module
+💡 Insight: Clarified the usage of `execute_class_to_completion`, a critical VM entrypoint that was missing an executable example of how to orchestrate the thread runtime.
+🧪 Example: Added 1 executable doctest demonstrating initialization and invocation, and fixed a broken type inference in an adjacent `execute_class` doctest.
+🖼️ Preview: (Verified locally via `cargo doc --open`)

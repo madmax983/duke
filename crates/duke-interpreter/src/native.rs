@@ -20432,7 +20432,7 @@ const fn instr_name(instr: &duke_bytecode::Instruction) -> &'static str {
 /// # let mut registry = ClassRegistry::new();
 /// # let loader = DirectoryLoader::new(".");
 /// # let mut heap = Heap::new();
-/// # let mut stdout = Vec::new();
+/// # let mut stdout: Vec<u8> = Vec::new();
 /// // Execute `public static void main(String[] args)`
 /// let result = execute_class(
 ///     &mut registry,
@@ -21275,6 +21275,32 @@ fn spawn_java_thread(
 /// * `Ok(Some(Slot))` - If the method completes and returns a value.
 /// * `Ok(None)` - If the method is `void` and completes.
 /// * `Err(Error)` - If the method throws an unhandled exception or encounters a fatal VM error.
+///
+/// # Examples
+///
+/// ```
+/// use duke_interpreter::{ClassRegistry, execute_class_to_completion};
+/// use duke_loader::DirectoryLoader;
+/// use duke_gc::Heap;
+///
+/// let mut registry = ClassRegistry::new();
+/// let loader = DirectoryLoader::new(".");
+/// let mut heap = Heap::new();
+/// let mut stdout: Vec<u8> = Vec::new();
+///
+/// // The function handles method resolution, thread orchestration,
+/// // and ensures all non-daemon JVM threads have joined before returning.
+/// let result = execute_class_to_completion(
+///     &mut registry,
+///     loader,
+///     &mut heap,
+///     &mut stdout,
+///     "com/example/Main",
+///     "main",
+///     "([Ljava/lang/String;)V",
+///     &[],
+/// );
+/// ```
 ///
 /// Execute a Java entrypoint and keep the VM alive until any spawned worker
 /// threads have either finished or been joined.
