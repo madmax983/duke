@@ -29437,9 +29437,12 @@ fn string_from_slot(heap: &duke_gc::Heap, slot: Slot) -> Option<String> {
         .and_then(|obj| obj.string_value.clone())
 }
 
+/// ⚡ Bolt: Eliminate heap allocation of `fields` clone.
 fn properties_local_entries(heap: &duke_gc::Heap, props_ref: u64) -> Result<Vec<(Slot, Slot)>> {
-    let fields = heap.get(props_ref)?.fields.clone();
-    let mut entries = Vec::new();
+    let obj = heap.get(props_ref)?;
+    let fields = &obj.fields;
+    let capacity = fields.len().saturating_sub(PROPERTIES_ENTRIES_START) / 2;
+    let mut entries = Vec::with_capacity(capacity);
     let mut idx = PROPERTIES_ENTRIES_START;
     while idx + 1 < fields.len() {
         entries.push((fields[idx], fields[idx + 1]));
@@ -31223,15 +31226,16 @@ const PROCESS_STDIN_FIELD: usize = 1;
 const PROCESS_STDOUT_FIELD: usize = 2;
 const PROCESS_STDERR_FIELD: usize = 3;
 
+/// ⚡ Bolt: Eliminate heap allocation of `fields` clone.
 fn string_array_from_slot(slot: Slot, heap: &duke_gc::Heap) -> Result<Vec<String>> {
     let Slot::Reference(Some(array_ref)) = slot else {
         return Err(Error::NullPointerException);
     };
-    let elements = heap.get(array_ref)?.fields.clone();
+    let elements = &heap.get(array_ref)?.fields;
     elements
-        .into_iter()
+        .iter()
         .map(|element| match element {
-            Slot::Reference(Some(string_ref)) => string_value_from_ref(heap, string_ref),
+            Slot::Reference(Some(string_ref)) => string_value_from_ref(heap, *string_ref),
             _ => Err(Error::NullPointerException),
         })
         .collect()
