@@ -1,6 +1,9 @@
-Title: 🛡️ Sentry: [test coverage improvement]
-Body:
-🎯 Target: `duke_loader::ZipReader::read_entry_info`, `duke_loader::parse_central_directory`, and `duke_telemetry::ser_helpers`.
-💣 Risk: Edge cases where zip central directories have truncated entries or mismatched local header offsets, and missing telemetry map empty paths could panic or fail implicitly if refactored.
-🧪 Strategy: Added specific inline tests inside `crates/duke-loader/src/zip.rs` to reach missing branches of Zip Format errors (e.g. truncated `filename_len`, exceeded `uncompressed_size`). Added tests in `crates/duke-telemetry/src/helpers.rs` for empty map serialization. Added an empty check for `print_report`.
-🔭 Verification: `cargo test -p duke-loader` and `cargo test -p duke-telemetry`
+🧨 The Trigger: A thread's ID was read from one RwLock (hosts map) and subsequently written to another RwLock (interrupted set) during thread interruption in `native_thread_interrupt`. If a target thread finished and unregistered itself between these two operations, it successfully removed itself from the hosts map but couldn't clear its non-existent interrupted flag. Then, the interrupter thread resumed and blindly inserted the ID into the interrupted set, leaving behind a zombie thread ID.
+
+📉 The Stack Trace: (Modeled in loom)
+thread 'test_thread_state_toctou' panicked at crates/duke-interpreter/tests/havoc_thread_state_loom.rs:58:9:
+TOCTOU race condition! Zombie thread ID left in interrupted set.
+
+🧪 Reproduction: Run `cargo test --test havoc_thread_state_loom` (using the included Loom model before the fix was applied).
+
+😈 Comment: "You assumed thread states only progress sequentially and threads never finish while you're trying to interrupt them. Concurrency waits for no one."
