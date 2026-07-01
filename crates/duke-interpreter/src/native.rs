@@ -16540,6 +16540,7 @@ pub(crate) fn native_string_tolowercase(
 }
 
 /// Native: `String.replace(char, char)` — replaces all occurrences of old char with new char.
+/// ⚡ Bolt: Avoids allocating a String by encoding the char directly into a stack buffer.
 #[allow(clippy::cast_sign_loss)]
 pub(crate) fn native_string_replace_char(
     args: &[Slot],
@@ -16551,7 +16552,9 @@ pub(crate) fn native_string_replace_char(
     let s = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let old_char = char::from_u32(extract_int_arg(args, 1)?.cast_unsigned()).unwrap_or('?');
     let new_char = char::from_u32(extract_int_arg(args, 2)?.cast_unsigned()).unwrap_or('?');
-    let result = s.replace(old_char, &new_char.to_string());
+    // ⚡ Bolt: Avoid allocating a String by encoding the char directly into a stack buffer
+    let mut buf = [0; 4];
+    let result = s.replace(old_char, new_char.encode_utf8(&mut buf));
     let r = heap.allocate_string(result);
     Ok(Some(Slot::Reference(Some(r))))
 }
