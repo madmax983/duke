@@ -85,3 +85,7 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+**[Refactor Let Chains with Guard Clauses]
+**Learning:** `generate_mermaid_call_graph` had a complex `if let ... && let ...` nesting (Let Chains) leading to a "Pyramid of Doom" and reducing readability.
+**Action:** Used early returns `let Some(x) = y else { continue; }` to flatten the deep nesting, improving readability and cognitive load.

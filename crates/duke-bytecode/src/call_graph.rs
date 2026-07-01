@@ -122,26 +122,35 @@ pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
         let source_id = format!("{this_class_name}::{name_str}{desc_str}");
 
         for attr in &method.attributes {
-            if let AttributeData::Code(code) = &attr.data
-                && let Ok(instructions) = decode(&code.code)
-            {
-                for (_, instr) in instructions {
-                    let target_idx = match instr {
-                        Instruction::Invokevirtual(idx)
-                        | Instruction::Invokespecial(idx)
-                        | Instruction::Invokestatic(idx)
-                        | Instruction::Invokeinterface { index: idx, .. } => Some(idx),
-                        // Invokedynamic is more complex, skip for basic call graph
-                        _ => None,
-                    };
+            let AttributeData::Code(code) = &attr.data else {
+                continue;
+            };
+            let Ok(instructions) = decode(&code.code) else {
+                continue;
+            };
 
-                    if let Some(idx) = target_idx
-                        && let Some((target_class, target_method, target_descriptor)) =
-                            extract_method_ref(cf, idx)
-                    {
-                        edges.insert(format!("    \"{source_id}\" --> \"{target_class}::{target_method}{target_descriptor}\""));
-                    }
-                }
+            for (_, instr) in instructions {
+                let target_idx = match instr {
+                    Instruction::Invokevirtual(idx)
+                    | Instruction::Invokespecial(idx)
+                    | Instruction::Invokestatic(idx)
+                    | Instruction::Invokeinterface { index: idx, .. } => Some(idx),
+                    // Invokedynamic is more complex, skip for basic call graph
+                    _ => None,
+                };
+
+                let Some(idx) = target_idx else {
+                    continue;
+                };
+                let Some((target_class, target_method, target_descriptor)) =
+                    extract_method_ref(cf, idx)
+                else {
+                    continue;
+                };
+
+                edges.insert(format!(
+                    "    \"{source_id}\" --> \"{target_class}::{target_method}{target_descriptor}\""
+                ));
             }
         }
     }
