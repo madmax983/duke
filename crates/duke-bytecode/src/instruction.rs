@@ -894,6 +894,86 @@ impl Instruction {
         edges
     }
 
+    /// Returns the local variable index accessed by this instruction, if any.
+    #[must_use]
+    pub const fn local_variable_index(&self) -> Option<usize> {
+        match self {
+            Self::Iload(i)
+            | Self::Lload(i)
+            | Self::Fload(i)
+            | Self::Dload(i)
+            | Self::Aload(i)
+            | Self::Istore(i)
+            | Self::Lstore(i)
+            | Self::Fstore(i)
+            | Self::Dstore(i)
+            | Self::Astore(i)
+            | Self::Ret(i) => Some(*i as usize),
+
+            Self::Iinc { index, .. } => Some(*index as usize),
+
+            Self::IloadW(i)
+            | Self::LloadW(i)
+            | Self::FloadW(i)
+            | Self::DloadW(i)
+            | Self::AloadW(i)
+            | Self::IstoreW(i)
+            | Self::LstoreW(i)
+            | Self::FstoreW(i)
+            | Self::DstoreW(i)
+            | Self::AstoreW(i)
+            | Self::RetW(i) => Some(*i as usize),
+
+            Self::IincW { index, .. } => Some(*index as usize),
+
+            Self::Iload0
+            | Self::Lload0
+            | Self::Fload0
+            | Self::Dload0
+            | Self::Aload0
+            | Self::Istore0
+            | Self::Lstore0
+            | Self::Fstore0
+            | Self::Dstore0
+            | Self::Astore0 => Some(0),
+
+            Self::Iload1
+            | Self::Lload1
+            | Self::Fload1
+            | Self::Dload1
+            | Self::Aload1
+            | Self::Istore1
+            | Self::Lstore1
+            | Self::Fstore1
+            | Self::Dstore1
+            | Self::Astore1 => Some(1),
+
+            Self::Iload2
+            | Self::Lload2
+            | Self::Fload2
+            | Self::Dload2
+            | Self::Aload2
+            | Self::Istore2
+            | Self::Lstore2
+            | Self::Fstore2
+            | Self::Dstore2
+            | Self::Astore2 => Some(2),
+
+            Self::Iload3
+            | Self::Lload3
+            | Self::Fload3
+            | Self::Dload3
+            | Self::Aload3
+            | Self::Istore3
+            | Self::Lstore3
+            | Self::Fstore3
+            | Self::Dstore3
+            | Self::Astore3 => Some(3),
+
+            _ => None,
+        }
+    }
+
     /// Returns the mnemonic string for display/debugging.
     #[must_use]
     #[allow(clippy::too_many_lines)]
@@ -1566,5 +1646,34 @@ mod tests {
 
         assert!(!Instruction::Ifeq(0).is_unconditional_jump());
         assert!(!Instruction::Nop.is_unconditional_jump());
+    }
+
+    #[test]
+    fn test_instruction_local_variable_index() {
+        assert_eq!(Instruction::Iload(5).local_variable_index(), Some(5));
+        assert_eq!(Instruction::Lload(5).local_variable_index(), Some(5));
+        assert_eq!(
+            Instruction::Iinc { index: 5, value: 1 }.local_variable_index(),
+            Some(5)
+        );
+
+        assert_eq!(Instruction::IstoreW(10).local_variable_index(), Some(10));
+        assert_eq!(
+            Instruction::IincW {
+                index: 10,
+                value: 1
+            }
+            .local_variable_index(),
+            Some(10)
+        );
+
+        assert_eq!(Instruction::Iload0.local_variable_index(), Some(0));
+        assert_eq!(Instruction::Lstore1.local_variable_index(), Some(1));
+        assert_eq!(Instruction::Fload2.local_variable_index(), Some(2));
+        assert_eq!(Instruction::Dstore3.local_variable_index(), Some(3));
+
+        assert_eq!(Instruction::Goto(5).local_variable_index(), None);
+        assert_eq!(Instruction::Iconst0.local_variable_index(), None);
+        assert_eq!(Instruction::Nop.local_variable_index(), None);
     }
 }
