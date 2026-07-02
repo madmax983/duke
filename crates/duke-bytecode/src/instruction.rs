@@ -797,6 +797,87 @@ impl Instruction {
         )
     }
 
+    /// Returns the local variable index accessed by this instruction, if any.
+    #[must_use]
+    pub const fn accessed_local(&self) -> Option<usize> {
+        match self {
+            Self::Iload(i)
+            | Self::Lload(i)
+            | Self::Fload(i)
+            | Self::Dload(i)
+            | Self::Aload(i)
+            | Self::Istore(i)
+            | Self::Lstore(i)
+            | Self::Fstore(i)
+            | Self::Dstore(i)
+            | Self::Astore(i)
+            | Self::Ret(i) => Some(*i as usize),
+
+            Self::Iinc { index, .. } => Some(*index as usize),
+
+            Self::IloadW(i)
+            | Self::LloadW(i)
+            | Self::FloadW(i)
+            | Self::DloadW(i)
+            | Self::AloadW(i)
+            | Self::IstoreW(i)
+            | Self::LstoreW(i)
+            | Self::FstoreW(i)
+            | Self::DstoreW(i)
+            | Self::AstoreW(i)
+            | Self::RetW(i) => Some(*i as usize),
+
+            Self::IincW { index, .. } => Some(*index as usize),
+
+            // Short-form loads/stores use fixed indices 0-3
+            Self::Iload0
+            | Self::Lload0
+            | Self::Fload0
+            | Self::Dload0
+            | Self::Aload0
+            | Self::Istore0
+            | Self::Lstore0
+            | Self::Fstore0
+            | Self::Dstore0
+            | Self::Astore0 => Some(0),
+
+            Self::Iload1
+            | Self::Lload1
+            | Self::Fload1
+            | Self::Dload1
+            | Self::Aload1
+            | Self::Istore1
+            | Self::Lstore1
+            | Self::Fstore1
+            | Self::Dstore1
+            | Self::Astore1 => Some(1),
+
+            Self::Iload2
+            | Self::Lload2
+            | Self::Fload2
+            | Self::Dload2
+            | Self::Aload2
+            | Self::Istore2
+            | Self::Lstore2
+            | Self::Fstore2
+            | Self::Dstore2
+            | Self::Astore2 => Some(2),
+
+            Self::Iload3
+            | Self::Lload3
+            | Self::Fload3
+            | Self::Dload3
+            | Self::Aload3
+            | Self::Istore3
+            | Self::Lstore3
+            | Self::Fstore3
+            | Self::Dstore3
+            | Self::Astore3 => Some(3),
+
+            _ => None,
+        }
+    }
+
     /// Returns all possible control flow targets (next PC values) from this instruction,
     /// including fall-through if applicable.
     #[allow(
