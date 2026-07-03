@@ -1,3 +1,24 @@
+//! Static security scanner for Java bytecode.
+//!
+//! This module analyzes parsed [`ClassFile`]s to detect invocations of known
+//! dangerous or sensitive API calls. It uses a predefined set of [`RiskRule`]s
+//! matching against `Methodref` and `InterfaceMethodref` constant pool entries.
+//!
+//! # Examples
+//!
+//! ```
+//! use duke_classfile::parse;
+//! use duke::scan::{scan_classfile, RiskRule, RiskMatch};
+//!
+//! # fn doc_test() {
+//! let bytes = std::fs::read("SomeClass.class").unwrap();
+//! let class_file = parse(&bytes).unwrap();
+//! let matches = scan_classfile(&class_file);
+//! for m in matches {
+//!     println!("Found {} risk: {} in {}", m.rule.severity, m.rule.description, m.location);
+//! }
+//! # }
+//! ```
 use duke_classfile::{
     ClassFile, {CpEntry, CpIndex},
 };
