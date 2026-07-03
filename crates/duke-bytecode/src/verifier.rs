@@ -134,7 +134,6 @@ const fn check_locals(instr: &Instruction, pc: usize, max_locals: usize) -> Resu
 mod tests {
     use super::*;
 
-
     #[test]
     fn test_check_locals_ret() {
         let instructions = vec![(0, Instruction::Ret(5)), (2, Instruction::Return)];
