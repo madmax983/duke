@@ -85,3 +85,11 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+**Extract Instruction Metadata Methods**
+**Learning:** `verifier.rs` contained massively duplicated `match` blocks for calculating the `stack_effect` and the `accessed_local_index` of JVM `Instruction` enums. These blocks represented a form of "Feature Envy", where a downstream consumer was defining metadata that fundamentally belonged to the enum itself. Moving these to `impl Instruction` as `const fn` drastically reduces `verifier.rs` complexity and groups data behavior where it belongs.
+**Action:** Always extract boolean categorization logic (e.g., `is_conditional_branch()`), data extraction logic (e.g., `accessed_local_index()`), and structural heuristics (e.g., `stack_effect()`) into public helper methods directly on the enum to DRY up matching code and dramatically flatten calling modules.
+
+**Regex on Rust Macros**
+**Learning:** Attempting to use Python regex substitutions like `re.sub(r'assert_eq!\(stack_effect\(&(Instruction::.*?)\), \((.*?)\)\);', ...)` to refactor test code completely imploded due to Rust's nested parenthesis and multiline macro arguments. I lost 20+ iterations fixing bracket imbalances.
+**Action:** When refactoring Rust code containing nested macros, avoid naive regex substitutions. Prefer `replace_with_git_merge_diff`, exact substring replacements via `.replace()`, or simple targeted `sed` chunks to prevent breaking the AST structure.

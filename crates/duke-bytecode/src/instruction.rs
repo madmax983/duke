@@ -672,6 +672,335 @@ impl Iterator for SwitchTargets<'_> {
 impl ExactSizeIterator for SwitchTargets<'_> {}
 
 impl Instruction {
+    /// Returns the local variable index accessed by this instruction, if any.
+    #[must_use]
+    pub const fn accessed_local_index(&self) -> Option<usize> {
+        match self {
+            Self::Iload(i)
+            | Self::Lload(i)
+            | Self::Fload(i)
+            | Self::Dload(i)
+            | Self::Aload(i)
+            | Self::Istore(i)
+            | Self::Lstore(i)
+            | Self::Fstore(i)
+            | Self::Dstore(i)
+            | Self::Astore(i)
+            | Self::Ret(i) => Some(*i as usize),
+
+            Self::Iinc { index, .. } => Some(*index as usize),
+
+            Self::IloadW(i)
+            | Self::LloadW(i)
+            | Self::FloadW(i)
+            | Self::DloadW(i)
+            | Self::AloadW(i)
+            | Self::IstoreW(i)
+            | Self::LstoreW(i)
+            | Self::FstoreW(i)
+            | Self::DstoreW(i)
+            | Self::AstoreW(i)
+            | Self::RetW(i) => Some(*i as usize),
+
+            Self::IincW { index, .. } => Some(*index as usize),
+
+            // Short-form loads/stores use fixed indices 0-3
+            Self::Iload0
+            | Self::Lload0
+            | Self::Fload0
+            | Self::Dload0
+            | Self::Aload0
+            | Self::Istore0
+            | Self::Lstore0
+            | Self::Fstore0
+            | Self::Dstore0
+            | Self::Astore0 => Some(0),
+
+            Self::Iload1
+            | Self::Lload1
+            | Self::Fload1
+            | Self::Dload1
+            | Self::Aload1
+            | Self::Istore1
+            | Self::Lstore1
+            | Self::Fstore1
+            | Self::Dstore1
+            | Self::Astore1 => Some(1),
+
+            Self::Iload2
+            | Self::Lload2
+            | Self::Fload2
+            | Self::Dload2
+            | Self::Aload2
+            | Self::Istore2
+            | Self::Lstore2
+            | Self::Fstore2
+            | Self::Dstore2
+            | Self::Astore2 => Some(2),
+
+            Self::Iload3
+            | Self::Lload3
+            | Self::Fload3
+            | Self::Dload3
+            | Self::Aload3
+            | Self::Istore3
+            | Self::Lstore3
+            | Self::Fstore3
+            | Self::Dstore3
+            | Self::Astore3 => Some(3),
+
+            _ => None,
+        }
+    }
+
+    /// Returns the stack effect of this instruction as `(pops, pushes)`.
+    ///
+    /// Category-2 values (long, double) count as 1 slot each here because
+    /// we're doing structural depth tracking, not JVM computational-type checking.
+    #[allow(clippy::too_many_lines, clippy::match_same_arms)]
+    #[must_use]
+    pub const fn stack_effect(&self) -> (usize, usize) {
+        match self {
+            // Constants — push 1
+            Self::Nop => (0, 0),
+            Self::AconstNull
+            | Self::IconstM1
+            | Self::Iconst0
+            | Self::Iconst1
+            | Self::Iconst2
+            | Self::Iconst3
+            | Self::Iconst4
+            | Self::Iconst5
+            | Self::Lconst0
+            | Self::Lconst1
+            | Self::Fconst0
+            | Self::Fconst1
+            | Self::Fconst2
+            | Self::Dconst0
+            | Self::Dconst1
+            | Self::Bipush(_)
+            | Self::Sipush(_)
+            | Self::Ldc(_)
+            | Self::LdcW(_)
+            | Self::Ldc2W(_) => (0, 1),
+
+            // Loads — push 1
+            Self::Iload(_)
+            | Self::Lload(_)
+            | Self::Fload(_)
+            | Self::Dload(_)
+            | Self::Aload(_)
+            | Self::Iload0
+            | Self::Iload1
+            | Self::Iload2
+            | Self::Iload3
+            | Self::Lload0
+            | Self::Lload1
+            | Self::Lload2
+            | Self::Lload3
+            | Self::Fload0
+            | Self::Fload1
+            | Self::Fload2
+            | Self::Fload3
+            | Self::Dload0
+            | Self::Dload1
+            | Self::Dload2
+            | Self::Dload3
+            | Self::Aload0
+            | Self::Aload1
+            | Self::Aload2
+            | Self::Aload3
+            | Self::IloadW(_)
+            | Self::LloadW(_)
+            | Self::FloadW(_)
+            | Self::DloadW(_)
+            | Self::AloadW(_) => (0, 1),
+
+            // Array loads — pop arrayref + index, push value
+            Self::Iaload
+            | Self::Laload
+            | Self::Faload
+            | Self::Daload
+            | Self::Aaload
+            | Self::Baload
+            | Self::Caload
+            | Self::Saload => (2, 1),
+
+            // Stores — pop 1
+            Self::Istore(_)
+            | Self::Lstore(_)
+            | Self::Fstore(_)
+            | Self::Dstore(_)
+            | Self::Astore(_)
+            | Self::Istore0
+            | Self::Istore1
+            | Self::Istore2
+            | Self::Istore3
+            | Self::Lstore0
+            | Self::Lstore1
+            | Self::Lstore2
+            | Self::Lstore3
+            | Self::Fstore0
+            | Self::Fstore1
+            | Self::Fstore2
+            | Self::Fstore3
+            | Self::Dstore0
+            | Self::Dstore1
+            | Self::Dstore2
+            | Self::Dstore3
+            | Self::Astore0
+            | Self::Astore1
+            | Self::Astore2
+            | Self::Astore3
+            | Self::IstoreW(_)
+            | Self::LstoreW(_)
+            | Self::FstoreW(_)
+            | Self::DstoreW(_)
+            | Self::AstoreW(_) => (1, 0),
+
+            // Array stores — pop arrayref + index + value
+            Self::Iastore
+            | Self::Lastore
+            | Self::Fastore
+            | Self::Dastore
+            | Self::Aastore
+            | Self::Bastore
+            | Self::Castore
+            | Self::Sastore => (3, 0),
+
+            // Stack ops
+            Self::Pop => (1, 0),
+            Self::Pop2 => (2, 0),
+            Self::Dup => (1, 2),
+            Self::DupX1 => (2, 3),
+            Self::DupX2 => (3, 4),
+            Self::Dup2 => (2, 4),
+            Self::Dup2X1 => (3, 5),
+            Self::Dup2X2 => (4, 6),
+            Self::Swap => (2, 2),
+
+            // Binary arithmetic — pop 2, push 1
+            Self::Iadd
+            | Self::Ladd
+            | Self::Fadd
+            | Self::Dadd
+            | Self::Isub
+            | Self::Lsub
+            | Self::Fsub
+            | Self::Dsub
+            | Self::Imul
+            | Self::Lmul
+            | Self::Fmul
+            | Self::Dmul
+            | Self::Idiv
+            | Self::Ldiv
+            | Self::Fdiv
+            | Self::Ddiv
+            | Self::Irem
+            | Self::Lrem
+            | Self::Frem
+            | Self::Drem
+            | Self::Ishl
+            | Self::Lshl
+            | Self::Ishr
+            | Self::Lshr
+            | Self::Iushr
+            | Self::Lushr
+            | Self::Iand
+            | Self::Land
+            | Self::Ior
+            | Self::Lor
+            | Self::Ixor
+            | Self::Lxor => (2, 1),
+
+            // Unary arithmetic — pop 1, push 1
+            Self::Ineg | Self::Lneg | Self::Fneg | Self::Dneg => (1, 1),
+
+            // iinc — operates on local, no stack change
+            Self::Iinc { .. } | Self::IincW { .. } => (0, 0),
+
+            // Conversions — pop 1, push 1
+            Self::I2l
+            | Self::I2f
+            | Self::I2d
+            | Self::L2i
+            | Self::L2f
+            | Self::L2d
+            | Self::F2i
+            | Self::F2l
+            | Self::F2d
+            | Self::D2i
+            | Self::D2l
+            | Self::D2f
+            | Self::I2b
+            | Self::I2c
+            | Self::I2s => (1, 1),
+
+            // Compare — pop 2, push 1 (int result: -1/0/1)
+            Self::Lcmp | Self::Fcmpl | Self::Fcmpg | Self::Dcmpl | Self::Dcmpg => (2, 1),
+
+            // Conditional branches — pop 1 (for if*) or 2 (for if_icmp* / if_acmp*)
+            Self::Ifeq(_)
+            | Self::Ifne(_)
+            | Self::Iflt(_)
+            | Self::Ifge(_)
+            | Self::Ifgt(_)
+            | Self::Ifle(_)
+            | Self::Ifnull(_)
+            | Self::Ifnonnull(_) => (1, 0),
+
+            Self::IfIcmpeq(_)
+            | Self::IfIcmpne(_)
+            | Self::IfIcmplt(_)
+            | Self::IfIcmpge(_)
+            | Self::IfIcmpgt(_)
+            | Self::IfIcmple(_)
+            | Self::IfAcmpeq(_)
+            | Self::IfAcmpne(_) => (2, 0),
+
+            // Unconditional branches — no stack change
+            Self::Goto(_) | Self::GotoW(_) => (0, 0),
+
+            // jsr pushes return address; ret pops nothing
+            Self::Jsr(_) | Self::JsrW(_) => (0, 1),
+            Self::Ret(_) | Self::RetW(_) => (0, 0),
+
+            // switch — pop 1
+            Self::Tableswitch { .. } | Self::Lookupswitch { .. } => (1, 0),
+
+            // Returns — pop 0 or 1 (void vs value return)
+            Self::Return => (0, 0),
+            Self::Ireturn | Self::Lreturn | Self::Freturn | Self::Dreturn | Self::Areturn => (1, 0),
+
+            // Field access
+            Self::Getstatic(_) => (0, 1),
+            Self::Putstatic(_) => (1, 0),
+            Self::Getfield(_) => (1, 1),
+            Self::Putfield(_) => (2, 0),
+
+            // Method invocations — conservative: just track the hidden receiver pop
+            // Proper argument counting requires descriptor resolution; tracked in Phase 3+
+            Self::Invokevirtual(_) | Self::Invokespecial(_) => (1, 0),
+            Self::Invokestatic(_) => (0, 0),
+            Self::Invokeinterface { .. } => (1, 0),
+            Self::Invokedynamic(_) => (0, 0),
+
+            // Object creation — push objectref
+            Self::New(_) => (0, 1),
+            Self::Newarray(_) | Self::Anewarray(_) => (1, 1),
+            Self::Multianewarray { dimensions, .. } => (*dimensions as usize, 1),
+            Self::Arraylength => (1, 1),
+
+            // Athrow — handled specially (resets depth) but structurally pops 1
+            Self::Athrow => (1, 0),
+
+            // Checkcast: pops objectref, pushes same (or throws)
+            Self::Checkcast(_) => (1, 1),
+            Self::Instanceof(_) => (1, 1),
+
+            Self::Monitorenter | Self::Monitorexit => (1, 0),
+        }
+    }
     /// Returns `true` if the instruction is a conditional branch.
     #[must_use]
     pub const fn is_conditional_branch(&self) -> bool {
@@ -896,7 +1225,7 @@ impl Instruction {
 
     /// Returns the mnemonic string for display/debugging.
     #[must_use]
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::match_same_arms)]
     pub const fn mnemonic(&self) -> &'static str {
         match self {
             Self::Nop => "nop",
@@ -1135,7 +1464,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::match_same_arms)]
     fn test_instruction_mnemonics() {
         let cases = vec![
             (Instruction::Nop, "nop"),
@@ -1566,5 +1895,296 @@ mod tests {
 
         assert!(!Instruction::Ifeq(0).is_unconditional_jump());
         assert!(!Instruction::Nop.is_unconditional_jump());
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines, clippy::match_same_arms)]
+    fn test_stack_effect_coverage() {
+        assert_eq!(Instruction::Nop.stack_effect(), (0, 0));
+        assert_eq!(Instruction::Lload0.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Daload.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Dstore0.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Lastore.stack_effect(), (3, 0));
+        assert_eq!(Instruction::Pop2.stack_effect(), (2, 0));
+        assert_eq!(Instruction::Dup2X2.stack_effect(), (4, 6));
+        assert_eq!(Instruction::DupX2.stack_effect(), (3, 4));
+        assert_eq!(Instruction::Dup2.stack_effect(), (2, 4));
+        assert_eq!(Instruction::Istore0.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Istore1.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Istore2.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Istore3.stack_effect(), (1, 0));
+        assert_eq!(Instruction::IstoreW(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Swap.stack_effect(), (2, 2));
+        assert_eq!(Instruction::Iadd.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Dneg.stack_effect(), (1, 1));
+        assert_eq!(
+            Instruction::Iinc { index: 0, value: 1 }.stack_effect(),
+            (0, 0)
+        );
+        assert_eq!(Instruction::I2l.stack_effect(), (1, 1));
+        assert_eq!(Instruction::Lcmp.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ifeq(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::IfIcmpne(0).stack_effect(), (2, 0));
+        assert_eq!(Instruction::Goto(0).stack_effect(), (0, 0));
+        assert_eq!(Instruction::Jsr(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Ret(0).stack_effect(), (0, 0));
+        assert_eq!(Instruction::RetW(0).stack_effect(), (0, 0));
+        assert_eq!(Instruction::Return.stack_effect(), (0, 0));
+        assert_eq!(Instruction::IloadW(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Ireturn.stack_effect(), (1, 0));
+        assert_eq!(
+            Instruction::Getstatic(duke_classfile::CpIndex(1)).stack_effect(),
+            (0, 1)
+        );
+        assert_eq!(
+            Instruction::Putstatic(duke_classfile::CpIndex(1)).stack_effect(),
+            (1, 0)
+        );
+        assert_eq!(
+            Instruction::Getfield(duke_classfile::CpIndex(1)).stack_effect(),
+            (1, 1)
+        );
+        assert_eq!(
+            Instruction::Putfield(duke_classfile::CpIndex(1)).stack_effect(),
+            (2, 0)
+        );
+        assert_eq!(
+            Instruction::Invokevirtual(duke_classfile::CpIndex(1)).stack_effect(),
+            (1, 0)
+        );
+        assert_eq!(
+            Instruction::Invokestatic(duke_classfile::CpIndex(1)).stack_effect(),
+            (0, 0)
+        );
+        assert_eq!(
+            Instruction::New(duke_classfile::CpIndex(1)).stack_effect(),
+            (0, 1)
+        );
+        assert_eq!(Instruction::Newarray(ArrayType::Int).stack_effect(), (1, 1));
+        assert_eq!(
+            Instruction::Multianewarray {
+                index: duke_classfile::CpIndex(1),
+                dimensions: 2
+            }
+            .stack_effect(),
+            (2, 1)
+        );
+        assert_eq!(Instruction::Arraylength.stack_effect(), (1, 1));
+        assert_eq!(Instruction::Athrow.stack_effect(), (1, 0));
+        assert_eq!(
+            Instruction::Checkcast(duke_classfile::CpIndex(1)).stack_effect(),
+            (1, 1)
+        );
+        assert_eq!(Instruction::Monitorenter.stack_effect(), (1, 0));
+        assert_eq!(Instruction::DupX1.stack_effect(), (2, 3));
+        assert_eq!(Instruction::Dup2X1.stack_effect(), (3, 5));
+        assert_eq!(Instruction::Dup.stack_effect(), (1, 2));
+        assert_eq!(Instruction::DupX2.stack_effect(), (3, 4));
+        assert_eq!(Instruction::Dup2.stack_effect(), (2, 4));
+        assert_eq!(Instruction::Bipush(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Sipush(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Ldc(1).stack_effect(), (0, 1));
+        assert_eq!(
+            Instruction::LdcW(duke_classfile::CpIndex(1)).stack_effect(),
+            (0, 1)
+        );
+        assert_eq!(
+            Instruction::Ldc2W(duke_classfile::CpIndex(1)).stack_effect(),
+            (0, 1)
+        );
+        assert_eq!(Instruction::Iload(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Lload(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Fload(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Dload(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Aload(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Iload1.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Iload2.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Iload3.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Lload1.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Lload2.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Lload3.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Fload0.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Fload1.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Fload2.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Fload3.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Dload0.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Dload1.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Dload2.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Dload3.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Aload1.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Aload2.stack_effect(), (0, 1));
+        assert_eq!(Instruction::Aload3.stack_effect(), (0, 1));
+        assert_eq!(Instruction::LloadW(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::FloadW(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::DloadW(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::AloadW(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Iaload.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Laload.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Faload.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Aaload.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Baload.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Caload.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Saload.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Istore(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Lstore(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Fstore(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Dstore(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Astore(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Istore1.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Istore2.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Istore3.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Lstore0.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Lstore1.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Lstore2.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Lstore3.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Fstore0.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Fstore1.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Fstore2.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Fstore3.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Dstore1.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Dstore2.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Dstore3.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Astore0.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Astore1.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Astore2.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Astore3.stack_effect(), (1, 0));
+        assert_eq!(Instruction::LstoreW(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::FstoreW(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::AstoreW(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Iastore.stack_effect(), (3, 0));
+        assert_eq!(Instruction::Fastore.stack_effect(), (3, 0));
+        assert_eq!(Instruction::Dastore.stack_effect(), (3, 0));
+        assert_eq!(Instruction::Aastore.stack_effect(), (3, 0));
+        assert_eq!(Instruction::Bastore.stack_effect(), (3, 0));
+        assert_eq!(Instruction::Castore.stack_effect(), (3, 0));
+        assert_eq!(Instruction::Sastore.stack_effect(), (3, 0));
+        assert_eq!(Instruction::Pop.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Ladd.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Fadd.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Dadd.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Isub.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Lsub.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Fsub.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Dsub.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Lmul.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Fmul.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Dmul.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Idiv.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ldiv.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Fdiv.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ddiv.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Irem.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Lrem.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Frem.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Drem.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ishl.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Lshl.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ishr.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Lshr.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Iushr.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Lushr.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Iand.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Land.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ior.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Lor.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ixor.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Lxor.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ineg.stack_effect(), (1, 1));
+        assert_eq!(Instruction::Lneg.stack_effect(), (1, 1));
+        assert_eq!(Instruction::Fneg.stack_effect(), (1, 1));
+        assert_eq!(
+            Instruction::IincW { index: 0, value: 1 }.stack_effect(),
+            (0, 0)
+        );
+        assert_eq!(Instruction::I2f.stack_effect(), (1, 1));
+        assert_eq!(Instruction::I2d.stack_effect(), (1, 1));
+        assert_eq!(Instruction::L2i.stack_effect(), (1, 1));
+        assert_eq!(Instruction::L2f.stack_effect(), (1, 1));
+        assert_eq!(Instruction::L2d.stack_effect(), (1, 1));
+        assert_eq!(Instruction::F2i.stack_effect(), (1, 1));
+        assert_eq!(Instruction::F2l.stack_effect(), (1, 1));
+        assert_eq!(Instruction::F2d.stack_effect(), (1, 1));
+        assert_eq!(Instruction::D2i.stack_effect(), (1, 1));
+        assert_eq!(Instruction::D2l.stack_effect(), (1, 1));
+        assert_eq!(Instruction::D2f.stack_effect(), (1, 1));
+        assert_eq!(Instruction::I2b.stack_effect(), (1, 1));
+        assert_eq!(Instruction::I2c.stack_effect(), (1, 1));
+        assert_eq!(Instruction::I2s.stack_effect(), (1, 1));
+        assert_eq!(Instruction::Fcmpl.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Fcmpg.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Dcmpl.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Dcmpg.stack_effect(), (2, 1));
+        assert_eq!(Instruction::Ifne(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Iflt(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Ifge(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Ifgt(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Ifle(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Ifnull(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::Ifnonnull(0).stack_effect(), (1, 0));
+        assert_eq!(Instruction::IfIcmpeq(0).stack_effect(), (2, 0));
+        assert_eq!(Instruction::IfIcmplt(0).stack_effect(), (2, 0));
+        assert_eq!(Instruction::IfIcmpge(0).stack_effect(), (2, 0));
+        assert_eq!(Instruction::IfIcmpgt(0).stack_effect(), (2, 0));
+        assert_eq!(Instruction::IfIcmple(0).stack_effect(), (2, 0));
+        assert_eq!(Instruction::IfAcmpeq(0).stack_effect(), (2, 0));
+        assert_eq!(Instruction::IfAcmpne(0).stack_effect(), (2, 0));
+        assert_eq!(Instruction::GotoW(0).stack_effect(), (0, 0));
+        assert_eq!(Instruction::JsrW(0).stack_effect(), (0, 1));
+        assert_eq!(Instruction::Lreturn.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Freturn.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Dreturn.stack_effect(), (1, 0));
+        assert_eq!(Instruction::Areturn.stack_effect(), (1, 0));
+        assert_eq!(
+            Instruction::Invokespecial(duke_classfile::CpIndex(1)).stack_effect(),
+            (1, 0)
+        );
+        assert_eq!(Instruction::Monitorexit.stack_effect(), (1, 0));
+
+        assert_eq!(
+            Instruction::Tableswitch {
+                default: 0,
+                low: 0,
+                high: 0,
+                offsets: vec![],
+            }
+            .stack_effect(),
+            (1, 0)
+        );
+        assert_eq!(
+            Instruction::Lookupswitch {
+                default: 0,
+                pairs: vec![],
+            }
+            .stack_effect(),
+            (1, 0)
+        );
+        assert_eq!(
+            Instruction::Invokeinterface {
+                index: duke_classfile::CpIndex(1),
+                count: 1,
+            }
+            .stack_effect(),
+            (1, 0)
+        );
+        assert_eq!(
+            Instruction::Invokedynamic(duke_classfile::CpIndex(1)).stack_effect(),
+            (0, 0)
+        );
+        assert_eq!(
+            Instruction::Instanceof(duke_classfile::CpIndex(1)).stack_effect(),
+            (1, 1)
+        );
+        assert_eq!(
+            Instruction::Anewarray(duke_classfile::CpIndex(1)).stack_effect(),
+            (1, 1)
+        );
+    }
+
+    #[test]
+    fn test_stack_effect_math() {
+        assert_eq!(Instruction::Imul.stack_effect(), (2, 1));
+        assert_eq!(Instruction::DupX2.stack_effect(), (3, 4));
+        assert_eq!(Instruction::Dup2X2.stack_effect(), (4, 6));
+        assert_eq!(Instruction::Swap.stack_effect(), (2, 2));
     }
 }
