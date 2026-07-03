@@ -62,6 +62,17 @@ pub(crate) fn path_to_file_url(path: &Path) -> String {
 /// Abstraction over class file loading sources.
 ///
 /// `name` is internal form: `"java/lang/Object"` (no `.class` suffix).
+///
+/// # Examples
+///
+/// ```
+/// use std::path::PathBuf;
+/// use duke_loader::{ClassLoader, DirectoryLoader};
+///
+/// let loader = DirectoryLoader::new(PathBuf::from("my_classes"));
+/// // Load the raw `.class` bytes for `com/example/Main.class`
+/// let _result = loader.find_class("com/example/Main");
+/// ```
 pub trait ClassLoader {
     /// Load the raw `.class` bytes for a class.
     ///
