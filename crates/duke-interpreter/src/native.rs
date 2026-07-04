@@ -11614,17 +11614,19 @@ fn register_java_host_thread(host_key: i32, host_thread_id: std::thread::ThreadI
         .insert(host_key, host_thread_id);
 }
 
+#[allow(clippy::significant_drop_tightening)]
 fn unregister_java_host_thread(host_key: i32) {
-    let removed_host_thread = java_thread_hosts()
+    let mut hosts_guard = java_thread_hosts()
         .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .remove(&host_key);
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let removed_host_thread = hosts_guard.remove(&host_key);
     if let Some(host_thread_id) = removed_host_thread {
         interrupted_host_threads()
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(&host_thread_id);
     }
+    drop(hosts_guard);
 }
 
 fn host_thread_for_java_thread(host_key: i32) -> Option<std::thread::ThreadId> {
@@ -13354,6 +13356,7 @@ pub(crate) fn native_condition_signal_all(
     Ok(None)
 }
 
+#[allow(clippy::significant_drop_tightening)]
 pub(crate) fn native_thread_interrupt(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -13366,9 +13369,16 @@ pub(crate) fn native_thread_interrupt(
         _ => -1,
     };
     heap.write_field(thread_ref, THREAD_INTERRUPTED_SLOT, Slot::Int(1))?;
-    if let Some(host_thread_id) = host_thread_for_java_thread(host_key) {
-        interrupt_host_thread(host_thread_id);
+    let hosts_guard = java_thread_hosts()
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(host_thread_id) = hosts_guard.get(&host_key).copied() {
+        interrupted_host_threads()
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(host_thread_id);
     }
+    drop(hosts_guard);
     Ok(None)
 }
 
