@@ -52,9 +52,6 @@ fn test_thread_interrupt_leak() {
             let state = registry.state.read().unwrap();
             state.interrupted.is_empty()
         };
-        assert!(
-            is_empty,
-            "Memory leak: thread ID left in interrupted set!"
-        );
+        assert!(is_empty, "Memory leak: thread ID left in interrupted set!");
     });
 }
