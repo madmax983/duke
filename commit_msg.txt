@@ -1,6 +1,13 @@
-🛡️ Sentry: [test coverage improvement]
+👹 Havoc: Thread Interrupt Leak (TOCTOU)
 
-🎯 Target: native_reentrant_read_write_lock_* and native_priorityqueue_peek in crates/duke-interpreter/src/native.rs.
-💣 Risk: These native implementations lacked unit test coverage. Changes or refactors to how the internal read/write lock instances are structured or initialized could fail without being caught by basic bytecode testing, breaking concurrency features.
-🧪 Strategy: Added specific inline unit tests covering the init, read_lock, and write_lock states of ReentrantReadWriteLock as well as the empty and non-empty scenarios for PriorityQueue.peek(). Added #[allow(clippy::unnecessary_wraps)] to the newly covered, previously unlinted methods since they adhere to an API signature that requires Result<Option<Slot>>.
-🔬 Verification: cargo test -p duke-interpreter
+🧨 **The Trigger:**
+A Time-Of-Check to Time-Of-Use (TOCTOU) race condition between unregistering a thread and interrupting it. A thread could be unregistered in between the time another thread looked up its `ThreadId` and the time it was marked as interrupted, leading to a leaked `ThreadId` inside the `interrupted_host_threads` set.
+
+📉 **The Stack Trace:**
+Memory leak: thread ID left in interrupted set!
+
+🧪 **Reproduction:**
+Run `cargo test --test havoc_thread_interrupt_leak_loom`. The `loom` test failed prior to this fix.
+
+😈 **Comment:**
+You assumed two separate locks would protect dependent state. You were wrong.
