@@ -29437,9 +29437,12 @@ fn string_from_slot(heap: &duke_gc::Heap, slot: Slot) -> Option<String> {
         .and_then(|obj| obj.string_value.clone())
 }
 
+/// ⚡ Bolt: Prevent O(N) heap allocations by replacing `.clone()` with an immutable borrow.
+/// We only iterate over the vector to create pairs, so we don't need ownership of the vector itself.
 fn properties_local_entries(heap: &duke_gc::Heap, props_ref: u64) -> Result<Vec<(Slot, Slot)>> {
-    let fields = heap.get(props_ref)?.fields.clone();
-    let mut entries = Vec::new();
+    let obj = heap.get(props_ref)?;
+    let fields = &obj.fields;
+    let mut entries = Vec::with_capacity(fields.len().saturating_sub(PROPERTIES_ENTRIES_START) / 2);
     let mut idx = PROPERTIES_ENTRIES_START;
     while idx + 1 < fields.len() {
         entries.push((fields[idx], fields[idx + 1]));
@@ -30299,8 +30302,11 @@ fn chm_non_null_arg(args: &[Slot], idx: usize) -> Result<Slot> {
     require_chm_non_null(extract_slot_arg(args, idx))
 }
 
+/// ⚡ Bolt: Prevent O(N) heap allocations by replacing `.clone()` with an immutable borrow.
+/// Pre-allocate exact required capacity for the new pairs.
 fn chm_entry_snapshot(heap: &duke_gc::Heap, map_ref: u64) -> Result<Vec<(Slot, Slot)>> {
-    let fields = heap.get(map_ref)?.fields.clone();
+    let obj = heap.get(map_ref)?;
+    let fields = &obj.fields;
     let mut entries = Vec::with_capacity(fields.len().saturating_sub(1) / 2);
     let mut i = 1usize;
     while i + 1 < fields.len() {

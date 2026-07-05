@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**Vector Cloning Optimization in Properties and ConcurrentHashMap**
+**Learning:** Found an unnecessary `.clone()` on a `Vec` causing O(n) heap allocations on every read inside `properties_local_entries` and `chm_entry_snapshot`. The method `heap.get(props_ref)?.fields.clone()` was doing a full vector clone.
+**Action:** Replaced `.clone()` with an immutable borrow `&heap.get(props_ref)?.fields` to completely eliminate the allocation, as the `fields` were only being read to push elements into a new `Vec`.
