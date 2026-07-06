@@ -773,4 +773,38 @@ mod tests {
         };
         assert_eq!(values.len(), 2);
     }
+
+    #[test]
+    fn should_return_error_for_invalid_annotation_element_tag() {
+        let raw = [
+            b'X', 0x00, 0x01, // invalid tag 'X'
+        ];
+
+        let result = decode_known_attribute("AnnotationDefault", &raw);
+        assert!(
+            matches!(
+                result,
+                Err(Error::InvalidAnnotationElementValueTag { tag: b'X' })
+            ),
+            "Expected Error::InvalidAnnotationElementValueTag, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn should_return_error_when_annotation_recursion_limit_exceeded() {
+        // Deeply nested annotations: > 16 arrays.
+        let mut raw = Vec::new();
+        for _ in 0..17 {
+            raw.push(b'[');
+            raw.extend_from_slice(&[0x00, 0x01]); // length 1
+        }
+        raw.push(b'I');
+        raw.extend_from_slice(&[0x00, 0x01]); // value
+
+        let result = decode_known_attribute("AnnotationDefault", &raw);
+        assert!(
+            matches!(result, Err(Error::RecursionLimitExceeded { .. })),
+            "Expected Error::RecursionLimitExceeded, got {result:?}"
+        );
+    }
 }

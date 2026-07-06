@@ -47,3 +47,7 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+
+## 2026-07-06 - Testing Annotation Limits
+**Learning:** Uncovered branches in the JVM attribute parser (like `InvalidAnnotationElementValueTag` and `RecursionLimitExceeded`) require manually constructing artificial, corrupted byte sequences rather than relying on valid Java class files to trigger.
+**Action:** Craft minimal byte arrays (e.g. `[b'X', 0x00, 0x01]`) matching the target function's required parameters and explicitly test the error return values.
