@@ -1,6 +1,4 @@
-Title: 🛡️ Sentry: [test coverage improvement]
-Body:
-🎯 Target: `duke_loader::ZipReader::read_entry_info`, `duke_loader::parse_central_directory`, and `duke_telemetry::ser_helpers`.
-💣 Risk: Edge cases where zip central directories have truncated entries or mismatched local header offsets, and missing telemetry map empty paths could panic or fail implicitly if refactored.
-🧪 Strategy: Added specific inline tests inside `crates/duke-loader/src/zip.rs` to reach missing branches of Zip Format errors (e.g. truncated `filename_len`, exceeded `uncompressed_size`). Added tests in `crates/duke-telemetry/src/helpers.rs` for empty map serialization. Added an empty check for `print_report`.
-🔭 Verification: `cargo test -p duke-loader` and `cargo test -p duke-telemetry`
+🧨 **The Trigger:** A Time-Of-Check-To-Time-Of-Use (TOCTOU) race condition when interrupting Java host threads. The system used two separate `RwLock`s (`HOSTS` and `INTERRUPTED`). A thread attempting to unregister a host could be preempted after dropping the `HOSTS` lock but before acquiring the `INTERRUPTED` lock, allowing another thread to maliciously inject an interrupt that would leak and become a dangling reference.
+📉 **The Stack Trace:** (Simulated Loom Panic) `thread 'test_thread_interruption_race' panicked at crates/duke-interpreter/tests/havoc_thread_race_loom.rs:46:9: Memory leak: dangling interrupted thread!`
+🧪 **Reproduction:** "Run `cargo test --test havoc_thread_race_loom` to see the race in the prior state. (Simulated in scratchpad)."
+😈 **Comment:** "You assumed two locks were just as safe as one. You were wrong."
