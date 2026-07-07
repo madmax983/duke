@@ -550,22 +550,28 @@ fn jul_manager_count(heap: &duke_gc::Heap, manager_ref: u64) -> usize {
     }
 }
 
+/// Replaces the cloning of the whole fields vector (O(N) allocation) with a borrowed
+/// reference to eliminate a heap allocation in a heavily used search path.
 fn jul_manager_find_logger_by_name(
     heap: &duke_gc::Heap,
     manager_ref: u64,
     name: &str,
 ) -> Result<Option<u64>> {
-    let fields = heap.get(manager_ref)?.fields.clone();
+    let fields = &heap.get(manager_ref)?.fields;
     let count = jul_manager_count(heap, manager_ref);
     for idx in 0..count {
         let name_idx = JUL_MANAGER_LOGGERS_START + idx * 2;
         let logger_idx = name_idx + 1;
+
         let Some(Slot::Reference(Some(name_ref))) = fields.get(name_idx).copied() else {
             continue;
         };
-        if string_value_from_ref(heap, name_ref)? == name
-            && let Some(Slot::Reference(Some(logger_ref))) = fields.get(logger_idx).copied()
-        {
+
+        let Some(Slot::Reference(Some(logger_ref))) = fields.get(logger_idx).copied() else {
+            continue;
+        };
+
+        if string_value_from_ref(heap, name_ref)? == name {
             return Ok(Some(logger_ref));
         }
     }

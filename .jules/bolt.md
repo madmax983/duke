@@ -37,3 +37,6 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+**Avoid Unnecessary Vector Clones**
+**Learning:** Found an unneeded O(N) heap allocation `fields.clone()` in `jul_manager_find_logger_by_name`.
+**Action:** Replaced it with an immutable borrow `&heap.get(manager_ref)?.fields` to eliminate the allocation on a heavily used search path.
