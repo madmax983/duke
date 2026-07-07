@@ -598,4 +598,95 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_bytecode_cost_with_more_than_10() {
+        let mut store = TelemetryStore::default();
+        for i in 0u64..15u64 {
+            let op = Box::leak(format!("op{i}").into_boxed_str());
+            for _ in 0..i {
+                store.bytecode_cost.record(op, "Foo", "bar", 10, 100);
+            }
+        }
+        let mut buf = Vec::new();
+        store.print_bytecode_cost(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("op14"));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_object_lineage_with_more_than_10() {
+        let mut store = TelemetryStore::default();
+        for i in 0u64..15u64 {
+            for _ in 0..i {
+                store
+                    .object_lineage
+                    .record(&format!("java/lang/String{i}"), "Foo", 10, "bar");
+            }
+        }
+        let mut buf = Vec::new();
+        store.print_object_lineage(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("java/lang/String14"));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_dispatch_resolution_with_more_than_10() {
+        let mut store = TelemetryStore::default();
+        for i in 0u64..15u64 {
+            for _ in 0..i {
+                store
+                    .dispatch_resolution
+                    .record(&format!("Foo{i}"), 42, "java/lang/String", true);
+            }
+        }
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("Foo14"));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_native_boundary_with_more_than_10() {
+        let mut store = TelemetryStore::default();
+        for i in 0u64..15u64 {
+            for _ in 0..i {
+                store
+                    .native_boundary
+                    .record_call(&format!("java/lang/String{i}"), "intern", 100 + i, true);
+            }
+        }
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("java/lang/String14"));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_markdown_with_more_than_10() {
+        let mut store = TelemetryStore::default();
+        for i in 0u64..15u64 {
+            let op = Box::leak(format!("op{i}").into_boxed_str());
+            for _ in 0..i {
+                store.bytecode_cost.record(op, "Foo", "bar", 10, 100);
+                store
+                    .object_lineage
+                    .record(&format!("java/lang/String{i}"), "Foo", 10, "bar");
+                store
+                    .dispatch_resolution
+                    .record(&format!("Foo{i}"), 42, "java/lang/String", true);
+                store
+                    .native_boundary
+                    .record_call(&format!("java/lang/String{i}"), "intern", 100 + i, true);
+            }
+        }
+        let md = store.to_markdown_report();
+        assert!(md.contains("op14"));
+        assert!(md.contains("java/lang/String14"));
+    }
 }
