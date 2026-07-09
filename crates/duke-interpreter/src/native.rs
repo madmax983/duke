@@ -14663,9 +14663,18 @@ pub(crate) fn native_string_indexof_from(
     let target_obj = heap.get(target_ref)?;
     let s = this_obj.string_value.as_deref().unwrap_or_default();
     let target = target_obj.string_value.as_deref().unwrap_or_default();
-    let search_in = if from < s.len() { &s[from..] } else { "" };
+    let safe_from = if s.is_char_boundary(from) {
+        from
+    } else {
+        let mut idx = from;
+        while idx < s.len() && !s.is_char_boundary(idx) {
+            idx += 1;
+        }
+        idx
+    };
+    let search_in = if safe_from < s.len() { &s[safe_from..] } else { "" };
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-    let result = search_in.find(target).map_or(-1, |i| (from + i) as i32);
+    let result = search_in.find(target).map_or(-1, |i| (safe_from + i) as i32);
     Ok(Some(Slot::Int(result)))
 }
 
@@ -14683,7 +14692,17 @@ pub(crate) fn native_string_last_indexof_from(
     let this_str = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
     let sub_str = heap.get(sub_ref)?.string_value.clone().unwrap_or_default();
     let search_in = if from + sub_str.len() < this_str.len() {
-        &this_str[..from + sub_str.len()]
+        let max_byte = from + sub_str.len();
+        if this_str.is_char_boundary(max_byte) {
+            &this_str[..max_byte]
+        } else {
+            // Find the nearest char boundary safely
+            let mut safe_idx = max_byte;
+            while safe_idx > 0 && !this_str.is_char_boundary(safe_idx) {
+                safe_idx -= 1;
+            }
+            &this_str[..safe_idx]
+        }
     } else {
         &this_str
     };
@@ -38235,5 +38254,40 @@ mod havoc_matcher_bounds_tests {
                 let _ = next_find_pos(&s, start, end);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod havoc_string_tests {
+    use super::*;
+    #[test]
+    fn test_string_indexof_from_panic() {
+        let mut heap = duke_gc::Heap::new();
+        let this_ref = heap.allocate_string("h\u{1f4a9}world".to_string());
+        let target_ref = heap.allocate_string("world".to_string());
+        let args = [
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(target_ref)),
+            Slot::Int(2), // 2 is inside \u{1f4a9} which spans bytes 1..5
+        ];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let _ = native_string_indexof_from(&args, &mut heap, &mut out, &mut control);
+    }
+
+    #[test]
+    fn test_string_last_indexof_from_panic() {
+        let mut heap = duke_gc::Heap::new();
+        let this_ref = heap.allocate_string("h\u{1f4a9}world".to_string());
+        let target_ref = heap.allocate_string("o".to_string()); // len = 1
+        let args = [
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(target_ref)),
+            Slot::Int(2), // 2 is inside \u{1f4a9} which spans bytes 1..5
+        ];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        // from + sub_str.len() = 2 + 1 = 3. 3 is inside \u{1f4a9} (bytes 1..5)
+        let _ = native_string_last_indexof_from(&args, &mut heap, &mut out, &mut control);
     }
 }
