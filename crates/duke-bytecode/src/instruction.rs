@@ -751,6 +751,23 @@ impl Instruction {
     /// ⚡ Bolt: By returning an iterator instead of allocating and collecting into
     /// a new `Vec`, we eliminate heap allocations during CFG generation and
     /// complexity calculation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_bytecode::Instruction;
+    ///
+    /// let instr = Instruction::Lookupswitch {
+    ///     default: 10,
+    ///     pairs: vec![(1, 20), (2, 30)],
+    /// };
+    ///
+    /// let (default, mut targets) = instr.switch_targets().unwrap();
+    /// assert_eq!(default, 10);
+    /// assert_eq!(targets.next(), Some((1, 20)));
+    /// assert_eq!(targets.next(), Some((2, 30)));
+    /// assert_eq!(targets.next(), None);
+    /// ```
     #[must_use]
     pub fn switch_targets(&self) -> Option<(i32, SwitchTargets<'_>)> {
         match self {
@@ -799,6 +816,20 @@ impl Instruction {
 
     /// Returns all possible control flow targets (next PC values) from this instruction,
     /// including fall-through if applicable.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use duke_bytecode::Instruction;
+    ///
+    /// let instr = Instruction::Goto(10);
+    /// let targets = instr.control_flow_targets(0, Some(3)); // Goto ignores next_pc
+    /// assert_eq!(targets, vec![10]);
+    ///
+    /// let branch = Instruction::Ifeq(5);
+    /// let targets = branch.control_flow_targets(0, Some(3));
+    /// assert_eq!(targets, vec![5, 3]); // Branch taken, and fallthrough
+    /// ```
     #[allow(
         clippy::cast_possible_wrap,
         clippy::cast_sign_loss,

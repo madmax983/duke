@@ -410,6 +410,32 @@ fn parse_attribute(c: &mut Cursor<'_>, _cp_len: usize) -> Result<AttributeInfo> 
 ///
 /// Called after the whole class file is parsed, when we have the full CP.
 /// ⚡ Bolt: Pre-allocates vectors for known attribute table sizes to eliminate intermediate heap allocations.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{AttributeInfo, AttributeData, CpEntry, CpIndex};
+///
+/// let pool = vec![
+///     None, // 0 is always empty
+///     Some(CpEntry::Utf8("SourceFile".to_string())),
+///     Some(CpEntry::Utf8("Main.java".to_string())),
+/// ];
+///
+/// let mut attrs = vec![
+///     AttributeInfo {
+///         name_index: CpIndex(1), // Points to "SourceFile"
+///         data: AttributeData::Raw(vec![0x00, 0x02]), // Points to index 2 ("Main.java")
+///     }
+/// ];
+///
+/// // The `resolve_attributes` function modifies the Attributes list in-place.
+/// // It is available as part of the public API, though usually called implicitly
+/// // by `duke_classfile::parse`.
+/// duke_classfile::resolve_attributes(&mut attrs, &pool).unwrap();
+///
+/// assert!(matches!(&attrs[0].data, AttributeData::SourceFile { sourcefile_index: _ }));
+/// ```
 pub fn resolve_attributes(attrs: &mut [AttributeInfo], pool: &[Option<CpEntry>]) -> Result<()> {
     for attr in attrs.iter_mut() {
         let name = cp_utf8(pool, attr.name_index)?;
@@ -615,6 +641,20 @@ fn parse_code_attribute(c: &mut Cursor<'_>) -> Result<CodeAttribute> {
 // ---------------------------------------------------------------------------
 
 /// Look up a UTF-8 string in the constant pool.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::{CpEntry, CpIndex, cp_utf8};
+///
+/// let pool = vec![
+///     None, // 0 is always empty
+///     Some(CpEntry::Utf8("Hello, Duke!".to_string())),
+/// ];
+///
+/// let idx = CpIndex(1);
+/// assert_eq!(cp_utf8(&pool, idx).unwrap(), "Hello, Duke!");
+/// ```
 pub fn cp_utf8(pool: &[Option<CpEntry>], idx: CpIndex) -> Result<&str> {
     let i = idx.0 as usize;
     if i == 0 {
