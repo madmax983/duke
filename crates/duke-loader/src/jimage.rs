@@ -407,7 +407,9 @@ fn build_index(
     // To prevent OOM crashes from huge allocations (e.g. 0x3FFFFFFF), we clamp it.
     // Since each location entry requires at least one END byte (1 byte),
     // the absolute maximum number of entries is `locs_size`.
-    let safe_capacity = capacity.min(locs_size);
+    // We also clamp it against `data.len()` to prevent capacity overflow panics
+    // when `locs_size` is spoofed to be larger than the physical file size.
+    let safe_capacity = capacity.min(locs_size).min(data.len());
     let mut index = HashMap::with_capacity(safe_capacity);
     let mut pos = locs_offset;
     let locs_end = locs_offset + locs_size;
