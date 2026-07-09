@@ -10,34 +10,31 @@ use duke_classfile::{
     ClassFile, {AttributeData, CpEntry, CpIndex},
 };
 
-use crate::{Instruction, decode};
+use crate::decode;
 
 fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
-    cf.constant_pool
-        .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
-        .and_then(|entry| {
-            if let CpEntry::Utf8(s) = entry {
-                Some(s.as_str())
-            } else {
-                None
-            }
-        })
+    let entry = cf.constant_pool.get(idx.0 as usize)?.as_ref()?;
+    let CpEntry::Utf8(s) = entry else {
+        return None;
+    };
+    Some(s.as_str())
 }
 
 fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
     if idx.0 == 0 {
         return "<none>";
     }
-    let class_entry = cf
+    let Some(class_entry) = cf
         .constant_pool
         .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
-    if let Some(CpEntry::Class { name_index }) = class_entry {
-        cp_str(cf, *name_index).unwrap_or("<invalid utf8>")
-    } else {
-        "<not a class ref>"
-    }
+        .and_then(|s| s.as_ref())
+    else {
+        return "<not a class ref>";
+    };
+    let CpEntry::Class { name_index } = class_entry else {
+        return "<not a class ref>";
+    };
+    cp_str(cf, *name_index).unwrap_or("<invalid utf8>")
 }
 
 fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, String)> {
@@ -58,17 +55,17 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
     let class_name = resolve_class_name(cf, *class_idx).to_string();
 
     let nat_entry = cf.constant_pool.get(nat_idx.0 as usize)?.as_ref()?;
-    if let CpEntry::NameAndType {
+    let CpEntry::NameAndType {
         name_index,
         descriptor_index,
     } = nat_entry
-    {
-        let method_name = cp_str(cf, *name_index)?.to_string();
-        let method_desc = cp_str(cf, *descriptor_index)?.to_string();
-        Some((class_name, method_name, method_desc))
-    } else {
-        None
-    }
+    else {
+        return None;
+    };
+
+    let method_name = cp_str(cf, *name_index)?.to_string();
+    let method_desc = cp_str(cf, *descriptor_index)?.to_string();
+    Some((class_name, method_name, method_desc))
 }
 
 /// Generates a Mermaid call graph (CFG) from a class file.
@@ -122,26 +119,27 @@ pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
         let source_id = format!("{this_class_name}::{name_str}{desc_str}");
 
         for attr in &method.attributes {
-            if let AttributeData::Code(code) = &attr.data
-                && let Ok(instructions) = decode(&code.code)
-            {
-                for (_, instr) in instructions {
-                    let target_idx = match instr {
-                        Instruction::Invokevirtual(idx)
-                        | Instruction::Invokespecial(idx)
-                        | Instruction::Invokestatic(idx)
-                        | Instruction::Invokeinterface { index: idx, .. } => Some(idx),
-                        // Invokedynamic is more complex, skip for basic call graph
-                        _ => None,
-                    };
+            let AttributeData::Code(code) = &attr.data else {
+                continue;
+            };
+            let Ok(instructions) = decode(&code.code) else {
+                continue;
+            };
 
-                    if let Some(idx) = target_idx
-                        && let Some((target_class, target_method, target_descriptor)) =
-                            extract_method_ref(cf, idx)
-                    {
-                        edges.insert(format!("    \"{source_id}\" --> \"{target_class}::{target_method}{target_descriptor}\""));
-                    }
-                }
+            for (_, instr) in instructions {
+                let Some(idx) = instr.method_invocation_target() else {
+                    continue;
+                };
+
+                let Some((target_class, target_method, target_descriptor)) =
+                    extract_method_ref(cf, idx)
+                else {
+                    continue;
+                };
+
+                edges.insert(format!(
+                    "    \"{source_id}\" --> \"{target_class}::{target_method}{target_descriptor}\""
+                ));
             }
         }
     }

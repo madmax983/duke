@@ -745,6 +745,20 @@ impl Instruction {
         }
     }
 
+    /// Returns the constant pool index if the instruction is a method invocation.
+    /// Excludes `invokedynamic` because its index points to a dynamically-computed call site,
+    /// not a standard method reference.
+    #[must_use]
+    pub const fn method_invocation_target(&self) -> Option<CpIndex> {
+        match self {
+            Self::Invokevirtual(idx)
+            | Self::Invokespecial(idx)
+            | Self::Invokestatic(idx)
+            | Self::Invokeinterface { index: idx, .. } => Some(*idx),
+            _ => None,
+        }
+    }
+
     /// Returns the switch targets if the instruction is a switch statement.
     /// It returns `Some((default_offset, targets_iterator))`.
     ///
@@ -1422,6 +1436,35 @@ mod tests {
         assert!(Instruction::JsrW(5).is_subroutine_call());
         assert!(!Instruction::Goto(5).is_subroutine_call());
         assert!(!Instruction::Iconst0.is_subroutine_call());
+    }
+
+    #[test]
+    fn test_method_invocation_target() {
+        assert_eq!(
+            Instruction::Invokevirtual(CpIndex(5)).method_invocation_target(),
+            Some(CpIndex(5))
+        );
+        assert_eq!(
+            Instruction::Invokespecial(CpIndex(10)).method_invocation_target(),
+            Some(CpIndex(10))
+        );
+        assert_eq!(
+            Instruction::Invokestatic(CpIndex(15)).method_invocation_target(),
+            Some(CpIndex(15))
+        );
+        assert_eq!(
+            Instruction::Invokeinterface {
+                index: CpIndex(20),
+                count: 1
+            }
+            .method_invocation_target(),
+            Some(CpIndex(20))
+        );
+        assert_eq!(
+            Instruction::Invokedynamic(CpIndex(25)).method_invocation_target(),
+            None
+        );
+        assert_eq!(Instruction::Iconst0.method_invocation_target(), None);
     }
 
     #[test]
