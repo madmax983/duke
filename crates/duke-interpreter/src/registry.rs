@@ -12,7 +12,30 @@ use std::sync::Arc;
 use duke_loader::{ClassLoader, LocatedResource};
 use duke_runtime::{Error, Result, Slot};
 
-use crate::context::ClassContext;
+use crate::context::{ClassContext, ClassLoadSource};
+
+/// Internal names of classes that MUST remain hand-written synthetic stubs even when
+/// `real_jdk_shadow` is enabled. These roots are entangled with native code that assumes
+/// a specific field/heap layout (special `HeapObject` slots, dense hand-registered natives),
+/// so loading their real JDK bytecode would break those natives.
+const KEEP_SYNTHETIC: &[&str] = &[
+    "java/lang/Object",
+    "java/lang/String",
+    "java/lang/Class",
+    "java/lang/Thread",
+    "java/lang/ThreadGroup",
+    "java/lang/Throwable",
+    "java/lang/System",
+    "java/lang/Integer",
+    "java/lang/Long",
+    "java/lang/Short",
+    "java/lang/Byte",
+    "java/lang/Boolean",
+    "java/lang/Character",
+    "java/lang/Float",
+    "java/lang/Double",
+    "java/lang/Number",
+];
 
 fn class_internal_name_fragment(name: &str) -> &str {
     name.split_once('\0')
@@ -352,6 +375,17 @@ pub struct ClassRegistry {
     class_code_sources: HashMap<String, String>,
     /// Best-known runtime `java/lang/ClassLoader` object for each loaded class.
     class_runtime_loaders: HashMap<String, u64>,
+    /// Opt-in flag: when true, synthetic stdlib classes that are NOT on the
+    /// [`KEEP_SYNTHETIC`] allowlist and whose real classfile is resolvable via
+    /// [`Self::shadow_loader`] are NOT pre-registered synthetically, so a later
+    /// `ensure_loaded` loads their real JDK bytecode instead. Default `false`.
+    real_jdk_shadow: bool,
+    /// Loader consulted during [`Self::register`] to decide whether a real classfile
+    /// exists for a candidate synthetic class. Only used when `real_jdk_shadow` is true.
+    shadow_loader: Option<Arc<dyn ClassLoader + Send + Sync>>,
+    /// Internal names of synthetic classes that were skipped (shadowed by real JDK
+    /// bytecode) — collected for later measurement.
+    shadowed_classes: Vec<String>,
     /// Storage for execution telemetry (e.g. instruction counts, GC pause times).
     ///
     /// The [`TelemetryStore`](duke_telemetry::TelemetryStore) collects performance metrics
@@ -383,6 +417,9 @@ impl ClassRegistry {
             archive_loaders: HashMap::new(),
             class_code_sources: HashMap::new(),
             class_runtime_loaders: HashMap::new(),
+            real_jdk_shadow: false,
+            shadow_loader: None,
+            shadowed_classes: Vec::new(),
             #[cfg(feature = "telemetry")]
             telemetry: duke_telemetry::TelemetryStore::default(),
         }
@@ -654,9 +691,50 @@ impl ClassRegistry {
         &mut self.natives
     }
 
+    /// Enable "real JDK shadow" mode: synthetic stdlib classes that are not on the
+    /// [`KEEP_SYNTHETIC`] allowlist and whose real classfile is resolvable via `loader`
+    /// will be skipped by [`Self::register`], letting a later `ensure_loaded` load the
+    /// real JDK bytecode. Must be called *before* `bootstrap_stdlib` runs to take effect.
+    pub fn enable_real_jdk_shadow(&mut self, loader: Arc<dyn ClassLoader + Send + Sync>) {
+        self.real_jdk_shadow = true;
+        self.shadow_loader = Some(loader);
+    }
+
+    /// Whether real-JDK shadow mode is enabled.
+    #[must_use]
+    pub const fn real_jdk_shadow_enabled(&self) -> bool {
+        self.real_jdk_shadow
+    }
+
+    /// Internal names of synthetic classes that were shadowed (skipped) by real JDK
+    /// bytecode under real-JDK shadow mode.
+    #[must_use]
+    pub fn shadowed_classes(&self) -> &[String] {
+        &self.shadowed_classes
+    }
+
     /// Register a pre-built `ClassContext`.
     pub fn register(&mut self, ctx: ClassContext) {
+        if self.should_shadow_synthetic(&ctx) {
+            if std::env::var_os("DUKE_REAL_JDK_DEBUG").is_some() {
+                eprintln!("[real-jdk] shadowing synthetic {}", ctx.class_name);
+            }
+            self.shadowed_classes.push(ctx.class_name.clone());
+            return;
+        }
         self.classes.insert(ctx.class_name.clone(), ctx);
+    }
+
+    /// Decide whether a synthetic `ClassContext` should be skipped so its real JDK
+    /// bytecode is loaded on demand instead. Only ever true when `real_jdk_shadow` is on.
+    fn should_shadow_synthetic(&self, ctx: &ClassContext) -> bool {
+        self.real_jdk_shadow
+            && ctx.load_source == ClassLoadSource::Synthetic
+            && !KEEP_SYNTHETIC.contains(&ctx.class_name.as_str())
+            && self
+                .shadow_loader
+                .as_ref()
+                .is_some_and(|loader| loader.find_class(&ctx.class_name).is_ok())
     }
 
     /// Get a reference to a loaded class.
