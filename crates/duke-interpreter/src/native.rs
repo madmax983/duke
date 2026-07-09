@@ -26128,8 +26128,12 @@ pub(crate) fn native_string_join(
                     Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
                     _ => 0,
                 };
-                let elems: Vec<Slot> =
-                    obj.fields[1..=size_val.min(obj.fields.len().saturating_sub(1))].to_vec();
+                let max_idx = size_val.min(obj.fields.len().saturating_sub(1));
+                let elems: Vec<Slot> = if max_idx >= 1 {
+                    obj.fields[1..=max_idx].to_vec()
+                } else {
+                    Vec::new()
+                };
                 let _ = obj;
                 let mut result = Vec::with_capacity(size_val);
                 for slot in elems {
@@ -37756,12 +37760,18 @@ pub(crate) fn native_collections_disjoint(
         Some(Slot::Int(v)) => usize::try_from(*v).unwrap_or(0),
         _ => 0,
     };
-    let a_elems: Vec<Slot> = heap.get(a_ref)?.fields
-        [1..=a_size.min(heap.get(a_ref)?.fields.len().saturating_sub(1))]
-        .to_vec();
-    let b_elems: Vec<Slot> = heap.get(b_ref)?.fields
-        [1..=b_size.min(heap.get(b_ref)?.fields.len().saturating_sub(1))]
-        .to_vec();
+    let a_max = a_size.min(heap.get(a_ref)?.fields.len().saturating_sub(1));
+    let a_elems: Vec<Slot> = if a_max >= 1 {
+        heap.get(a_ref)?.fields[1..=a_max].to_vec()
+    } else {
+        Vec::new()
+    };
+    let b_max = b_size.min(heap.get(b_ref)?.fields.len().saturating_sub(1));
+    let b_elems: Vec<Slot> = if b_max >= 1 {
+        heap.get(b_ref)?.fields[1..=b_max].to_vec()
+    } else {
+        Vec::new()
+    };
     let disjoint = a_elems
         .iter()
         .all(|a| !b_elems.iter().any(|b| slots_equal(a, b, heap)));
