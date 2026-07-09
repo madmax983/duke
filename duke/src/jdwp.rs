@@ -171,7 +171,8 @@ fn dispatch_command(
             let count = payload
                 .get(8..12)
                 .map_or(0, |b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
-            let mut out = Vec::new();
+            let count = count.min(100_000);
+            let mut out = Vec::with_capacity(4 + count as usize * 9);
             out.extend_from_slice(&count.to_be_bytes());
             for _ in 0..count {
                 out.push(b'L');
@@ -185,7 +186,8 @@ fn dispatch_command(
             let slots = payload
                 .get(8..12)
                 .map_or(0, |b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
-            let mut out = Vec::new();
+            let slots = slots.min(100_000);
+            let mut out = Vec::with_capacity(4 + slots as usize * 5);
             out.extend_from_slice(&slots.to_be_bytes());
             for _ in 0..slots {
                 out.push(b'I');
