@@ -280,12 +280,21 @@ impl ZipReader {
                     });
                 }
                 let mut buf = Vec::with_capacity(cap.min(compressed.len().saturating_mul(2)));
-                decoder
-                    .take(max_size as u64)
+                let bytes_read = decoder
+                    .take((max_size as u64).saturating_add(1))
                     .read_to_end(&mut buf)
                     .map_err(|_| Error::ZipFormat {
                         msg: format!("failed to deflate entry '{}'", info.name),
                     })?;
+
+                if bytes_read > max_size {
+                    return Err(Error::ZipFormat {
+                        msg: format!(
+                            "entry '{}' uncompressed size exceeds limit {}",
+                            info.name, max_size
+                        ),
+                    });
+                }
 
                 buf
             }
