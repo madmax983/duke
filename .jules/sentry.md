@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Testing JDWP Coverage and Unused Result Paths
+**Learning:** Found some CLI paths and commands completely uncovered in coverage tools. The JDWP dispatcher tests were not covering all commands, and adding additional explicit integration commands into unit tests fully tests protocol behavior and closes missing coverage loops in `duke/src/main.rs`.
+**Action:** When working on CLI entry points and server dispatcher functions, write extensive table-driven or simple mock inputs covering each configuration arg and protocol branch.

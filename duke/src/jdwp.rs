@@ -388,4 +388,30 @@ mod tests {
         assert_eq!(out[0..4], 5_u32.to_be_bytes());
         assert_eq!(&out[4..], b"hello");
     }
+
+    #[test]
+    fn test_dispatch_command_more_commands() {
+        let req_id = AtomicI32::new(1);
+        let suspended = AtomicBool::new(false);
+
+        let (err, data, close) = dispatch_command(1, 4, &[], &req_id, &suspended);
+        assert_eq!(err, ERR_NONE);
+        assert!(!close);
+        assert!(!data.is_empty());
+
+        let (err, data, close) = dispatch_command(1, 7, &[], &req_id, &suspended);
+        assert_eq!(err, ERR_NONE);
+        assert!(!close);
+        assert!(!data.is_empty());
+
+        let (err, data, close) = dispatch_command(1, 12, &[], &req_id, &suspended);
+        assert_eq!(err, ERR_NONE);
+        assert!(!close);
+        assert_eq!(data.len(), 32);
+
+        let (err, data, close) = dispatch_command(1, 13, &[], &req_id, &suspended);
+        assert_eq!(err, ERR_NONE);
+        assert!(!close);
+        assert!(!data.is_empty());
+    }
 }
