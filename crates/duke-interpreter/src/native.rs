@@ -28085,10 +28085,14 @@ fn next_find_pos(input: &str, start: usize, end: usize) -> usize {
     if start != end || end >= input.len() {
         return end;
     }
-    input[end..]
+    let mut safe_end = end;
+    while safe_end < input.len() && !input.is_char_boundary(safe_end) {
+        safe_end += 1;
+    }
+    input[safe_end..]
         .chars()
         .next()
-        .map_or(end, |ch| end + ch.len_utf8())
+        .map_or(safe_end, |ch| safe_end + ch.len_utf8())
 }
 
 fn store_matcher_match(
@@ -38212,4 +38216,24 @@ mod tests_sentry {
         assert!(matches!(err_bool, crate::Error::InvalidRef { address: _ }));
     }
 
+}
+
+#[cfg(test)]
+mod havoc_matcher_bounds_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn test_next_find_pos_panics_on_invalid_boundary(
+            s in ".*",
+            end in 0..1000usize
+        ) {
+            let start = end;
+            if start <= s.len() && !s.is_char_boundary(end) {
+                // This should no longer trigger a panic.
+                let _ = next_find_pos(&s, start, end);
+            }
+        }
+    }
 }
