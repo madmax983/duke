@@ -838,9 +838,31 @@ fn run_main(
 // Jar
 // ---------------------------------------------------------------------------
 
+/// Internal binary name of the Spring Boot fat-JAR launcher.
+const SPRING_BOOT_JAR_LAUNCHER: &str = "org/springframework/boot/loader/launch/JarLauncher";
+
+/// Detect a bundled Spring Boot launcher inside an archive.
+///
+/// A Spring Boot fat JAR is launched through `JarLauncher`, which reflectively
+/// boots the application declared by the `Start-Class` manifest attribute. When
+/// the archive bundles the launcher classes but omits an explicit `Main-Class`,
+/// this returns the launcher's internal (slash-separated) binary name so the
+/// caller can route to it as the entry class.
+///
+/// Returns `None` when the archive contains no recognizable launcher.
+fn detect_spring_boot_launcher(reader: &ZipReader) -> Option<String> {
+    let launcher_entry = format!("{SPRING_BOOT_JAR_LAUNCHER}.class");
+    if reader.get_entry(&launcher_entry).is_some() {
+        return Some(SPRING_BOOT_JAR_LAUNCHER.to_string());
+    }
+    None
+}
+
 /// `duke -jar <file.jar> [string-arg...]`
 ///
 /// Reads `META-INF/MANIFEST.MF` to discover `Main-Class`, then executes it.
+/// When no `Main-Class` is declared, falls back to a bundled Spring Boot
+/// launcher (see [`detect_spring_boot_launcher`]).
 fn run_jar(
     jar_path: &str,
     string_args: &[&str],
@@ -860,8 +882,14 @@ fn run_jar(
             process::exit(1);
         });
     let main_class = duke_loader::parse_main_class(&manifest_bytes).unwrap_or_else(|| {
-        eprintln!("duke: no Main-Class attribute in '{jar_path}' manifest");
-        process::exit(1);
+        // No explicit Main-Class. A Spring Boot fat JAR is normally launched via its
+        // bundled `JarLauncher`, but some archives (e.g. the loader library itself)
+        // ship the launcher without declaring it in the manifest. Fall back to
+        // detecting the launcher and routing to it directly.
+        detect_spring_boot_launcher(&reader).unwrap_or_else(|| {
+            eprintln!("duke: no Main-Class attribute in '{jar_path}' manifest");
+            process::exit(1);
+        })
     });
 
     // Build classpath: the JAR itself + its parent directory (for auxiliary classes).
