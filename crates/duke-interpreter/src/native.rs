@@ -3492,16 +3492,19 @@ pub(crate) fn native_object_equals(
     Ok(Some(Slot::Int(i32::from(equal))))
 }
 
-/// Native: `Object.hashCode()` — returns heap address as hash.
+/// Native: `Object.hashCode()` — returns the object's stable identity hash.
+///
+/// The hash is assigned lazily by the heap and carried across relocation, so it
+/// stays constant even when a minor GC copies or promotes the object (unlike the
+/// old index-derived hash).
 pub(crate) fn native_object_hashcode(
     args: &[Slot],
-    _heap: &mut duke_gc::Heap,
+    heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     match args.first() {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        Some(Slot::Reference(Some(r))) => Ok(Some(Slot::Int(*r as i32))),
+        Some(Slot::Reference(Some(r))) => Ok(Some(Slot::Int(heap.identity_hash(*r)?))),
         _ => Err(Error::NullPointerException),
     }
 }
@@ -11533,17 +11536,17 @@ pub(crate) fn native_system_line_separator(
     Ok(Some(Slot::Reference(Some(r))))
 }
 
-/// Native: `System.identityHashCode(Object)I` — returns a stable identity hash (heap address low bits).
-#[allow(clippy::unnecessary_wraps)]
+/// Native: `System.identityHashCode(Object)I` — returns a stable, non-negative
+/// identity hash. Backed by the heap's relocation-stable identity hash so the
+/// value does not change when a minor GC moves the object; `null` hashes to 0.
 pub(crate) fn native_system_identity_hash_code(
     args: &[Slot],
-    _heap: &mut duke_gc::Heap,
+    heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    #[allow(clippy::cast_possible_truncation)]
     let hash = match args.first() {
-        Some(Slot::Reference(Some(r))) => (*r & 0x7FFF_FFFF) as i32,
+        Some(Slot::Reference(Some(r))) => heap.identity_hash(*r)? & 0x7FFF_FFFF,
         _ => 0,
     };
     Ok(Some(Slot::Int(hash)))
@@ -15454,16 +15457,16 @@ pub(crate) fn native_objects_tostring_default(
     }
 }
 
-/// Native: `Objects.hashCode(Object)I` — returns 0 for null, else object identity hash.
-#[allow(clippy::cast_possible_truncation, clippy::unnecessary_wraps)]
+/// Native: `Objects.hashCode(Object)I` — returns 0 for null, else the object's
+/// stable identity hash (relocation-safe; masked non-negative).
 pub(crate) fn native_objects_hashcode(
     args: &[Slot],
-    _heap: &mut duke_gc::Heap,
+    heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let hash = match args.first() {
-        Some(Slot::Reference(Some(r))) => (*r & 0x7FFF_FFFF) as i32,
+        Some(Slot::Reference(Some(r))) => heap.identity_hash(*r)? & 0x7FFF_FFFF,
         _ => 0,
     };
     Ok(Some(Slot::Int(hash)))
