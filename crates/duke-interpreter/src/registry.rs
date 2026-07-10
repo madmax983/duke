@@ -58,6 +58,35 @@ fn class_internal_name_fragment(name: &str) -> &str {
         .map_or(name, |(internal_name, _)| internal_name)
 }
 
+/// Runtime layout-coherence guard mode, selected once from the `DUKE_LAYOUT_CHECK`
+/// environment variable.
+///
+/// The guard only ever does work when the mode is not [`LayoutCheckMode::Off`] **and**
+/// real-JDK shadow mode is enabled; in every other configuration it is a hard no-op with
+/// zero overhead. See [`ClassRegistry::layout_check_mode`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LayoutCheckMode {
+    /// Default (env unset or any unrecognized value). No checking, zero overhead.
+    #[default]
+    Off,
+    /// Emit a loud `[layout-coherence]` diagnostic on an incoherent access and continue.
+    Warn,
+    /// Emit the diagnostic and abort the access with a runtime error.
+    Fail,
+}
+
+impl LayoutCheckMode {
+    /// Parse the `DUKE_LAYOUT_CHECK` environment variable once. Recognized values are
+    /// `warn` and `fail` (case-insensitive); anything else (including unset) is [`Self::Off`].
+    fn from_env() -> Self {
+        match std::env::var("DUKE_LAYOUT_CHECK") {
+            Ok(v) if v.eq_ignore_ascii_case("warn") => Self::Warn,
+            Ok(v) if v.eq_ignore_ascii_case("fail") => Self::Fail,
+            _ => Self::Off,
+        }
+    }
+}
+
 /// Metadata for a lambda proxy object created by `LambdaMetafactory`.
 ///
 /// When the JVM encounters an `invokedynamic` instruction targeting `LambdaMetafactory`,
@@ -405,6 +434,9 @@ pub struct ClassRegistry {
     /// O(1) membership mirror of [`Self::shadowed_classes`] (internal names), used by
     /// [`Self::is_shadowed`] during native-vs-bytecode dispatch decisions.
     shadowed_set: HashSet<String>,
+    /// Layout-coherence guard mode, parsed once from `DUKE_LAYOUT_CHECK` at construction.
+    /// Only ever active alongside [`Self::real_jdk_shadow`]; [`LayoutCheckMode::Off`] by default.
+    layout_check: LayoutCheckMode,
     /// Storage for execution telemetry (e.g. instruction counts, GC pause times).
     ///
     /// The [`TelemetryStore`](duke_telemetry::TelemetryStore) collects performance metrics
@@ -440,6 +472,7 @@ impl ClassRegistry {
             shadow_loader: None,
             shadowed_classes: Vec::new(),
             shadowed_set: HashSet::new(),
+            layout_check: LayoutCheckMode::from_env(),
             #[cfg(feature = "telemetry")]
             telemetry: duke_telemetry::TelemetryStore::default(),
         }
@@ -724,6 +757,39 @@ impl ClassRegistry {
     #[must_use]
     pub const fn real_jdk_shadow_enabled(&self) -> bool {
         self.real_jdk_shadow
+    }
+
+    /// The layout-coherence guard mode selected from `DUKE_LAYOUT_CHECK`. Always
+    /// [`LayoutCheckMode::Off`] unless the env var requested `warn`/`fail`.
+    #[must_use]
+    pub const fn layout_check_mode(&self) -> LayoutCheckMode {
+        self.layout_check
+    }
+
+    /// Sum a class's instance fields across its full superclass chain — the number of
+    /// heap slots an instance of `class` is allocated with. Mirrors the allocation-time
+    /// sizing used by the `new` opcode. Used by the layout-coherence guard.
+    #[must_use]
+    pub fn total_instance_slot_count(&self, class: &str) -> usize {
+        let mut count = self.get(class).map_or(0, |c| c.instance_field_count);
+        let mut sc = self.get(class).ok().and_then(|c| c.super_class.clone());
+        while let Some(ref s) = sc {
+            match self.get(s) {
+                Ok(sctx) => {
+                    count += sctx.instance_field_count;
+                    sc = sctx.super_class.clone();
+                }
+                Err(_) => break,
+            }
+        }
+        count
+    }
+
+    /// The [`ClassLoadSource`] of a loaded class, or `None` if not (yet) loaded. Used by
+    /// the layout-coherence guard's diagnostic to label synthetic vs classfile layouts.
+    #[must_use]
+    pub fn load_source_of(&self, class: &str) -> Option<ClassLoadSource> {
+        self.get(class).ok().map(|c| c.load_source)
     }
 
     /// Internal names of synthetic classes that were shadowed (skipped) by real JDK
