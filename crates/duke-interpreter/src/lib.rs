@@ -55,7 +55,19 @@ use duke_runtime::{Error, Frame, Result, Slot};
 //
 // Creates synthetic `java/lang/System` and `java/io/PrintStream` classes and
 // registers native `println` handlers for `(Ljava/lang/String;)V`, `(I)V`,
-include!("native.rs");
+include!("native/common.rs");
+include!("native/java_lang.rs");
+include!("native/java_util.rs");
+include!("native/duke_util.rs");
+include!("native/java_util_concurrent.rs");
+include!("native/java_time.rs");
+include!("native/java_util_logging.rs");
+include!("native/java_io.rs");
+include!("native/java_security.rs");
+include!("native/java_util_regex.rs");
+include!("native/reflect.rs");
+include!("native/jdk_internal.rs");
+include!("native/java_net.rs");
 
 // Tests
 // ---------------------------------------------------------------------------
