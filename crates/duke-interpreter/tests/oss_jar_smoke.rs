@@ -174,6 +174,7 @@ fn classpath_entry(path: &Path) -> ClasspathEntry {
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn oss_smoke_loader_for(classpath: Vec<PathBuf>) -> OssSmokeLoader {
     if let Some(modules_path) = jdk_modules_path()
         && let Ok(loader) = BootstrapLoader::new(&modules_path, classpath.clone())
