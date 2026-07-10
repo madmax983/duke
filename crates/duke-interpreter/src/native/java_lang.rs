@@ -4733,8 +4733,7 @@ pub(crate) fn native_runtime_available_processors(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let n = std::thread::available_parallelism()
-        .map(std::num::NonZeroUsize::get)
-        .unwrap_or(1) as i32;
+        .map_or(1, std::num::NonZeroUsize::get) as i32;
     Ok(Some(Slot::Int(n)))
 }
 pub(crate) fn native_runtime_exec_array(
