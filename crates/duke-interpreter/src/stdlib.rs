@@ -1326,6 +1326,93 @@ fn register_concurrent_hashmap_stdlib(registry: &mut ClassRegistry) {
     );
 }
 
+/// Registers a synthetic `jdk/internal/misc/Unsafe` surface sufficient to run
+/// real `java.util.concurrent` bytecode (notably `ConcurrentHashMap`) under
+/// `DUKE_REAL_JDK=1`.
+///
+/// `Unsafe` is kept fully synthetic (see `KEEP_SYNTHETIC` in `registry.rs`) so
+/// the real `Unsafe.<clinit>` — which reaches for `registerNatives` and
+/// `UnsafeConstants` — never runs. `getUnsafe()` hands back a stateless
+/// synthetic instance; every field/array accessor treats the `long` offset as a
+/// positional index into the flat `HeapObject::fields` vector (see the natives
+/// in `native.rs` for the offset-encoding contract). This is intentionally
+/// simpler than `HotSpot`'s real byte-addressed memory model but is
+/// self-consistent because Duke's field and array access are both positional.
+fn register_unsafe_stdlib(registry: &mut ClassRegistry) {
+    registry.register(ClassContext {
+        class_name: "jdk/internal/misc/Unsafe".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    registry.natives_mut().register(
+        "jdk/internal/misc/Unsafe",
+        "getUnsafe",
+        "()Ljdk/internal/misc/Unsafe;",
+        native_unsafe_get_unsafe,
+    );
+    registry.natives_mut().register_callback(
+        "jdk/internal/misc/Unsafe",
+        "objectFieldOffset",
+        "(Ljava/lang/Class;Ljava/lang/String;)J",
+        native_unsafe_object_field_offset,
+    );
+
+    for (method, descriptor, handler) in [
+        (
+            "arrayBaseOffset",
+            "(Ljava/lang/Class;)I",
+            native_unsafe_array_base_offset as NativeHandler,
+        ),
+        (
+            "arrayIndexScale",
+            "(Ljava/lang/Class;)I",
+            native_unsafe_array_index_scale,
+        ),
+        (
+            "compareAndSetReference",
+            "(Ljava/lang/Object;JLjava/lang/Object;Ljava/lang/Object;)Z",
+            native_unsafe_compare_and_set_reference,
+        ),
+        (
+            "compareAndSetInt",
+            "(Ljava/lang/Object;JII)Z",
+            native_unsafe_compare_and_set_int,
+        ),
+        (
+            "compareAndSetLong",
+            "(Ljava/lang/Object;JJJ)Z",
+            native_unsafe_compare_and_set_long,
+        ),
+        (
+            "getReferenceAcquire",
+            "(Ljava/lang/Object;J)Ljava/lang/Object;",
+            native_unsafe_get_reference,
+        ),
+        (
+            "putReferenceRelease",
+            "(Ljava/lang/Object;JLjava/lang/Object;)V",
+            native_unsafe_put_reference,
+        ),
+        (
+            "getAndAddInt",
+            "(Ljava/lang/Object;JI)I",
+            native_unsafe_get_and_add_int,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register("jdk/internal/misc/Unsafe", method, descriptor, handler);
+    }
+}
+
 fn lock_interface_context(name: &str) -> ClassContext {
     ClassContext {
         class_name: name.to_string(),
@@ -2487,6 +2574,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/Runtime",
+        "availableProcessors",
+        "()I",
+        native_runtime_available_processors,
+    );
+    registry.natives_mut().register(
+        "java/lang/Runtime",
         "exec",
         "([Ljava/lang/String;)Ljava/lang/Process;",
         native_runtime_exec_array,
@@ -3217,6 +3310,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     register_base64_stdlib(registry);
     register_atomic_stdlib(registry);
     register_concurrent_hashmap_stdlib(registry);
+    register_unsafe_stdlib(registry);
     register_locks_stdlib(registry);
     register_sync_primitives_stdlib(registry);
     register_executor_stdlib(registry, heap);
@@ -5312,6 +5406,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()D",
         native_double_doublevalue,
     );
+    registry.natives_mut().register(
+        "java/lang/Double",
+        "doubleToRawLongBits",
+        "(D)J",
+        native_double_double_to_raw_long_bits,
+    );
+    registry.natives_mut().register(
+        "java/lang/Double",
+        "doubleToLongBits",
+        "(D)J",
+        native_double_double_to_long_bits,
+    );
+    registry.natives_mut().register(
+        "java/lang/Double",
+        "longBitsToDouble",
+        "(J)D",
+        native_double_long_bits_to_double,
+    );
     registry
         .natives_mut()
         .register("java/lang/Double", "isNaN", "(D)Z", native_double_isnan);
@@ -5370,6 +5482,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "floatValue",
         "()F",
         native_float_floatvalue,
+    );
+    registry.natives_mut().register(
+        "java/lang/Float",
+        "floatToRawIntBits",
+        "(F)I",
+        native_float_float_to_raw_int_bits,
+    );
+    registry.natives_mut().register(
+        "java/lang/Float",
+        "floatToIntBits",
+        "(F)I",
+        native_float_float_to_int_bits,
+    );
+    registry.natives_mut().register(
+        "java/lang/Float",
+        "intBitsToFloat",
+        "(I)F",
+        native_float_int_bits_to_float,
     );
     registry.natives_mut().register(
         "java/lang/Float",

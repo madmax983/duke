@@ -939,35 +939,87 @@ pub fn run_execution(
                 frame.push(v2)?;
                 frame.push(v1)?;
             }
+            // Shared trailing `frame.push(v1)?` across the JVMS forms is kept inline
+            // for spec fidelity rather than hoisted out of the branches.
+            #[allow(clippy::branches_sharing_code)]
             Instruction::Dup2 => {
+                // JVMS §6.5 dup2. In Duke's model a category-2 value (long/double)
+                // is a single `Slot`, so Form 2 duplicates one slot, not two.
                 let v1 = frame.pop()?;
-                let v2 = frame.pop()?;
-                frame.push(v2)?;
-                frame.push(v1)?;
-                frame.push(v2)?;
-                frame.push(v1)?;
+                if matches!(v1, Slot::Long(_) | Slot::Double(_)) {
+                    // Form 2: single category-2 value.
+                    frame.push(v1)?;
+                    frame.push(v1)?;
+                } else {
+                    // Form 1: two category-1 values.
+                    let v2 = frame.pop()?;
+                    frame.push(v2)?;
+                    frame.push(v1)?;
+                    frame.push(v2)?;
+                    frame.push(v1)?;
+                }
             }
+            #[allow(clippy::branches_sharing_code)]
             Instruction::Dup2X1 => {
+                // JVMS §6.5 dup2_x1.
                 let v1 = frame.pop()?;
-                let v2 = frame.pop()?;
-                let v3 = frame.pop()?;
-                frame.push(v2)?;
-                frame.push(v1)?;
-                frame.push(v3)?;
-                frame.push(v2)?;
-                frame.push(v1)?;
+                if matches!(v1, Slot::Long(_) | Slot::Double(_)) {
+                    // Form 2: value1 category 2, value2 category 1.
+                    let v2 = frame.pop()?;
+                    frame.push(v1)?;
+                    frame.push(v2)?;
+                    frame.push(v1)?;
+                } else {
+                    // Form 1: three category-1 values.
+                    let v2 = frame.pop()?;
+                    let v3 = frame.pop()?;
+                    frame.push(v2)?;
+                    frame.push(v1)?;
+                    frame.push(v3)?;
+                    frame.push(v2)?;
+                    frame.push(v1)?;
+                }
             }
+            #[allow(clippy::branches_sharing_code)]
             Instruction::Dup2X2 => {
+                // JVMS §6.5 dup2_x2, all four forms in Duke's single-slot cat-2 model.
                 let v1 = frame.pop()?;
-                let v2 = frame.pop()?;
-                let v3 = frame.pop()?;
-                let v4 = frame.pop()?;
-                frame.push(v2)?;
-                frame.push(v1)?;
-                frame.push(v4)?;
-                frame.push(v3)?;
-                frame.push(v2)?;
-                frame.push(v1)?;
+                if matches!(v1, Slot::Long(_) | Slot::Double(_)) {
+                    let v2 = frame.pop()?;
+                    if matches!(v2, Slot::Long(_) | Slot::Double(_)) {
+                        // Form 4: value1, value2 both category 2.
+                        frame.push(v1)?;
+                        frame.push(v2)?;
+                        frame.push(v1)?;
+                    } else {
+                        // Form 2: value1 category 2; value2, value3 category 1.
+                        let v3 = frame.pop()?;
+                        frame.push(v1)?;
+                        frame.push(v3)?;
+                        frame.push(v2)?;
+                        frame.push(v1)?;
+                    }
+                } else {
+                    let v2 = frame.pop()?;
+                    let v3 = frame.pop()?;
+                    if matches!(v3, Slot::Long(_) | Slot::Double(_)) {
+                        // Form 3: value1, value2 category 1; value3 category 2.
+                        frame.push(v2)?;
+                        frame.push(v1)?;
+                        frame.push(v3)?;
+                        frame.push(v2)?;
+                        frame.push(v1)?;
+                    } else {
+                        // Form 1: all four category 1.
+                        let v4 = frame.pop()?;
+                        frame.push(v2)?;
+                        frame.push(v1)?;
+                        frame.push(v4)?;
+                        frame.push(v3)?;
+                        frame.push(v2)?;
+                        frame.push(v1)?;
+                    }
+                }
             }
             Instruction::Swap => {
                 let a = frame.pop()?;
@@ -1412,9 +1464,9 @@ pub fn run_execution(
                 init_object_fields(registry, heap, r, &target_class_key);
                 frame.push(Slot::Reference(Some(r)))?;
                 if gc_allowed && heap.should_gc() {
-                    let roots = gather_roots(frame, call_stack, registry);
+                    let roots = gather_roots(frame, call_stack, registry, string_intern);
                     heap.collect(&roots);
-                    patch_forwarded_slots(frame, call_stack, registry, heap);
+                    patch_forwarded_slots(frame, call_stack, registry, heap, string_intern);
                 }
             }
 
@@ -2161,9 +2213,9 @@ pub fn run_execution(
                 }
                 frame.push(Slot::Reference(Some(r)))?;
                 if gc_allowed && heap.should_gc() {
-                    let roots = gather_roots(frame, call_stack, registry);
+                    let roots = gather_roots(frame, call_stack, registry, string_intern);
                     heap.collect(&roots);
-                    patch_forwarded_slots(frame, call_stack, registry, heap);
+                    patch_forwarded_slots(frame, call_stack, registry, heap, string_intern);
                 }
             }
             Instruction::Anewarray(cp_idx) => {
@@ -2184,9 +2236,9 @@ pub fn run_execution(
                 }
                 frame.push(Slot::Reference(Some(r)))?;
                 if gc_allowed && heap.should_gc() {
-                    let roots = gather_roots(frame, call_stack, registry);
+                    let roots = gather_roots(frame, call_stack, registry, string_intern);
                     heap.collect(&roots);
-                    patch_forwarded_slots(frame, call_stack, registry, heap);
+                    patch_forwarded_slots(frame, call_stack, registry, heap, string_intern);
                 }
             }
             Instruction::Arraylength => {
@@ -2658,9 +2710,9 @@ pub fn run_execution(
 
                     frame.push(Slot::Reference(Some(r)))?;
                     if gc_allowed && heap.should_gc() {
-                        let roots = gather_roots(frame, call_stack, registry);
+                        let roots = gather_roots(frame, call_stack, registry, string_intern);
                         heap.collect(&roots);
-                        patch_forwarded_slots(frame, call_stack, registry, heap);
+                        patch_forwarded_slots(frame, call_stack, registry, heap, string_intern);
                     }
                 } else {
                     // Unknown bootstrap method — pop args and push null.
@@ -3205,9 +3257,9 @@ pub fn run_execution(
                                     Err(other) => return Err(other),
                                 }
                                 if gc_allowed && heap.should_gc() {
-                                    let roots = gather_roots(frame, call_stack, registry);
+                                    let roots = gather_roots(frame, call_stack, registry, string_intern);
                                     heap.collect(&roots);
-                                    patch_forwarded_slots(frame, call_stack, registry, heap);
+                                    patch_forwarded_slots(frame, call_stack, registry, heap, string_intern);
                                 }
                                 frame.push(Slot::Reference(Some(new_ref)))?;
                                 *idx += 1;
@@ -3339,9 +3391,9 @@ pub fn run_execution(
                 let r = alloc_multi(heap, &dims, 0, &element_type)?;
                 frame.push(Slot::Reference(Some(r)))?;
                 if gc_allowed && heap.should_gc() {
-                    let roots = gather_roots(frame, call_stack, registry);
+                    let roots = gather_roots(frame, call_stack, registry, string_intern);
                     heap.collect(&roots);
-                    patch_forwarded_slots(frame, call_stack, registry, heap);
+                    patch_forwarded_slots(frame, call_stack, registry, heap, string_intern);
                 }
             }
 
