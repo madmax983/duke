@@ -46,6 +46,99 @@ fn apply_shadow_override(
     }
 }
 
+/// Runtime layout-coherence guard for `getfield`/`putfield` under real-JDK shadow mode.
+///
+/// Validates that the field access about to be performed is layout-coherent: that the
+/// resolved slot is in bounds for the target object, and that the field-resolving class
+/// and the object's runtime class agree on which layout regime (real classfile layout vs
+/// hand-written synthetic layout) they were built under. A half-migrated object graph —
+/// e.g. real bytecode computing a slot from the *real* layout while the `HeapObject` was
+/// allocated with the *synthetic* layout — silently reads/writes the wrong slot with no
+/// error; this guard makes that corruption loud instead of silent.
+///
+/// This is only ever called when `DUKE_LAYOUT_CHECK` is `warn`/`fail` **and** real-JDK
+/// shadow mode is enabled (checked cheaply by the caller), so it is a hard no-op — never
+/// even reached — in the default configuration.
+///
+/// On an incoherent access it emits an unmistakable `[layout-coherence]` diagnostic. In
+/// [`LayoutCheckMode::Fail`] mode it additionally returns an error to abort the access;
+/// in [`LayoutCheckMode::Warn`] mode it returns `Ok(())` so execution continues.
+#[allow(clippy::too_many_arguments)]
+fn layout_coherence_check(
+    registry: &ClassRegistry,
+    heap: &duke_gc::Heap,
+    obj_ref: u64,
+    resolving_class_key: &str,
+    field_name: &str,
+    slot: usize,
+    accessing_class: &str,
+    accessing_method: &str,
+    op: &str,
+) -> Result<()> {
+    // Strip any provenance suffix (`internal_name\0source`) for display.
+    fn frag(name: &str) -> &str {
+        name.split_once('\0').map_or(name, |(n, _)| n)
+    }
+    let obj = heap.get(obj_ref)?;
+    let object_class = obj.class_name.as_str();
+    let actual_slots = obj.fields.len();
+
+    // Single decision point, shared with the unit tests (see `is_layout_incoherent`).
+    // Common path: coherent access → cheap early return, no string formatting.
+    if !registry.is_layout_incoherent(resolving_class_key, object_class, slot, actual_slots) {
+        return Ok(());
+    }
+
+    let resolving_shadowed = registry.is_shadowed(resolving_class_key);
+    let object_shadowed = registry.is_shadowed(object_class);
+    let hard_oob = slot >= actual_slots;
+
+    let label = |shadowed: bool, source: Option<ClassLoadSource>| -> &'static str {
+        match (shadowed, source) {
+            (true, _) | (_, Some(ClassLoadSource::Classfile)) => "real",
+            (false, Some(ClassLoadSource::Synthetic)) => "synthetic",
+            (false, None) => "unloaded",
+        }
+    };
+    let resolving_expected = registry.total_instance_slot_count(resolving_class_key);
+    let resolving_label = label(
+        resolving_shadowed,
+        registry.load_source_of(resolving_class_key),
+    );
+    let object_label = label(object_shadowed, registry.load_source_of(object_class));
+
+    let bounds = if hard_oob {
+        format!("slot {slot} out of bounds (object has {actual_slots} slots)")
+    } else {
+        format!("slot {slot} in bounds ({actual_slots} slots) but layout regimes disagree")
+    };
+
+    eprintln!(
+        "[layout-coherence] INCOHERENT {op} {resolving}.{field} in {aclass}.{amethod}: \
+         resolving-class {resolving} ({rlabel}, expects {rexpected} slots) vs \
+         object-class {object} ({olabel}, has {actual_slots} slots); {bounds}",
+        op = op,
+        resolving = frag(resolving_class_key),
+        field = field_name,
+        aclass = accessing_class,
+        amethod = accessing_method,
+        rlabel = resolving_label,
+        rexpected = resolving_expected,
+        object = frag(object_class),
+        olabel = object_label,
+        actual_slots = actual_slots,
+        bounds = bounds,
+    );
+
+    if registry.layout_check_mode() == LayoutCheckMode::Fail {
+        return Err(Error::FieldOutOfBounds {
+            index: slot,
+            length: actual_slots,
+        });
+    }
+    Ok(())
+}
+
 /// Executes the active method's bytecode instructions to completion or exception.
 ///
 /// This is the central run-loop of the interpreter. It continually fetches the
@@ -1481,6 +1574,29 @@ pub fn run_execution(
                 let r = frame.pop_ref()?;
                 registry.ensure_loaded_from(&target_class, Some(current_class.as_str()), loader)?;
                 let fidx = field_slot_idx(registry, &target_class_key, &field_name)?;
+                // Layout-coherence guard: hard no-op unless DUKE_LAYOUT_CHECK is set AND
+                // real-JDK shadow mode is on (both cheap checks short-circuit when off).
+                if registry.real_jdk_shadow_enabled()
+                    && registry.layout_check_mode() != LayoutCheckMode::Off
+                {
+                    let method_name = registry
+                        .get(current_class)
+                        .ok()
+                        .and_then(|ctx| ctx.methods.get(*method_idx))
+                        .map_or("<unknown>", |m| m.name.as_str())
+                        .to_string();
+                    layout_coherence_check(
+                        registry,
+                        heap,
+                        r,
+                        &target_class_key,
+                        &field_name,
+                        fidx,
+                        current_class,
+                        &method_name,
+                        "getfield",
+                    )?;
+                }
                 let val = heap.get(r)?.fields[fidx];
                 frame.push(val)?;
             }
@@ -1495,6 +1611,29 @@ pub fn run_execution(
                 let r = frame.pop_ref()?;
                 registry.ensure_loaded_from(&target_class, Some(current_class.as_str()), loader)?;
                 let fidx = field_slot_idx(registry, &target_class_key, &field_name)?;
+                // Layout-coherence guard: hard no-op unless DUKE_LAYOUT_CHECK is set AND
+                // real-JDK shadow mode is on (both cheap checks short-circuit when off).
+                if registry.real_jdk_shadow_enabled()
+                    && registry.layout_check_mode() != LayoutCheckMode::Off
+                {
+                    let method_name = registry
+                        .get(current_class)
+                        .ok()
+                        .and_then(|ctx| ctx.methods.get(*method_idx))
+                        .map_or("<unknown>", |m| m.name.as_str())
+                        .to_string();
+                    layout_coherence_check(
+                        registry,
+                        heap,
+                        r,
+                        &target_class_key,
+                        &field_name,
+                        fidx,
+                        current_class,
+                        &method_name,
+                        "putfield",
+                    )?;
+                }
                 heap.write_field(r, fidx, val)?;
             }
             Instruction::Getstatic(cp_idx) => {

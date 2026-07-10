@@ -3354,12 +3354,9 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/lang/String;",
         native_class_get_package_name,
     );
-    registry.natives_mut().register(
-        "java/lang/Class",
-        "isArray",
-        "()Z",
-        native_class_is_array,
-    );
+    registry
+        .natives_mut()
+        .register("java/lang/Class", "isArray", "()Z", native_class_is_array);
     registry.natives_mut().register(
         "java/lang/Class",
         "desiredAssertionStatus",

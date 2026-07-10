@@ -3000,7 +3000,12 @@ mod tests {
             );
         }
         // The survivor is still reachable and intact.
-        assert_eq!(heap.get(survivor_slot.as_reference().unwrap()).unwrap().class_name, "Survivor");
+        assert_eq!(
+            heap.get(survivor_slot.as_reference().unwrap())
+                .unwrap()
+                .class_name,
+            "Survivor"
+        );
     }
 
     /// A survivor kept rooted across enough minor GCs is evacuated into the old
@@ -3011,8 +3016,10 @@ mod tests {
         // Default promotion age (4): promoted on the 5th survival.
         let payload = heap.allocate("Payload".to_string(), 2);
         let text = heap.allocate_string("hello gc".to_string());
-        heap.write_field(payload, 0, Slot::Int(0x1234_5678)).unwrap();
-        heap.write_field(payload, 1, Slot::Reference(Some(text))).unwrap();
+        heap.write_field(payload, 0, Slot::Int(0x1234_5678))
+            .unwrap();
+        heap.write_field(payload, 1, Slot::Reference(Some(text)))
+            .unwrap();
 
         let mut root = Slot::Reference(Some(payload));
         for _ in 0..=DEFAULT_PROMOTION_AGE {
@@ -3020,7 +3027,11 @@ mod tests {
         }
 
         let promoted = root.as_reference().unwrap();
-        assert_ne!(promoted & OLD_BIT, 0, "survivor should be promoted to old gen");
+        assert_ne!(
+            promoted & OLD_BIT,
+            0,
+            "survivor should be promoted to old gen"
+        );
 
         let obj = heap.get(promoted).unwrap();
         assert_eq!(obj.class_name, "Payload");
@@ -3045,7 +3056,11 @@ mod tests {
         let patched = run_minor_gc(&mut heap, &[Slot::Reference(Some(r))]);
         let new_ref = patched[0].as_reference().unwrap();
 
-        assert_ne!(new_ref & OLD_BIT, 0, "root should now name the old-gen copy");
+        assert_ne!(
+            new_ref & OLD_BIT,
+            0,
+            "root should now name the old-gen copy"
+        );
         assert_ne!(new_ref, r, "root ref must have been remapped");
         assert_eq!(heap.get(new_ref).unwrap().fields[0], Slot::Int(99));
     }
@@ -3065,7 +3080,10 @@ mod tests {
         assert_ne!(new_ref, r, "reference index changed across relocation");
 
         let after = heap.identity_hash(new_ref).unwrap();
-        assert_eq!(before, after, "identity hash must survive relocation unchanged");
+        assert_eq!(
+            before, after,
+            "identity hash must survive relocation unchanged"
+        );
     }
 
     /// Distinct objects get distinct identity hashes, and repeated queries are
@@ -3079,7 +3097,10 @@ mod tests {
         let ha2 = heap.identity_hash(a).unwrap();
         let hb = heap.identity_hash(b).unwrap();
         assert_eq!(ha1, ha2, "repeated identity_hash must be stable");
-        assert_ne!(ha1, hb, "distinct objects must get distinct identity hashes");
+        assert_ne!(
+            ha1, hb,
+            "distinct objects must get distinct identity hashes"
+        );
     }
 
     /// After a promoted object gains an old→young edge, the remembered set keeps
@@ -3126,28 +3147,21 @@ mod tests {
     fn make_executor_with_task(heap: &mut Heap, future_ref: u64, task_ref: u64) -> u64 {
         let exec_ref = heap.allocate("Executor".to_string(), 0);
         heap.get_mut(exec_ref).unwrap().atomic_payload = Some(AtomicPayload::executor(1));
-        let Some(AtomicPayload::Executor(shared)) =
-            &heap.get(exec_ref).unwrap().atomic_payload
+        let Some(AtomicPayload::Executor(shared)) = &heap.get(exec_ref).unwrap().atomic_payload
         else {
             panic!("expected executor payload");
         };
-        shared
-            .state
-            .lock()
-            .unwrap()
-            .queue
-            .push_back(ExecutorTask {
-                future_ref,
-                task_ref,
-                kind: ExecutorTaskKind::Runnable,
-            });
+        shared.state.lock().unwrap().queue.push_back(ExecutorTask {
+            future_ref,
+            task_ref,
+            kind: ExecutorTaskKind::Runnable,
+        });
         exec_ref
     }
 
     /// Reads the single queued task from an executor object.
     fn executor_task(heap: &Heap, exec_ref: u64) -> ExecutorTask {
-        let Some(AtomicPayload::Executor(shared)) =
-            &heap.get(exec_ref).unwrap().atomic_payload
+        let Some(AtomicPayload::Executor(shared)) = &heap.get(exec_ref).unwrap().atomic_payload
         else {
             panic!("expected executor payload");
         };
@@ -3350,7 +3364,8 @@ mod tests {
 
         // A young object referencing the second (moving) old survivor.
         let young = heap.allocate("Young".to_string(), 1);
-        heap.write_field(young, 0, Slot::Reference(Some(keep1))).unwrap();
+        heap.write_field(young, 0, Slot::Reference(Some(keep1)))
+            .unwrap();
 
         let keep_roots = [Slot::Reference(Some(keep0)), Slot::Reference(Some(keep1))];
         heap.compact_old(&keep_roots);
@@ -3396,7 +3411,8 @@ mod tests {
 
         // A young object referenced only by the old `holder` (old→young edge).
         let young = heap.allocate("Payload".to_string(), 0);
-        heap.write_field(holder, 0, Slot::Reference(Some(young))).unwrap();
+        heap.write_field(holder, 0, Slot::Reference(Some(young)))
+            .unwrap();
         let holder_idx = (holder & !OLD_BIT) as usize;
         assert!(heap.remembered_set.contains(&holder_idx));
 
@@ -3417,7 +3433,9 @@ mod tests {
         // The old→young edge still protects the young object on a minor GC even
         // though `young` is not directly rooted.
         run_minor_gc(&mut heap, &[Slot::Reference(Some(new_holder))]);
-        let edge = heap.get(new_holder).unwrap().fields[0].as_reference().unwrap();
+        let edge = heap.get(new_holder).unwrap().fields[0]
+            .as_reference()
+            .unwrap();
         assert_eq!(heap.get(edge).unwrap().class_name, "Payload");
     }
 

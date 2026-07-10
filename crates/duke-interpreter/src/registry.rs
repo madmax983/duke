@@ -9,6 +9,7 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 
+use duke_classfile::FieldAccessFlags;
 use duke_loader::{ClassLoader, LocatedResource};
 use duke_runtime::{Error, Result, Slot};
 
@@ -19,35 +20,23 @@ use crate::context::{ClassContext, ClassLoadSource};
 /// a specific field/heap layout (special `HeapObject` slots, dense hand-registered natives),
 /// so loading their real JDK bytecode would break those natives.
 const KEEP_SYNTHETIC: &[&str] = &[
-    "java/lang/Object",
     "java/lang/String",
     "java/lang/Class",
     "java/lang/Thread",
     "java/lang/ThreadGroup",
     "java/lang/Throwable",
     "java/lang/System",
-    "java/lang/Integer",
-    "java/lang/Long",
-    "java/lang/Short",
-    "java/lang/Byte",
-    "java/lang/Boolean",
-    "java/lang/Character",
-    "java/lang/Float",
-    "java/lang/Double",
-    "java/lang/Number",
     // Print/IO stack: `System.out`/`System.err` are allocated synthetically by
     // `bootstrap_stdlib` (System is KEEP_SYNTHETIC) with the synthetic PrintStream layout.
     // Keeping the whole stream/writer stack synthetic prevents real JDK bytecode from
     // running against those synthetically-allocated instances (layout-coherence boundary).
     "java/io/PrintStream",
-    "java/io/OutputStream",
     "java/io/FilterOutputStream",
     "java/io/BufferedOutputStream",
     "java/io/Writer",
     "java/io/OutputStreamWriter",
     "java/io/BufferedWriter",
     "java/io/PrintWriter",
-    "java/io/InputStream",
     "java/io/FileOutputStream",
     "java/io/FileInputStream",
     "java/io/FileDescriptor",
@@ -61,6 +50,35 @@ const KEEP_SYNTHETIC: &[&str] = &[
 fn class_internal_name_fragment(name: &str) -> &str {
     name.split_once('\0')
         .map_or(name, |(internal_name, _)| internal_name)
+}
+
+/// Runtime layout-coherence guard mode, selected once from the `DUKE_LAYOUT_CHECK`
+/// environment variable.
+///
+/// The guard only ever does work when the mode is not [`LayoutCheckMode::Off`] **and**
+/// real-JDK shadow mode is enabled; in every other configuration it is a hard no-op with
+/// zero overhead. See [`ClassRegistry::layout_check_mode`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LayoutCheckMode {
+    /// Default (env unset or any unrecognized value). No checking, zero overhead.
+    #[default]
+    Off,
+    /// Emit a loud `[layout-coherence]` diagnostic on an incoherent access and continue.
+    Warn,
+    /// Emit the diagnostic and abort the access with a runtime error.
+    Fail,
+}
+
+impl LayoutCheckMode {
+    /// Parse the `DUKE_LAYOUT_CHECK` environment variable once. Recognized values are
+    /// `warn` and `fail` (case-insensitive); anything else (including unset) is [`Self::Off`].
+    fn from_env() -> Self {
+        match std::env::var("DUKE_LAYOUT_CHECK") {
+            Ok(v) if v.eq_ignore_ascii_case("warn") => Self::Warn,
+            Ok(v) if v.eq_ignore_ascii_case("fail") => Self::Fail,
+            _ => Self::Off,
+        }
+    }
 }
 
 /// Metadata for a lambda proxy object created by `LambdaMetafactory`.
@@ -410,6 +428,9 @@ pub struct ClassRegistry {
     /// O(1) membership mirror of [`Self::shadowed_classes`] (internal names), used by
     /// [`Self::is_shadowed`] during native-vs-bytecode dispatch decisions.
     shadowed_set: HashSet<String>,
+    /// Layout-coherence guard mode, parsed once from `DUKE_LAYOUT_CHECK` at construction.
+    /// Only ever active alongside [`Self::real_jdk_shadow`]; [`LayoutCheckMode::Off`] by default.
+    layout_check: LayoutCheckMode,
     /// Storage for execution telemetry (e.g. instruction counts, GC pause times).
     ///
     /// The [`TelemetryStore`](duke_telemetry::TelemetryStore) collects performance metrics
@@ -445,6 +466,7 @@ impl ClassRegistry {
             shadow_loader: None,
             shadowed_classes: Vec::new(),
             shadowed_set: HashSet::new(),
+            layout_check: LayoutCheckMode::from_env(),
             #[cfg(feature = "telemetry")]
             telemetry: duke_telemetry::TelemetryStore::default(),
         }
@@ -731,6 +753,216 @@ impl ClassRegistry {
         self.real_jdk_shadow
     }
 
+    /// The layout-coherence guard mode selected from `DUKE_LAYOUT_CHECK`. Always
+    /// [`LayoutCheckMode::Off`] unless the env var requested `warn`/`fail`.
+    #[must_use]
+    pub const fn layout_check_mode(&self) -> LayoutCheckMode {
+        self.layout_check
+    }
+
+    /// Sum a class's instance fields across its full superclass chain — the number of
+    /// heap slots an instance of `class` is allocated with. Mirrors the allocation-time
+    /// sizing used by the `new` opcode. Used by the layout-coherence guard.
+    #[must_use]
+    pub fn total_instance_slot_count(&self, class: &str) -> usize {
+        let mut count = self.get(class).map_or(0, |c| c.instance_field_count);
+        let mut sc = self.get(class).ok().and_then(|c| c.super_class.clone());
+        while let Some(ref s) = sc {
+            match self.get(s) {
+                Ok(sctx) => {
+                    count += sctx.instance_field_count;
+                    sc = sctx.super_class.clone();
+                }
+                Err(_) => break,
+            }
+        }
+        count
+    }
+
+    /// The [`ClassLoadSource`] of a loaded class, or `None` if not (yet) loaded. Used by
+    /// the layout-coherence guard's diagnostic to label synthetic vs classfile layouts.
+    #[must_use]
+    pub fn load_source_of(&self, class: &str) -> Option<ClassLoadSource> {
+        self.get(class).ok().map(|c| c.load_source)
+    }
+
+    /// Whether a class uses the **real** (classfile) instance-field layout, as opposed to
+    /// a hand-written **synthetic** layout. A class is real-layout when it is shadowed
+    /// (its synthetic stub was dropped so it loads real JDK bytecode) or its already-loaded
+    /// [`ClassLoadSource`] is [`ClassLoadSource::Classfile`]; synthetic-layout when its load
+    /// source is [`ClassLoadSource::Synthetic`]. Returns `None` when the class is not (yet)
+    /// loaded and not shadowed, so its regime cannot be determined. Used by the
+    /// layout-coherence guard to compare regimes on ground truth rather than on the
+    /// `is_shadowed` bookkeeping alone (which misfires when both sides are real).
+    #[must_use]
+    pub fn effective_layout_is_real(&self, class: &str) -> Option<bool> {
+        if self.is_shadowed(class) {
+            return Some(true);
+        }
+        match self.load_source_of(class) {
+            Some(ClassLoadSource::Classfile) => Some(true),
+            Some(ClassLoadSource::Synthetic) => Some(false),
+            None => None,
+        }
+    }
+
+    /// Core layout-coherence predicate used by the `getfield`/`putfield` runtime guard.
+    ///
+    /// A field access is **incoherent** when either:
+    /// * the resolved `slot` is out of bounds for the target object
+    ///   (`slot >= object_slot_count`) — the concrete "silent corruption" case; or
+    /// * the field-resolving class and the object's runtime class use *different* layout
+    ///   regimes — one real (classfile) layout, the other synthetic layout (see
+    ///   [`Self::effective_layout_is_real`]) — a half-migrated object graph where real
+    ///   bytecode and a synthetically-allocated object compute different slots. When either
+    ///   side's regime is unknown (unloaded), no mismatch is reported. Comparing effective
+    ///   layout (rather than raw `is_shadowed`) avoids false positives on the common case
+    ///   where a shadowed superclass and a directly-real subclass are *both* real layout.
+    ///
+    /// Pure and deterministic (no env, no mode); the mode (`warn`/`fail`) only governs what
+    /// the guard *does* with an incoherent verdict. Exposed so the guard and its tests share
+    /// one decision point.
+    #[must_use]
+    pub fn is_layout_incoherent(
+        &self,
+        resolving_class: &str,
+        object_class: &str,
+        slot: usize,
+        object_slot_count: usize,
+    ) -> bool {
+        if slot >= object_slot_count {
+            return true;
+        }
+        match (
+            self.effective_layout_is_real(resolving_class),
+            self.effective_layout_is_real(object_class),
+        ) {
+            (Some(resolving_real), Some(object_real)) => resolving_real != object_real,
+            _ => false,
+        }
+    }
+
+    /// Count a real jimage classfile's own (per-class, declared) instance fields, i.e.
+    /// non-`static` fields, by fetching and parsing its bytecode via the shadow loader.
+    /// Returns `None` if there is no shadow loader, the class isn't resolvable, or the
+    /// bytecode doesn't parse. Used only by [`Self::run_layout_audit`].
+    fn real_instance_field_count(&self, class: &str) -> Option<usize> {
+        let loader = self.shadow_loader.as_ref()?;
+        let bytes = loader.find_class(class).ok()?;
+        let cf = duke_classfile::parse(&bytes).ok()?;
+        Some(
+            cf.fields
+                .iter()
+                .filter(|f| !f.access_flags.contains(FieldAccessFlags::STATIC))
+                .count(),
+        )
+    }
+
+    /// The zero-layout-risk migration candidates identified by the layout audit: the
+    /// `KEEP_SYNTHETIC` classes whose synthetic per-class instance-field count already
+    /// matches the real jimage layout (or whose real layout has zero instance fields), so
+    /// they could safely leave the allowlist. Empty when real-JDK shadow mode is off (no
+    /// real layout to compare against). Shares its rule with [`Self::run_layout_audit`].
+    #[must_use]
+    pub fn layout_audit_candidates(&self) -> Vec<String> {
+        if !self.real_jdk_shadow {
+            return Vec::new();
+        }
+        KEEP_SYNTHETIC
+            .iter()
+            .filter_map(|&name| {
+                let synth = self.get(name).ok().map(|c| c.instance_field_count)?;
+                let real = self.real_instance_field_count(name)?;
+                (synth == real || real == 0).then(|| name.to_string())
+            })
+            .collect()
+    }
+
+    /// Static layout audit (gated by `DUKE_LAYOUT_AUDIT=1` at the call site): for each
+    /// `KEEP_SYNTHETIC` class and a sample of shadowed classes, compare the hand-written
+    /// synthetic per-class instance-field count against the real jimage classfile's
+    /// per-class instance-field count. Prints a table and a count of zero-layout-risk
+    /// migration candidates — classes whose synthetic layout already matches the real
+    /// layout (or which have zero instance fields), so they could safely leave the
+    /// `KEEP_SYNTHETIC` allowlist. This is a diagnostic tool, never on any hot path.
+    ///
+    /// A hard no-op unless real-JDK shadow mode is enabled (no shadow loader → nothing to
+    /// compare against).
+    pub fn run_layout_audit(&self) {
+        const SHADOW_SAMPLE: usize = 20;
+        if !self.real_jdk_shadow {
+            eprintln!("[layout-audit] real-jdk shadow mode is not enabled; audit skipped");
+            return;
+        }
+        if self.shadow_loader.is_none() {
+            eprintln!("[layout-audit] no shadow loader available; audit skipped");
+            return;
+        }
+        eprintln!(
+            "[layout-audit] real-jdk layout audit: synthetic vs real (jimage) per-class \
+             instance-field counts"
+        );
+        eprintln!(
+            "[layout-audit] {:<40} {:>6} {:>6}  verdict",
+            "class", "synth", "real"
+        );
+
+        // KEEP_SYNTHETIC classes: synthetic ClassContext is still registered, so we can
+        // compare both sides. These are the migration-candidate decisions.
+        for &name in KEEP_SYNTHETIC {
+            let synth = self.get(name).ok().map(|c| c.instance_field_count);
+            let real = self.real_instance_field_count(name);
+            let (synth_s, real_s, verdict) = match (synth, real) {
+                (Some(s), Some(r)) => {
+                    let v = if s == r {
+                        "MATCH (candidate)"
+                    } else if r == 0 {
+                        "real has 0 instance fields (candidate)"
+                    } else {
+                        "MISMATCH"
+                    };
+                    (s.to_string(), r.to_string(), v)
+                }
+                (Some(s), None) => (s.to_string(), "-".to_string(), "no real classfile"),
+                (None, Some(r)) => ("-".to_string(), r.to_string(), "not synthetic-registered"),
+                (None, None) => ("-".to_string(), "-".to_string(), "unavailable"),
+            };
+            eprintln!("[layout-audit] {name:<40} {synth_s:>6} {real_s:>6}  {verdict}");
+        }
+
+        // Sample of shadowed classes: their synthetic ClassContext was dropped at
+        // registration (they now use real bytecode+layout), so only the real count is
+        // available — shown as informational confirmation of the migrated layout.
+        let sample_total = self.shadowed_classes.len();
+        if sample_total > 0 {
+            eprintln!(
+                "[layout-audit] --- shadowed sample ({} of {} shadowed classes) ---",
+                sample_total.min(SHADOW_SAMPLE),
+                sample_total
+            );
+            for name in self.shadowed_classes.iter().take(SHADOW_SAMPLE) {
+                let real_s = self
+                    .real_instance_field_count(name)
+                    .map_or_else(|| "-".to_string(), |r| r.to_string());
+                eprintln!(
+                    "[layout-audit] {name:<40} {:>6} {real_s:>6}  shadowed (real layout)",
+                    "dropped"
+                );
+            }
+        }
+
+        let candidates = self.layout_audit_candidates();
+        eprintln!(
+            "[layout-audit] SUMMARY: {} of {} KEEP_SYNTHETIC classes are zero-layout-risk \
+             migration candidates",
+            candidates.len(),
+            KEEP_SYNTHETIC.len()
+        );
+        if !candidates.is_empty() {
+            eprintln!("[layout-audit] candidates: {}", candidates.join(", "));
+        }
+    }
+
     /// Internal names of synthetic classes that were shadowed (skipped) by real JDK
     /// bytecode under real-JDK shadow mode.
     #[must_use]
@@ -745,7 +977,7 @@ impl ClassRegistry {
                 eprintln!("[real-jdk] shadowing synthetic {}", ctx.class_name);
             }
             self.shadowed_set.insert(ctx.class_name.clone());
-            self.shadowed_classes.push(ctx.class_name.clone());
+            self.shadowed_classes.push(ctx.class_name);
             return;
         }
         self.classes.insert(ctx.class_name.clone(), ctx);
