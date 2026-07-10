@@ -190,6 +190,16 @@ pub fn run_execution(
     gc_allowed: bool,
     quantum: Option<usize>,
 ) -> Result<ExecutionOutcome> {
+    // Register this execution state as a GC root provider for the duration of
+    // the call. If an instruction below re-enters the interpreter with a NESTED
+    // `run_execution` (e.g. triggering a class `<clinit>`), a GC fired in that
+    // nested call will scan THIS now-suspended frame + call stack too, so the
+    // caller's live locals are not reclaimed. `state` outlives this function and
+    // is not moved while it runs, so the raw pointer stays valid. The guard pops
+    // on every exit path (including `?`, early returns and `Yield`). See
+    // `gather_roots` / `patch_forwarded_slots`.
+    let _root_provider_guard = RootProviderGuard::push(std::ptr::from_mut(state));
+
     let ExecutionState {
         current_class,
         method_idx,
