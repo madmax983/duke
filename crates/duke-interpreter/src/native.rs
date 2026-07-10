@@ -17624,6 +17624,89 @@ pub(crate) fn native_float_floatvalue(
     Ok(Some(val))
 }
 
+/// Native: `Float.floatToRawIntBits(float)` — reinterprets the float's bits as
+/// an int without NaN canonicalization.
+#[allow(clippy::cast_possible_wrap)]
+pub(crate) fn native_float_float_to_raw_int_bits(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let f = extract_float_arg(args, 0)?;
+    Ok(Some(Slot::Int(f.to_bits() as i32)))
+}
+
+/// Native: `Float.floatToIntBits(float)` — like `floatToRawIntBits` but
+/// collapses all NaN encodings to the canonical `0x7fc00000`.
+#[allow(clippy::cast_possible_wrap)]
+pub(crate) fn native_float_float_to_int_bits(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let f = extract_float_arg(args, 0)?;
+    let bits = if f.is_nan() { 0x7fc0_0000 } else { f.to_bits() };
+    Ok(Some(Slot::Int(bits as i32)))
+}
+
+/// Native: `Float.intBitsToFloat(int)` — reinterprets the int's bits as a float.
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_float_int_bits_to_float(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let i = extract_int_arg(args, 0)?;
+    Ok(Some(Slot::Float(f32::from_bits(i as u32))))
+}
+
+/// Native: `Double.doubleToRawLongBits(double)` — reinterprets the double's
+/// bits as a long without NaN canonicalization.
+#[allow(clippy::cast_possible_wrap)]
+pub(crate) fn native_double_double_to_raw_long_bits(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let d = extract_double_arg(args, 0)?;
+    Ok(Some(Slot::Long(d.to_bits() as i64)))
+}
+
+/// Native: `Double.doubleToLongBits(double)` — like `doubleToRawLongBits` but
+/// collapses all NaN encodings to the canonical `0x7ff8000000000000`.
+#[allow(clippy::cast_possible_wrap)]
+pub(crate) fn native_double_double_to_long_bits(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let d = extract_double_arg(args, 0)?;
+    let bits = if d.is_nan() {
+        0x7ff8_0000_0000_0000
+    } else {
+        d.to_bits()
+    };
+    Ok(Some(Slot::Long(bits as i64)))
+}
+
+/// Native: `Double.longBitsToDouble(long)` — reinterprets the long's bits as a
+/// double.
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_double_long_bits_to_double(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let l = extract_long_arg(args, 0)?;
+    Ok(Some(Slot::Double(f64::from_bits(l as u64))))
+}
+
 pub(crate) fn native_float_compareto(
     args: &[Slot],
     heap: &mut duke_gc::Heap,

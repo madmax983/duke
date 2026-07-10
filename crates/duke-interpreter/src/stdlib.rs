@@ -5312,6 +5312,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()D",
         native_double_doublevalue,
     );
+    registry.natives_mut().register(
+        "java/lang/Double",
+        "doubleToRawLongBits",
+        "(D)J",
+        native_double_double_to_raw_long_bits,
+    );
+    registry.natives_mut().register(
+        "java/lang/Double",
+        "doubleToLongBits",
+        "(D)J",
+        native_double_double_to_long_bits,
+    );
+    registry.natives_mut().register(
+        "java/lang/Double",
+        "longBitsToDouble",
+        "(J)D",
+        native_double_long_bits_to_double,
+    );
     registry
         .natives_mut()
         .register("java/lang/Double", "isNaN", "(D)Z", native_double_isnan);
@@ -5370,6 +5388,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "floatValue",
         "()F",
         native_float_floatvalue,
+    );
+    registry.natives_mut().register(
+        "java/lang/Float",
+        "floatToRawIntBits",
+        "(F)I",
+        native_float_float_to_raw_int_bits,
+    );
+    registry.natives_mut().register(
+        "java/lang/Float",
+        "floatToIntBits",
+        "(F)I",
+        native_float_float_to_int_bits,
+    );
+    registry.natives_mut().register(
+        "java/lang/Float",
+        "intBitsToFloat",
+        "(I)F",
+        native_float_int_bits_to_float,
     );
     registry.natives_mut().register(
         "java/lang/Float",
