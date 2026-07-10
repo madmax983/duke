@@ -176,3 +176,36 @@ pub(crate) fn native_unsafe_allocate_instance(
     let instance_ref = ops.allocate_instance(heap, out, &class_key)?;
     Ok(Some(Slot::Reference(Some(instance_ref))))
 }
+/// Native: `jdk/internal/reflect/Reflection.getCallerClass()Ljava/lang/Class;`.
+///
+/// Real `HotSpot` semantics: return the `Class` of the method that called the
+/// caller of `getCallerClass` — i.e. skip `getCallerClass`'s own (native) frame
+/// and the immediate `@CallerSensitive` caller frame, returning the frame two
+/// levels up (also skipping reflection/`MethodHandle` machinery frames).
+///
+/// Duke frame model: `control.stack_trace()` holds the Java frames captured at
+/// the native call site, most-recent-first. `getCallerClass` is native and is
+/// not itself represented in that snapshot, so:
+///   `frames[0]` = the (`@CallerSensitive`) method that invoked getCallerClass
+///                 (e.g. `ServiceLoader.load`)
+///   `frames[1]` = that method's caller — the `Class` we must return.
+/// We return the mirror for `frames[1]`. If the stack is too shallow (no
+/// grand-caller, e.g. called directly from the entry frame) we fall back to
+/// `frames[0]`, and to `null` only when the snapshot is empty. This is the
+/// interpretation that lets `java/util/ServiceLoader.load(Ljava/lang/Class;)`
+/// resolve its caller class under `DUKE_REAL_JDK=1`.
+pub(crate) fn native_reflection_get_caller_class(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let frames = control.stack_trace();
+    match frames.get(1).or_else(|| frames.first()) {
+        Some(frame) => {
+            let class_ref = allocate_class_object(heap, &frame.class_name)?;
+            Ok(Some(Slot::Reference(Some(class_ref))))
+        }
+        None => Ok(Some(Slot::Reference(None))),
+    }
+}

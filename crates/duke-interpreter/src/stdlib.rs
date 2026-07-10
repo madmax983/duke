@@ -1413,6 +1413,23 @@ fn register_unsafe_stdlib(registry: &mut ClassRegistry) {
     }
 }
 
+/// Registers the native handler for `jdk/internal/reflect/Reflection`.
+///
+/// Only the `getCallerClass()` native is provided; the `Reflection` class itself
+/// is loaded from the real JDK under `DUKE_REAL_JDK=1` (no synthetic context is
+/// registered, so flag-off behavior is unchanged — the entry is simply unused).
+/// `getCallerClass` is `@CallerSensitive` machinery reached from
+/// `java/util/ServiceLoader.load(Ljava/lang/Class;)`; see
+/// `native_reflection_get_caller_class` for the frame-walking semantics.
+fn register_reflection_stdlib(registry: &mut ClassRegistry) {
+    registry.natives_mut().register(
+        "jdk/internal/reflect/Reflection",
+        "getCallerClass",
+        "()Ljava/lang/Class;",
+        native_reflection_get_caller_class,
+    );
+}
+
 fn lock_interface_context(name: &str) -> ClassContext {
     ClassContext {
         class_name: name.to_string(),
@@ -3311,6 +3328,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     register_atomic_stdlib(registry);
     register_concurrent_hashmap_stdlib(registry);
     register_unsafe_stdlib(registry);
+    register_reflection_stdlib(registry);
     register_locks_stdlib(registry);
     register_sync_primitives_stdlib(registry);
     register_executor_stdlib(registry, heap);

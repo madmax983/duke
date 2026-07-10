@@ -9758,6 +9758,9 @@ fn native_needs_stack_snapshot(
     native_desc: &str,
 ) -> bool {
     (native_method == "fillInStackTrace" && native_desc == "()Ljava/lang/Throwable;")
+        || (native_class == "jdk/internal/reflect/Reflection"
+            && native_method == "getCallerClass"
+            && native_desc == "()Ljava/lang/Class;")
         || (native_method == "<init>"
             && matches!(
                 native_desc,
