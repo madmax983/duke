@@ -793,15 +793,38 @@ impl ClassRegistry {
         self.get(class).ok().map(|c| c.load_source)
     }
 
+    /// Whether a class uses the **real** (classfile) instance-field layout, as opposed to
+    /// a hand-written **synthetic** layout. A class is real-layout when it is shadowed
+    /// (its synthetic stub was dropped so it loads real JDK bytecode) or its already-loaded
+    /// [`ClassLoadSource`] is [`ClassLoadSource::Classfile`]; synthetic-layout when its load
+    /// source is [`ClassLoadSource::Synthetic`]. Returns `None` when the class is not (yet)
+    /// loaded and not shadowed, so its regime cannot be determined. Used by the
+    /// layout-coherence guard to compare regimes on ground truth rather than on the
+    /// `is_shadowed` bookkeeping alone (which misfires when both sides are real).
+    #[must_use]
+    pub fn effective_layout_is_real(&self, class: &str) -> Option<bool> {
+        if self.is_shadowed(class) {
+            return Some(true);
+        }
+        match self.load_source_of(class) {
+            Some(ClassLoadSource::Classfile) => Some(true),
+            Some(ClassLoadSource::Synthetic) => Some(false),
+            None => None,
+        }
+    }
+
     /// Core layout-coherence predicate used by the `getfield`/`putfield` runtime guard.
     ///
     /// A field access is **incoherent** when either:
     /// * the resolved `slot` is out of bounds for the target object
     ///   (`slot >= object_slot_count`) — the concrete "silent corruption" case; or
-    /// * the field-resolving class and the object's runtime class disagree on which
-    ///   shadow (layout) regime they were built under
-    ///   (`is_shadowed(resolving) != is_shadowed(object)`) — a half-migrated object graph
-    ///   where real bytecode and a synthetically-allocated object compute different slots.
+    /// * the field-resolving class and the object's runtime class use *different* layout
+    ///   regimes — one real (classfile) layout, the other synthetic layout (see
+    ///   [`Self::effective_layout_is_real`]) — a half-migrated object graph where real
+    ///   bytecode and a synthetically-allocated object compute different slots. When either
+    ///   side's regime is unknown (unloaded), no mismatch is reported. Comparing effective
+    ///   layout (rather than raw `is_shadowed`) avoids false positives on the common case
+    ///   where a shadowed superclass and a directly-real subclass are *both* real layout.
     ///
     /// Pure and deterministic (no env, no mode); the mode (`warn`/`fail`) only governs what
     /// the guard *does* with an incoherent verdict. Exposed so the guard and its tests share
@@ -814,8 +837,16 @@ impl ClassRegistry {
         slot: usize,
         object_slot_count: usize,
     ) -> bool {
-        slot >= object_slot_count
-            || self.is_shadowed(resolving_class) != self.is_shadowed(object_class)
+        if slot >= object_slot_count {
+            return true;
+        }
+        match (
+            self.effective_layout_is_real(resolving_class),
+            self.effective_layout_is_real(object_class),
+        ) {
+            (Some(resolving_real), Some(object_real)) => resolving_real != object_real,
+            _ => false,
+        }
     }
 
     /// Count a real jimage classfile's own (per-class, declared) instance fields, i.e.
