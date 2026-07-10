@@ -167,10 +167,13 @@ fn flag_on_shadows_non_allowlisted_synthetics_but_protects_allowlist() {
         .first()
         .cloned()
         .expect("at least one shadowed class");
-    let loaded = registry
+    let was_loaded = registry
         .ensure_loaded(&name, loader.as_ref())
         .expect("ensure_loaded should succeed for a jimage class");
-    assert!(loaded, "ensure_loaded should load {name} from the jimage");
+    assert!(
+        was_loaded,
+        "ensure_loaded should load {name} from the jimage"
+    );
     let ctx = registry
         .get(&name)
         .expect("shadowed class should be registered after ensure_loaded");

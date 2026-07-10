@@ -894,6 +894,335 @@ impl Instruction {
         edges
     }
 
+    /// Returns (pops, pushes) for each instruction.
+    /// Category-2 values (long, double) count as 1 slot each here because
+    /// we're doing structural depth tracking, not JVM computational-type checking.
+    #[must_use]
+    #[allow(clippy::match_same_arms, clippy::too_many_lines)]
+    pub const fn stack_effect(&self) -> (usize, usize) {
+        match self {
+            // Constants — push 1
+            Self::Nop => (0, 0),
+            Self::AconstNull
+            | Self::IconstM1
+            | Self::Iconst0
+            | Self::Iconst1
+            | Self::Iconst2
+            | Self::Iconst3
+            | Self::Iconst4
+            | Self::Iconst5
+            | Self::Lconst0
+            | Self::Lconst1
+            | Self::Fconst0
+            | Self::Fconst1
+            | Self::Fconst2
+            | Self::Dconst0
+            | Self::Dconst1
+            | Self::Bipush(_)
+            | Self::Sipush(_)
+            | Self::Ldc(_)
+            | Self::LdcW(_)
+            | Self::Ldc2W(_) => (0, 1),
+
+            // Loads — push 1
+            Self::Iload(_)
+            | Self::Lload(_)
+            | Self::Fload(_)
+            | Self::Dload(_)
+            | Self::Aload(_)
+            | Self::Iload0
+            | Self::Iload1
+            | Self::Iload2
+            | Self::Iload3
+            | Self::Lload0
+            | Self::Lload1
+            | Self::Lload2
+            | Self::Lload3
+            | Self::Fload0
+            | Self::Fload1
+            | Self::Fload2
+            | Self::Fload3
+            | Self::Dload0
+            | Self::Dload1
+            | Self::Dload2
+            | Self::Dload3
+            | Self::Aload0
+            | Self::Aload1
+            | Self::Aload2
+            | Self::Aload3
+            | Self::IloadW(_)
+            | Self::LloadW(_)
+            | Self::FloadW(_)
+            | Self::DloadW(_)
+            | Self::AloadW(_) => (0, 1),
+
+            // Array loads — pop arrayref + index, push value
+            Self::Iaload
+            | Self::Laload
+            | Self::Faload
+            | Self::Daload
+            | Self::Aaload
+            | Self::Baload
+            | Self::Caload
+            | Self::Saload => (2, 1),
+
+            // Stores — pop 1
+            Self::Istore(_)
+            | Self::Lstore(_)
+            | Self::Fstore(_)
+            | Self::Dstore(_)
+            | Self::Astore(_)
+            | Self::Istore0
+            | Self::Istore1
+            | Self::Istore2
+            | Self::Istore3
+            | Self::Lstore0
+            | Self::Lstore1
+            | Self::Lstore2
+            | Self::Lstore3
+            | Self::Fstore0
+            | Self::Fstore1
+            | Self::Fstore2
+            | Self::Fstore3
+            | Self::Dstore0
+            | Self::Dstore1
+            | Self::Dstore2
+            | Self::Dstore3
+            | Self::Astore0
+            | Self::Astore1
+            | Self::Astore2
+            | Self::Astore3
+            | Self::IstoreW(_)
+            | Self::LstoreW(_)
+            | Self::FstoreW(_)
+            | Self::DstoreW(_)
+            | Self::AstoreW(_) => (1, 0),
+
+            // Array stores — pop arrayref + index + value
+            Self::Iastore
+            | Self::Lastore
+            | Self::Fastore
+            | Self::Dastore
+            | Self::Aastore
+            | Self::Bastore
+            | Self::Castore
+            | Self::Sastore => (3, 0),
+
+            // Stack ops
+            Self::Pop => (1, 0),
+            Self::Pop2 => (2, 0),
+            Self::Dup => (1, 2),
+            Self::DupX1 => (2, 3),
+            Self::DupX2 => (3, 4),
+            Self::Dup2 => (2, 4),
+            Self::Dup2X1 => (3, 5),
+            Self::Dup2X2 => (4, 6),
+            Self::Swap => (2, 2),
+
+            // Binary arithmetic — pop 2, push 1
+            Self::Iadd
+            | Self::Ladd
+            | Self::Fadd
+            | Self::Dadd
+            | Self::Isub
+            | Self::Lsub
+            | Self::Fsub
+            | Self::Dsub
+            | Self::Imul
+            | Self::Lmul
+            | Self::Fmul
+            | Self::Dmul
+            | Self::Idiv
+            | Self::Ldiv
+            | Self::Fdiv
+            | Self::Ddiv
+            | Self::Irem
+            | Self::Lrem
+            | Self::Frem
+            | Self::Drem
+            | Self::Ishl
+            | Self::Lshl
+            | Self::Ishr
+            | Self::Lshr
+            | Self::Iushr
+            | Self::Lushr
+            | Self::Iand
+            | Self::Land
+            | Self::Ior
+            | Self::Lor
+            | Self::Ixor
+            | Self::Lxor => (2, 1),
+
+            // Unary arithmetic — pop 1, push 1
+            Self::Ineg | Self::Lneg | Self::Fneg | Self::Dneg => (1, 1),
+
+            // iinc — operates on local, no stack change
+            Self::Iinc { .. } | Self::IincW { .. } => (0, 0),
+
+            // Conversions — pop 1, push 1
+            Self::I2l
+            | Self::I2f
+            | Self::I2d
+            | Self::L2i
+            | Self::L2f
+            | Self::L2d
+            | Self::F2i
+            | Self::F2l
+            | Self::F2d
+            | Self::D2i
+            | Self::D2l
+            | Self::D2f
+            | Self::I2b
+            | Self::I2c
+            | Self::I2s => (1, 1),
+
+            // Compare — pop 2, push 1 (int result: -1/0/1)
+            Self::Lcmp | Self::Fcmpl | Self::Fcmpg | Self::Dcmpl | Self::Dcmpg => (2, 1),
+
+            // Conditional branches — pop 1 (for if*) or 2 (for if_icmp* / if_acmp*)
+            Self::Ifeq(_)
+            | Self::Ifne(_)
+            | Self::Iflt(_)
+            | Self::Ifge(_)
+            | Self::Ifgt(_)
+            | Self::Ifle(_)
+            | Self::Ifnull(_)
+            | Self::Ifnonnull(_) => (1, 0),
+
+            Self::IfIcmpeq(_)
+            | Self::IfIcmpne(_)
+            | Self::IfIcmplt(_)
+            | Self::IfIcmpge(_)
+            | Self::IfIcmpgt(_)
+            | Self::IfIcmple(_)
+            | Self::IfAcmpeq(_)
+            | Self::IfAcmpne(_) => (2, 0),
+
+            // Unconditional branches — no stack change
+            Self::Goto(_) | Self::GotoW(_) => (0, 0),
+
+            // jsr pushes return address; ret pops nothing
+            Self::Jsr(_) | Self::JsrW(_) => (0, 1),
+            Self::Ret(_) | Self::RetW(_) => (0, 0),
+
+            // switch — pop 1
+            Self::Tableswitch { .. } | Self::Lookupswitch { .. } => (1, 0),
+
+            // Returns — pop 0 or 1 (void vs value return)
+            Self::Return => (0, 0),
+            Self::Ireturn | Self::Lreturn | Self::Freturn | Self::Dreturn | Self::Areturn => (1, 0),
+
+            // Field access
+            Self::Getstatic(_) => (0, 1),
+            Self::Putstatic(_) => (1, 0),
+            Self::Getfield(_) => (1, 1),
+            Self::Putfield(_) => (2, 0),
+
+            // Method invocations — conservative: just track the hidden receiver pop
+            // Proper argument counting requires descriptor resolution; tracked in Phase 3+
+            Self::Invokevirtual(_) | Self::Invokespecial(_) => (1, 0),
+            Self::Invokestatic(_) => (0, 0),
+            Self::Invokeinterface { .. } => (1, 0),
+            Self::Invokedynamic(_) => (0, 0),
+
+            // Object creation — push objectref
+            Self::New(_) => (0, 1),
+            Self::Newarray(_) | Self::Anewarray(_) => (1, 1),
+            Self::Multianewarray { dimensions, .. } => (*dimensions as usize, 1),
+            Self::Arraylength => (1, 1),
+
+            // Athrow — handled specially (resets depth) but structurally pops 1
+            Self::Athrow => (1, 0),
+
+            // Checkcast: pops objectref, pushes same (or throws)
+            Self::Checkcast(_) => (1, 1),
+            Self::Instanceof(_) => (1, 1),
+
+            Self::Monitorenter | Self::Monitorexit => (1, 0),
+        }
+    }
+
+    /// Returns the local variable index accessed by the instruction, if any.
+    #[must_use]
+    pub const fn local_variable_index(&self) -> Option<usize> {
+        match self {
+            Self::Iload(i)
+            | Self::Lload(i)
+            | Self::Fload(i)
+            | Self::Dload(i)
+            | Self::Aload(i)
+            | Self::Istore(i)
+            | Self::Lstore(i)
+            | Self::Fstore(i)
+            | Self::Dstore(i)
+            | Self::Astore(i)
+            | Self::Ret(i) => Some(*i as usize),
+
+            Self::Iinc { index, .. } => Some(*index as usize),
+
+            Self::IloadW(i)
+            | Self::LloadW(i)
+            | Self::FloadW(i)
+            | Self::DloadW(i)
+            | Self::AloadW(i)
+            | Self::IstoreW(i)
+            | Self::LstoreW(i)
+            | Self::FstoreW(i)
+            | Self::DstoreW(i)
+            | Self::AstoreW(i)
+            | Self::RetW(i) => Some(*i as usize),
+
+            Self::IincW { index, .. } => Some(*index as usize),
+
+            // Short-form loads/stores use fixed indices 0-3, always valid if max_locals >= 1
+            Self::Iload0
+            | Self::Lload0
+            | Self::Fload0
+            | Self::Dload0
+            | Self::Aload0
+            | Self::Istore0
+            | Self::Lstore0
+            | Self::Fstore0
+            | Self::Dstore0
+            | Self::Astore0 => Some(0),
+
+            Self::Iload1
+            | Self::Lload1
+            | Self::Fload1
+            | Self::Dload1
+            | Self::Aload1
+            | Self::Istore1
+            | Self::Lstore1
+            | Self::Fstore1
+            | Self::Dstore1
+            | Self::Astore1 => Some(1),
+
+            Self::Iload2
+            | Self::Lload2
+            | Self::Fload2
+            | Self::Dload2
+            | Self::Aload2
+            | Self::Istore2
+            | Self::Lstore2
+            | Self::Fstore2
+            | Self::Dstore2
+            | Self::Astore2 => Some(2),
+
+            Self::Iload3
+            | Self::Lload3
+            | Self::Fload3
+            | Self::Dload3
+            | Self::Aload3
+            | Self::Istore3
+            | Self::Lstore3
+            | Self::Fstore3
+            | Self::Dstore3
+            | Self::Astore3 => Some(3),
+
+            _ => None,
+        }
+    }
+
     /// Returns the mnemonic string for display/debugging.
     #[must_use]
     #[allow(clippy::too_many_lines)]

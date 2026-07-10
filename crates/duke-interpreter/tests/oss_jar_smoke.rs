@@ -174,9 +174,9 @@ fn classpath_entry(path: &Path) -> ClasspathEntry {
     }
 }
 
-fn oss_smoke_loader_for(classpath: Vec<PathBuf>) -> OssSmokeLoader {
+fn oss_smoke_loader_for(classpath: &[PathBuf]) -> OssSmokeLoader {
     if let Some(modules_path) = jdk_modules_path()
-        && let Ok(loader) = BootstrapLoader::new(&modules_path, classpath.clone())
+        && let Ok(loader) = BootstrapLoader::new(&modules_path, classpath.to_owned())
     {
         return OssSmokeLoader::Bootstrap(loader);
     }
@@ -189,7 +189,7 @@ fn oss_smoke_loader_for(classpath: Vec<PathBuf>) -> OssSmokeLoader {
 }
 
 fn oss_smoke_loader() -> OssSmokeLoader {
-    oss_smoke_loader_for(oss_classpath())
+    oss_smoke_loader_for(&oss_classpath())
 }
 
 struct SmokeRun {
@@ -257,7 +257,7 @@ fn run_slf4j_simple_smoke() -> SmokeRun {
     run_slf4j_simple_method("main", "([Ljava/lang/String;)V")
 }
 
-fn run_driver_main(classpath: Vec<PathBuf>, driver: &str) -> SmokeRun {
+fn run_driver_main(classpath: &[PathBuf], driver: &str) -> SmokeRun {
     let loader = oss_smoke_loader_for(classpath);
     let mut registry = ClassRegistry::new();
     let mut heap = Heap::new();
@@ -292,11 +292,11 @@ fn run_driver_main(classpath: Vec<PathBuf>, driver: &str) -> SmokeRun {
 }
 
 fn run_gson_smoke() -> SmokeRun {
-    run_driver_main(gson_classpath(), "GsonSmoke")
+    run_driver_main(&gson_classpath(), "GsonSmoke")
 }
 
 fn run_commons_lang3_smoke() -> SmokeRun {
-    run_driver_main(commons_lang3_classpath(), "CommonsLang3Smoke")
+    run_driver_main(&commons_lang3_classpath(), "CommonsLang3Smoke")
 }
 
 #[test]
