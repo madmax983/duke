@@ -2927,6 +2927,124 @@ fn stack_ops_dup2_x2() {
     assert_eq!(r, Some(Slot::Int(17)));
 }
 
+// ---- Category-2 (long/double) aware dup2 / dup2_x1 / dup2_x2 (JVMS §6.5) ----
+// Regression coverage for the pre-existing bug where Dup2/Dup2X1/Dup2X2
+// unconditionally duplicated two operand-stack cells. In Duke a long/double is a
+// SINGLE Slot, so the Form-2/Form-4 (category-2) cases must duplicate one slot.
+// With the old code these sequences underflowed the stack (popping a phantom
+// second cell) and corrupted values (e.g. CHM addCount losing `this`).
+
+#[test]
+fn stack_ops_dup2_category2_long_duplicates_single_slot() {
+    // dup2 Form 2: a single category-2 value is duplicated as one slot.
+    // Old (buggy) code popped a second, non-existent cell → underflow error.
+    let instrs = vec![
+        (0, Instruction::Bipush(7)),
+        (1, Instruction::I2l),  // 7L
+        (2, Instruction::Dup2), // → 7L, 7L
+        (3, Instruction::Ladd), // → 14L
+        (4, Instruction::Lreturn),
+    ];
+    let r = execute(&instrs, &[], vec![], 10, 2).unwrap();
+    assert_eq!(r, Some(Slot::Long(14)));
+}
+
+#[test]
+fn stack_ops_dup2_category1_two_ints_still_duplicates_both() {
+    // dup2 Form 1 is unchanged: two category-1 values are both duplicated.
+    let instrs = vec![
+        (0, Instruction::Bipush(3)),
+        (1, Instruction::Bipush(5)),
+        (2, Instruction::Dup2), // → 3, 5, 3, 5
+        (3, Instruction::Iadd),
+        (4, Instruction::Iadd),
+        (5, Instruction::Iadd), // 3+5+3+5 = 16
+        (6, Instruction::Ireturn),
+    ];
+    let r = execute(&instrs, &[], vec![], 10, 2).unwrap();
+    assert_eq!(r, Some(Slot::Int(16)));
+}
+
+#[test]
+fn stack_ops_dup2_x1_category2_long_over_int() {
+    // dup2_x1 Form 2: value1 = long (cat 2), value2 = int (cat 1).
+    // ..., int, long → ..., long, int, long
+    let instrs = vec![
+        (0, Instruction::Bipush(3)), // int 3 (value2)
+        (1, Instruction::Bipush(7)),
+        (2, Instruction::I2l),     // 7L (value1); stack: [3, 7L]
+        (3, Instruction::Dup2X1),  // → [7L, 3, 7L]
+        (4, Instruction::L2i),     // top 7L → 7; [7L, 3, 7]
+        (5, Instruction::Iadd),    // 3+7 = 10; [7L, 10]
+        (6, Instruction::I2l),     // [7L, 10L]
+        (7, Instruction::Ladd),    // 7+10 = 17L
+        (8, Instruction::Lreturn),
+    ];
+    let r = execute(&instrs, &[], vec![], 10, 2).unwrap();
+    assert_eq!(r, Some(Slot::Long(17)));
+}
+
+#[test]
+fn stack_ops_dup2_x2_form4_two_longs() {
+    // dup2_x2 Form 4: value1, value2 both category 2.
+    // ..., bL, aL → ..., aL, bL, aL
+    let instrs = vec![
+        (0, Instruction::Bipush(4)),
+        (1, Instruction::I2l), // 4L (value2, bottom)
+        (2, Instruction::Bipush(9)),
+        (3, Instruction::I2l),    // 9L (value1, top); stack: [4L, 9L]
+        (4, Instruction::Dup2X2), // → [9L, 4L, 9L]
+        (5, Instruction::Ladd),   // 4+9 = 13L; [9L, 13L]
+        (6, Instruction::Ladd),   // 9+13 = 22L
+        (7, Instruction::Lreturn),
+    ];
+    let r = execute(&instrs, &[], vec![], 10, 2).unwrap();
+    assert_eq!(r, Some(Slot::Long(22)));
+}
+
+#[test]
+fn stack_ops_dup2_x2_form2_long_over_two_ints() {
+    // dup2_x2 Form 2: value1 = long (cat 2); value2, value3 = int (cat 1).
+    // ..., i3, i2, longV1 → ..., longV1, i3, i2, longV1
+    let instrs = vec![
+        (0, Instruction::Bipush(3)), // int 3 (value3, bottom)
+        (1, Instruction::Bipush(5)), // int 5 (value2)
+        (2, Instruction::Bipush(7)),
+        (3, Instruction::I2l),    // 7L (value1, top); stack: [3, 5, 7L]
+        (4, Instruction::Dup2X2), // → [7L, 3, 5, 7L]
+        (5, Instruction::L2i),    // top 7L → 7; [7L, 3, 5, 7]
+        (6, Instruction::Iadd),   // 5+7 = 12; [7L, 3, 12]
+        (7, Instruction::Iadd),   // 3+12 = 15; [7L, 15]
+        (8, Instruction::I2l),    // [7L, 15L]
+        (9, Instruction::Ladd),   // 7+15 = 22L
+        (10, Instruction::Lreturn),
+    ];
+    let r = execute(&instrs, &[], vec![], 10, 2).unwrap();
+    assert_eq!(r, Some(Slot::Long(22)));
+}
+
+#[test]
+fn stack_ops_dup2_x2_form3_two_ints_over_long() {
+    // dup2_x2 Form 3: value1, value2 = int (cat 1); value3 = long (cat 2).
+    // ..., longV3, i2, i1 → ..., i2, i1, longV3, i2, i1
+    let instrs = vec![
+        (0, Instruction::Bipush(6)),
+        (1, Instruction::I2l),       // 6L (value3, bottom)
+        (2, Instruction::Bipush(3)), // int 3 (value2)
+        (3, Instruction::Bipush(5)), // int 5 (value1, top); stack: [6L, 3, 5]
+        (4, Instruction::Dup2X2),    // → [3, 5, 6L, 3, 5]
+        (5, Instruction::Iadd),      // 3+5 = 8; [3, 5, 6L, 8]
+        (6, Instruction::I2l),       // [3, 5, 6L, 8L]
+        (7, Instruction::Ladd),      // 6+8 = 14L; [3, 5, 14L]
+        (8, Instruction::L2i),       // [3, 5, 14]
+        (9, Instruction::Iadd),      // 5+14 = 19; [3, 19]
+        (10, Instruction::Iadd),     // 3+19 = 22
+        (11, Instruction::Ireturn),
+    ];
+    let r = execute(&instrs, &[], vec![], 10, 2).unwrap();
+    assert_eq!(r, Some(Slot::Int(22)));
+}
+
 // ---- Phase 12: static initializer tests ----
 
 fn load_static_init_class() -> ClassContext {
