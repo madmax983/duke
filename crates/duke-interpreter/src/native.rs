@@ -38061,6 +38061,203 @@ pub(crate) fn native_hashmap_remove_key_value(
     Ok(Some(Slot::Int(0)))
 }
 
+// ---------------------------------------------------------------------------
+// jdk/internal/misc/Unsafe — object-field / array CAS natives
+// ---------------------------------------------------------------------------
+//
+// Duke models just enough of `Unsafe` to run real `java.util.concurrent`
+// bytecode (notably `ConcurrentHashMap`) under `DUKE_REAL_JDK=1`. Duke has no
+// byte offsets: an object's instance fields and an array's elements both live in
+// one flat positional `HeapObject::fields` vector. The "offset" produced by
+// `objectFieldOffset` and consumed by the get/put/CAS natives below is simply
+// the positional slot index into `fields` — the exact same index used by
+// `Getfield`/`Putfield` (via `field_slot_idx`) and by `Aaload`/`Aastore` (the
+// raw element index). Because `arrayBaseOffset` returns 0 and `arrayIndexScale`
+// returns 1, the shift/scale arithmetic real bytecode performs
+// (`(long)i << ASHIFT + ABASE`, with `ASHIFT == 0`) collapses to `offset == i`,
+// so array access indexes `fields[i]` directly and is consistent with object
+// field access. This encoding is self-contained: no code outside these natives
+// interprets the value, so a plain slot index as `i64` is sufficient.
+
+/// Read the flat `fields` slot addressed by an `Unsafe` offset, bounds-checked.
+fn unsafe_field_slot(heap: &duke_gc::Heap, obj_ref: u64, offset: i64) -> Result<Slot> {
+    let idx = usize::try_from(offset).map_err(|_| Error::NullPointerException)?;
+    heap.get(obj_ref)?
+        .fields
+        .get(idx)
+        .copied()
+        .ok_or(Error::NullPointerException)
+}
+
+/// Native: `Unsafe.getUnsafe()Ljdk/internal/misc/Unsafe;` — returns a reference
+/// to a (stateless) synthetic `Unsafe` instance. Every Duke `Unsafe` native
+/// ignores `this`, so a freshly allocated zero-field object is sufficient; real
+/// bytecode caches the returned reference in its own static field.
+#[allow(clippy::unnecessary_wraps)] // signature must match `NativeHandler`
+pub(crate) fn native_unsafe_get_unsafe(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let unsafe_ref = heap.allocate("jdk/internal/misc/Unsafe".to_string(), 0);
+    Ok(Some(Slot::Reference(Some(unsafe_ref))))
+}
+
+/// Native: `Unsafe.objectFieldOffset(Ljava/lang/Class;Ljava/lang/String;)J` —
+/// returns the positional `fields` slot index of the named instance field.
+pub(crate) fn native_unsafe_object_field_offset(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 1)?;
+    let field_name = extract_string_arg_value(args, 2, heap)?;
+    let class_name = class_internal_name_from_ref(heap, class_ref)?;
+    // The target class may only have been referenced via an `ldc` class constant
+    // (mirror created) without its field layout being linked into the registry;
+    // ensure it is loaded before resolving the positional field slot.
+    ops.ensure_loaded(&class_name)?;
+    let slot = ops.instance_field_slot(&class_name, &field_name)?;
+    Ok(Some(Slot::Long(i64::try_from(slot).unwrap_or(0))))
+}
+
+/// Native: `Unsafe.arrayBaseOffset(Ljava/lang/Class;)I` — 0 under the positional
+/// array model (element index == `fields` index).
+pub(crate) fn native_unsafe_array_base_offset(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let _ = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(0)))
+}
+
+/// Native: `Unsafe.arrayIndexScale(Ljava/lang/Class;)I` — 1 under the positional
+/// array model. It is a power of two, satisfying the real-bytecode invariant.
+pub(crate) fn native_unsafe_array_index_scale(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let _ = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `Unsafe.compareAndSetReference(Ljava/lang/Object;JLjava/lang/Object;Ljava/lang/Object;)Z`.
+/// Reference-identity CAS on `fields[offset]`: if it equals `expected`, store `x`
+/// and return true; otherwise return false.
+pub(crate) fn native_unsafe_compare_and_set_reference(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let obj_ref = extract_ref_arg(args, 1)?;
+    let offset = extract_long_arg(args, 2)?;
+    let expected = args.get(3).copied().unwrap_or(Slot::Reference(None));
+    let x = args.get(4).copied().unwrap_or(Slot::Reference(None));
+    let idx = usize::try_from(offset).map_err(|_| Error::NullPointerException)?;
+    let current = unsafe_field_slot(heap, obj_ref, offset)?;
+    if current.as_reference() == expected.as_reference() {
+        heap.write_field(obj_ref, idx, x)?;
+        Ok(Some(Slot::Int(1)))
+    } else {
+        Ok(Some(Slot::Int(0)))
+    }
+}
+
+/// Native: `Unsafe.compareAndSetInt(Ljava/lang/Object;JII)Z`.
+pub(crate) fn native_unsafe_compare_and_set_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let obj_ref = extract_ref_arg(args, 1)?;
+    let offset = extract_long_arg(args, 2)?;
+    let expected = extract_int_arg(args, 3)?;
+    let x = extract_int_arg(args, 4)?;
+    let idx = usize::try_from(offset).map_err(|_| Error::NullPointerException)?;
+    let current = unsafe_field_slot(heap, obj_ref, offset)?.as_int().unwrap_or(0);
+    if current == expected {
+        heap.write_field(obj_ref, idx, Slot::Int(x))?;
+        Ok(Some(Slot::Int(1)))
+    } else {
+        Ok(Some(Slot::Int(0)))
+    }
+}
+
+/// Native: `Unsafe.compareAndSetLong(Ljava/lang/Object;JJJ)Z`.
+pub(crate) fn native_unsafe_compare_and_set_long(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let obj_ref = extract_ref_arg(args, 1)?;
+    let offset = extract_long_arg(args, 2)?;
+    let expected = extract_long_arg(args, 3)?;
+    let x = extract_long_arg(args, 4)?;
+    let idx = usize::try_from(offset).map_err(|_| Error::NullPointerException)?;
+    let current = unsafe_field_slot(heap, obj_ref, offset)?.as_long().unwrap_or(0);
+    if current == expected {
+        heap.write_field(obj_ref, idx, Slot::Long(x))?;
+        Ok(Some(Slot::Int(1)))
+    } else {
+        Ok(Some(Slot::Int(0)))
+    }
+}
+
+/// Native: `Unsafe.getReferenceAcquire(Ljava/lang/Object;J)Ljava/lang/Object;`.
+/// The single-threaded interpreter needs no memory ordering.
+pub(crate) fn native_unsafe_get_reference(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let obj_ref = extract_ref_arg(args, 1)?;
+    let offset = extract_long_arg(args, 2)?;
+    Ok(Some(unsafe_field_slot(heap, obj_ref, offset)?))
+}
+
+/// Native: `Unsafe.putReferenceRelease(Ljava/lang/Object;JLjava/lang/Object;)V`.
+pub(crate) fn native_unsafe_put_reference(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let obj_ref = extract_ref_arg(args, 1)?;
+    let offset = extract_long_arg(args, 2)?;
+    let x = args.get(3).copied().unwrap_or(Slot::Reference(None));
+    let idx = usize::try_from(offset).map_err(|_| Error::NullPointerException)?;
+    heap.write_field(obj_ref, idx, x)?;
+    Ok(None)
+}
+
+/// Native: `Unsafe.getAndAddInt(Ljava/lang/Object;JI)I` — atomically adds `delta`
+/// to `fields[offset]` and returns the previous value.
+pub(crate) fn native_unsafe_get_and_add_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let obj_ref = extract_ref_arg(args, 1)?;
+    let offset = extract_long_arg(args, 2)?;
+    let delta = extract_int_arg(args, 3)?;
+    let idx = usize::try_from(offset).map_err(|_| Error::NullPointerException)?;
+    let old = unsafe_field_slot(heap, obj_ref, offset)?.as_int().unwrap_or(0);
+    heap.write_field(obj_ref, idx, Slot::Int(old.wrapping_add(delta)))?;
+    Ok(Some(Slot::Int(old)))
+}
+
 #[cfg(test)]
 mod havoc_thread_join_itself {
     use super::*;
@@ -38652,5 +38849,297 @@ mod havoc_string_tests {
         let mut control = NativeControl::default();
         // from + sub_str.len() = 2 + 1 = 3. 3 is inside \u{1f4a9} (bytes 1..5)
         let _ = native_string_last_indexof_from(&args, &mut heap, &mut out, &mut control);
+    }
+}
+
+#[cfg(test)]
+mod unsafe_object_field_tests {
+    use super::*;
+
+    /// Minimal `CallbackOps` returning a fixed slot index for `instance_field_slot`,
+    /// and recording the class/field names it was asked about.
+    struct FixedSlotOps {
+        slot: usize,
+        seen: Option<(String, String)>,
+    }
+
+    impl CallbackOps for FixedSlotOps {
+        fn invoke(
+            &mut self,
+            _heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            _args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            Ok(None)
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Err(Error::ClassNotFound {
+                name: String::new(),
+            })
+        }
+
+        fn instance_field_slot(&mut self, class: &str, field_name: &str) -> Result<usize> {
+            self.seen = Some((class.to_string(), field_name.to_string()));
+            Ok(self.slot)
+        }
+    }
+
+    fn ctrl() -> NativeControl {
+        NativeControl::default()
+    }
+
+    #[test]
+    fn object_field_offset_returns_positional_slot_index() {
+        let mut heap = duke_gc::Heap::new();
+        // A `java/lang/Class` mirror is a string-backed object holding the class key.
+        let class_ref = heap.allocate("java/lang/Class".to_string(), 0);
+        heap.get_mut(class_ref).unwrap().string_value =
+            Some("java/util/concurrent/ConcurrentHashMap".to_string());
+        let name_ref = heap.allocate_string("baseCount".to_string());
+        let args = [
+            Slot::Reference(Some(0)), // this (Unsafe) — ignored
+            Slot::Reference(Some(class_ref)),
+            Slot::Reference(Some(name_ref)),
+        ];
+        let mut out = Vec::new();
+        let mut ops = FixedSlotOps {
+            slot: 5,
+            seen: None,
+        };
+        let result =
+            native_unsafe_object_field_offset(&args, &mut heap, &mut out, &mut ctrl(), &mut ops)
+                .unwrap();
+        assert_eq!(result, Some(Slot::Long(5)));
+        assert_eq!(
+            ops.seen,
+            Some((
+                "java/util/concurrent/ConcurrentHashMap".to_string(),
+                "baseCount".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn array_base_offset_is_zero_and_index_scale_is_one() {
+        let mut heap = duke_gc::Heap::new();
+        let class_ref = heap.allocate("java/lang/Class".to_string(), 0);
+        let args = [Slot::Reference(Some(class_ref))];
+        let mut out = Vec::new();
+        assert_eq!(
+            native_unsafe_array_base_offset(&args, &mut heap, &mut out, &mut ctrl()).unwrap(),
+            Some(Slot::Int(0))
+        );
+        assert_eq!(
+            native_unsafe_array_index_scale(&args, &mut heap, &mut out, &mut ctrl()).unwrap(),
+            Some(Slot::Int(1))
+        );
+    }
+
+    #[test]
+    fn get_unsafe_returns_nonnull_unsafe_reference() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let result = native_unsafe_get_unsafe(&[], &mut heap, &mut out, &mut ctrl()).unwrap();
+        let Some(Slot::Reference(Some(r))) = result else {
+            panic!("expected a non-null Unsafe reference, got {result:?}");
+        };
+        assert_eq!(heap.get(r).unwrap().class_name, "jdk/internal/misc/Unsafe");
+    }
+
+    #[test]
+    fn compare_and_set_reference_swaps_on_identity_match() {
+        let mut heap = duke_gc::Heap::new();
+        let holder = heap.allocate("Holder".to_string(), 2);
+        let a = heap.allocate("A".to_string(), 0);
+        let b = heap.allocate("B".to_string(), 0);
+        // fields[1] currently holds `a`.
+        heap.get_mut(holder).unwrap().fields[1] = Slot::Reference(Some(a));
+        let args = [
+            Slot::Reference(Some(0)), // this
+            Slot::Reference(Some(holder)),
+            Slot::Long(1), // offset == slot index
+            Slot::Reference(Some(a)),
+            Slot::Reference(Some(b)),
+        ];
+        let mut out = Vec::new();
+        let result =
+            native_unsafe_compare_and_set_reference(&args, &mut heap, &mut out, &mut ctrl())
+                .unwrap();
+        assert_eq!(result, Some(Slot::Int(1)));
+        assert_eq!(
+            heap.get(holder).unwrap().fields[1],
+            Slot::Reference(Some(b))
+        );
+    }
+
+    #[test]
+    fn compare_and_set_reference_noops_on_mismatch() {
+        let mut heap = duke_gc::Heap::new();
+        let holder = heap.allocate("Holder".to_string(), 2);
+        let a = heap.allocate("A".to_string(), 0);
+        let b = heap.allocate("B".to_string(), 0);
+        let c = heap.allocate("C".to_string(), 0);
+        heap.get_mut(holder).unwrap().fields[1] = Slot::Reference(Some(a));
+        let args = [
+            Slot::Reference(Some(0)),
+            Slot::Reference(Some(holder)),
+            Slot::Long(1),
+            Slot::Reference(Some(c)), // expected `c` but field holds `a`
+            Slot::Reference(Some(b)),
+        ];
+        let mut out = Vec::new();
+        let result =
+            native_unsafe_compare_and_set_reference(&args, &mut heap, &mut out, &mut ctrl())
+                .unwrap();
+        assert_eq!(result, Some(Slot::Int(0)));
+        // Unchanged.
+        assert_eq!(
+            heap.get(holder).unwrap().fields[1],
+            Slot::Reference(Some(a))
+        );
+    }
+
+    #[test]
+    fn compare_and_set_int_and_long_swap_and_noop() {
+        let mut heap = duke_gc::Heap::new();
+        let holder = heap.allocate("Holder".to_string(), 2);
+        heap.get_mut(holder).unwrap().fields[0] = Slot::Int(7);
+        heap.get_mut(holder).unwrap().fields[1] = Slot::Long(100);
+        let mut out = Vec::new();
+
+        // int: match → swap
+        let ok_args = [
+            Slot::Reference(Some(0)),
+            Slot::Reference(Some(holder)),
+            Slot::Long(0),
+            Slot::Int(7),
+            Slot::Int(9),
+        ];
+        assert_eq!(
+            native_unsafe_compare_and_set_int(&ok_args, &mut heap, &mut out, &mut ctrl()).unwrap(),
+            Some(Slot::Int(1))
+        );
+        assert_eq!(heap.get(holder).unwrap().fields[0], Slot::Int(9));
+
+        // int: mismatch → no-op
+        let bad_args = [
+            Slot::Reference(Some(0)),
+            Slot::Reference(Some(holder)),
+            Slot::Long(0),
+            Slot::Int(7), // stale expected
+            Slot::Int(11),
+        ];
+        assert_eq!(
+            native_unsafe_compare_and_set_int(&bad_args, &mut heap, &mut out, &mut ctrl()).unwrap(),
+            Some(Slot::Int(0))
+        );
+        assert_eq!(heap.get(holder).unwrap().fields[0], Slot::Int(9));
+
+        // long: match → swap
+        let long_args = [
+            Slot::Reference(Some(0)),
+            Slot::Reference(Some(holder)),
+            Slot::Long(1),
+            Slot::Long(100),
+            Slot::Long(250),
+        ];
+        assert_eq!(
+            native_unsafe_compare_and_set_long(&long_args, &mut heap, &mut out, &mut ctrl())
+                .unwrap(),
+            Some(Slot::Int(1))
+        );
+        assert_eq!(heap.get(holder).unwrap().fields[1], Slot::Long(250));
+    }
+
+    #[test]
+    fn get_and_put_reference_round_trip() {
+        let mut heap = duke_gc::Heap::new();
+        let holder = heap.allocate("Holder".to_string(), 3);
+        let v = heap.allocate("V".to_string(), 0);
+        heap.get_mut(holder).unwrap().fields[2] = Slot::Reference(None);
+        let mut out = Vec::new();
+
+        let put_args = [
+            Slot::Reference(Some(0)),
+            Slot::Reference(Some(holder)),
+            Slot::Long(2),
+            Slot::Reference(Some(v)),
+        ];
+        assert_eq!(
+            native_unsafe_put_reference(&put_args, &mut heap, &mut out, &mut ctrl()).unwrap(),
+            None
+        );
+
+        let get_args = [
+            Slot::Reference(Some(0)),
+            Slot::Reference(Some(holder)),
+            Slot::Long(2),
+        ];
+        assert_eq!(
+            native_unsafe_get_reference(&get_args, &mut heap, &mut out, &mut ctrl()).unwrap(),
+            Some(Slot::Reference(Some(v)))
+        );
+    }
+
+    #[test]
+    fn get_reference_acquire_reads_array_element_by_index() {
+        // Under arrayBaseOffset==0 / arrayIndexScale==1, an Unsafe offset equals the
+        // array element index into the backing `fields` vector.
+        let mut heap = duke_gc::Heap::new();
+        let node = heap.allocate("Node".to_string(), 0);
+        let array = heap.allocate("[LNode;".to_string(), 4);
+        heap.get_mut(array).unwrap().fields[3] = Slot::Reference(Some(node));
+        let args = [
+            Slot::Reference(Some(0)),
+            Slot::Reference(Some(array)),
+            Slot::Long(3),
+        ];
+        let mut out = Vec::new();
+        assert_eq!(
+            native_unsafe_get_reference(&args, &mut heap, &mut out, &mut ctrl()).unwrap(),
+            Some(Slot::Reference(Some(node)))
+        );
+    }
+
+    #[test]
+    fn get_and_add_int_returns_old_and_writes_sum() {
+        let mut heap = duke_gc::Heap::new();
+        let holder = heap.allocate("Holder".to_string(), 1);
+        heap.get_mut(holder).unwrap().fields[0] = Slot::Int(10);
+        let args = [
+            Slot::Reference(Some(0)),
+            Slot::Reference(Some(holder)),
+            Slot::Long(0),
+            Slot::Int(5),
+        ];
+        let mut out = Vec::new();
+        assert_eq!(
+            native_unsafe_get_and_add_int(&args, &mut heap, &mut out, &mut ctrl()).unwrap(),
+            Some(Slot::Int(10))
+        );
+        assert_eq!(heap.get(holder).unwrap().fields[0], Slot::Int(15));
+    }
+
+    #[test]
+    fn out_of_bounds_offset_is_reported_as_npe() {
+        let mut heap = duke_gc::Heap::new();
+        let holder = heap.allocate("Holder".to_string(), 1);
+        let args = [
+            Slot::Reference(Some(0)),
+            Slot::Reference(Some(holder)),
+            Slot::Long(99),
+        ];
+        let mut out = Vec::new();
+        let err =
+            native_unsafe_get_reference(&args, &mut heap, &mut out, &mut ctrl()).unwrap_err();
+        assert!(matches!(err, Error::NullPointerException));
     }
 }

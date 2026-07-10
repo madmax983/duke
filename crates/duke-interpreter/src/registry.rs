@@ -51,6 +51,11 @@ const KEEP_SYNTHETIC: &[&str] = &[
     "java/io/FileOutputStream",
     "java/io/FileInputStream",
     "java/io/FileDescriptor",
+    // Duke models `Unsafe` as a fully synthetic set of positional-offset natives
+    // (getUnsafe/objectFieldOffset/CAS/get/put). Keeping it synthetic prevents
+    // the real `Unsafe.<clinit>` (registerNatives + UnsafeConstants) from running
+    // and lets real java.util.concurrent bytecode use our offset-encoding model.
+    "jdk/internal/misc/Unsafe",
 ];
 
 fn class_internal_name_fragment(name: &str) -> &str {
