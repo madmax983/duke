@@ -57,6 +57,7 @@ use duke_runtime::{Error, Frame, Result, Slot};
 // registers native `println` handlers for `(Ljava/lang/String;)V`, `(I)V`,
 include!("native/common.rs");
 include!("native/java_lang.rs");
+include!("native/java_util.rs");
 
 // Tests
 // ---------------------------------------------------------------------------
