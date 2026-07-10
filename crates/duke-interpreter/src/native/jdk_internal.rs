@@ -176,3 +176,68 @@ pub(crate) fn native_unsafe_allocate_instance(
     let instance_ref = ops.allocate_instance(heap, out, &class_key)?;
     Ok(Some(Slot::Reference(Some(instance_ref))))
 }
+/// Native: `jdk/internal/reflect/Reflection.getCallerClass()Ljava/lang/Class;`.
+///
+/// Real `HotSpot` semantics: return the `Class` of the method that called the
+/// caller of `getCallerClass` — i.e. skip `getCallerClass`'s own (native) frame
+/// and the immediate `@CallerSensitive` caller frame, returning the frame two
+/// levels up (also skipping reflection/`MethodHandle` machinery frames).
+///
+/// Duke frame model: `control.stack_trace()` holds the Java frames captured at
+/// the native call site, most-recent-first. `getCallerClass` is native and is
+/// not itself represented in that snapshot, so:
+///   `frames[0]` = the (`@CallerSensitive`) method that invoked getCallerClass
+///                 (e.g. `ServiceLoader.load`)
+///   `frames[1]` = that method's caller — the `Class` we must return.
+/// We return the mirror for `frames[1]`. If the stack is too shallow (no
+/// grand-caller, e.g. called directly from the entry frame) we fall back to
+/// `frames[0]`, and to `null` only when the snapshot is empty. This is the
+/// interpretation that lets `java/util/ServiceLoader.load(Ljava/lang/Class;)`
+/// resolve its caller class under `DUKE_REAL_JDK=1`.
+pub(crate) fn native_reflection_get_caller_class(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let frames = control.stack_trace();
+    match frames.get(1).or_else(|| frames.first()) {
+        Some(frame) => {
+            let class_ref = allocate_class_object(heap, &frame.class_name)?;
+            Ok(Some(Slot::Reference(Some(class_ref))))
+        }
+        None => Ok(Some(Slot::Reference(None))),
+    }
+}
+/// Native: `jdk/internal/misc/VM.initialize()V`.
+///
+/// In `HotSpot` this native saves the VM-supplied system properties into
+/// `VM.savedProps` and records a few tuning constants; it does **not** itself
+/// advance `VM.initLevel`. The boot sequence advances `initLevel` separately via
+/// `VM.initLevel(int)` calls inside `System.initPhase1/2/3`, ending at
+/// `SYSTEM_BOOTED` (== 4) by the time application code runs.
+///
+/// Duke never executes that boot sequence, yet application-time bytecode expects a
+/// fully booted VM. In particular `java/util/ServiceLoader.<init>` calls
+/// `VM.isBooted()`, which returns `initLevel >= SYSTEM_BOOTED`; when it reports
+/// `false`, `ServiceLoader` takes its pre-boot module-bootstrap branch instead of
+/// the normal construction path. `VM.<clinit>` is the one place that runs
+/// `initialize()`, so we fold the boot progression into this native: it seeds
+/// `initLevel = SYSTEM_BOOTED`, making `isBooted()` observe the booted state a
+/// real application would see and letting `ServiceLoader` proceed normally. No
+/// property map is materialized here — nothing on the reached path reads
+/// `savedProps`; if a future path needs it, seed it at that point.
+#[allow(clippy::unnecessary_wraps)] // signature must match `CallbackNativeHandler`
+pub(crate) fn native_vm_initialize(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    // `SYSTEM_BOOTED` is the 4th init-level constant declared in
+    // `jdk/internal/misc/VM` (JAVA_LANG_SYSTEM_INITED=1 .. SYSTEM_BOOTED=4).
+    const SYSTEM_BOOTED: i32 = 4;
+    ops.write_static_field("jdk/internal/misc/VM", "initLevel", Slot::Int(SYSTEM_BOOTED))?;
+    Ok(None)
+}

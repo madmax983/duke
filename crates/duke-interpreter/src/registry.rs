@@ -26,20 +26,17 @@ const KEEP_SYNTHETIC: &[&str] = &[
     "java/lang/ThreadGroup",
     "java/lang/Throwable",
     "java/lang/System",
-    // Print/IO stack: `System.out`/`System.err` are allocated synthetically by
-    // `bootstrap_stdlib` (System is KEEP_SYNTHETIC) with the synthetic PrintStream layout.
-    // Keeping the whole stream/writer stack synthetic prevents real JDK bytecode from
-    // running against those synthetically-allocated instances (layout-coherence boundary).
+    // Print/IO stack: the only stream classes actually allocated/registered with a
+    // synthetic layout are `PrintStream` (`System.out`/`System.err`, heap-allocated by
+    // `bootstrap_stdlib` since System is KEEP_SYNTHETIC), `FileOutputStream`, and
+    // `FileInputStream`. Keeping these synthetic prevents real JDK bytecode from running
+    // against those synthetically-allocated instances (layout-coherence boundary). The
+    // rest of the writer stack (FilterOutputStream, BufferedOutputStream, Writer,
+    // OutputStreamWriter, BufferedWriter, PrintWriter, FileDescriptor) is never
+    // synthetically registered or allocated, so it is shadowed by real JDK bytecode.
     "java/io/PrintStream",
-    "java/io/FilterOutputStream",
-    "java/io/BufferedOutputStream",
-    "java/io/Writer",
-    "java/io/OutputStreamWriter",
-    "java/io/BufferedWriter",
-    "java/io/PrintWriter",
     "java/io/FileOutputStream",
     "java/io/FileInputStream",
-    "java/io/FileDescriptor",
     // Duke models `Unsafe` as a fully synthetic set of positional-offset natives
     // (getUnsafe/objectFieldOffset/CAS/get/put). Keeping it synthetic prevents
     // the real `Unsafe.<clinit>` (registerNatives + UnsafeConstants) from running
