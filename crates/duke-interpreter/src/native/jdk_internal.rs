@@ -209,3 +209,35 @@ pub(crate) fn native_reflection_get_caller_class(
         None => Ok(Some(Slot::Reference(None))),
     }
 }
+/// Native: `jdk/internal/misc/VM.initialize()V`.
+///
+/// In `HotSpot` this native saves the VM-supplied system properties into
+/// `VM.savedProps` and records a few tuning constants; it does **not** itself
+/// advance `VM.initLevel`. The boot sequence advances `initLevel` separately via
+/// `VM.initLevel(int)` calls inside `System.initPhase1/2/3`, ending at
+/// `SYSTEM_BOOTED` (== 4) by the time application code runs.
+///
+/// Duke never executes that boot sequence, yet application-time bytecode expects a
+/// fully booted VM. In particular `java/util/ServiceLoader.<init>` calls
+/// `VM.isBooted()`, which returns `initLevel >= SYSTEM_BOOTED`; when it reports
+/// `false`, `ServiceLoader` takes its pre-boot module-bootstrap branch instead of
+/// the normal construction path. `VM.<clinit>` is the one place that runs
+/// `initialize()`, so we fold the boot progression into this native: it seeds
+/// `initLevel = SYSTEM_BOOTED`, making `isBooted()` observe the booted state a
+/// real application would see and letting `ServiceLoader` proceed normally. No
+/// property map is materialized here — nothing on the reached path reads
+/// `savedProps`; if a future path needs it, seed it at that point.
+#[allow(clippy::unnecessary_wraps)] // signature must match `CallbackNativeHandler`
+pub(crate) fn native_vm_initialize(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    // `SYSTEM_BOOTED` is the 4th init-level constant declared in
+    // `jdk/internal/misc/VM` (JAVA_LANG_SYSTEM_INITED=1 .. SYSTEM_BOOTED=4).
+    const SYSTEM_BOOTED: i32 = 4;
+    ops.write_static_field("jdk/internal/misc/VM", "initLevel", Slot::Int(SYSTEM_BOOTED))?;
+    Ok(None)
+}

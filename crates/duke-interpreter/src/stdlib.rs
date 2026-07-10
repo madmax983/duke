@@ -1430,6 +1430,23 @@ fn register_reflection_stdlib(registry: &mut ClassRegistry) {
     );
 }
 
+/// Registers the native handler for `jdk/internal/misc/VM`.
+///
+/// Only the `initialize()V` native is provided; the `VM` class itself is loaded
+/// from the real JDK under `DUKE_REAL_JDK=1` (no synthetic context is registered,
+/// so flag-off behavior is unchanged — the entry is simply unused). `initialize`
+/// is reached from `VM.<clinit>`, itself triggered by `VM.isBooted()` in
+/// `java/util/ServiceLoader.<init>`; see `native_vm_initialize` for how it seeds
+/// the booted init level.
+fn register_vm_stdlib(registry: &mut ClassRegistry) {
+    registry.natives_mut().register_callback(
+        "jdk/internal/misc/VM",
+        "initialize",
+        "()V",
+        native_vm_initialize,
+    );
+}
+
 fn lock_interface_context(name: &str) -> ClassContext {
     ClassContext {
         class_name: name.to_string(),
@@ -3329,6 +3346,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     register_concurrent_hashmap_stdlib(registry);
     register_unsafe_stdlib(registry);
     register_reflection_stdlib(registry);
+    register_vm_stdlib(registry);
     register_locks_stdlib(registry);
     register_sync_primitives_stdlib(registry);
     register_executor_stdlib(registry, heap);
