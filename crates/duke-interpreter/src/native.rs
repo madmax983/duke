@@ -6668,6 +6668,96 @@ pub(crate) fn native_stream_collect(
         heap.get_mut(list_ref)?.fields[0] = Slot::Int(size);
         heap.get_mut(list_ref)?.fields.extend(elems);
         Ok(Some(Slot::Reference(Some(list_ref))))
+    } else if !collector_class.starts_with("duke/util/") {
+        // A real `java.util.stream.Collector` implementation (not one of Duke's
+        // synthetic `duke/util/*` markers) — e.g. a third-party collector such as
+        // commons-lang3 `LangCollectors.joining`. Drive the standard Collector
+        // protocol so the finisher actually runs, instead of returning the raw
+        // element container:
+        //   container = supplier().get();
+        //   for elem in elems { accumulator().accept(container, elem); }
+        //   result = finisher().apply(container);
+        let collector_ref = extract_ref_arg(args, 1)?;
+        let collector_slot = Slot::Reference(Some(collector_ref));
+
+        // container = collector.supplier().get()
+        let supplier = ops
+            .invoke(
+                heap,
+                out,
+                &collector_class,
+                "supplier",
+                "()Ljava/util/function/Supplier;",
+                vec![collector_slot],
+            )?
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(supplier_ref)) = supplier else {
+            return Err(Error::NullPointerException);
+        };
+        let supplier_class = heap.get(supplier_ref)?.class_name.clone();
+        let container = ops
+            .invoke(
+                heap,
+                out,
+                &supplier_class,
+                "get",
+                "()Ljava/lang/Object;",
+                vec![supplier],
+            )?
+            .unwrap_or(Slot::Reference(None));
+
+        // accumulator = collector.accumulator()
+        let accumulator = ops
+            .invoke(
+                heap,
+                out,
+                &collector_class,
+                "accumulator",
+                "()Ljava/util/function/BiConsumer;",
+                vec![collector_slot],
+            )?
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(acc_ref)) = accumulator else {
+            return Err(Error::NullPointerException);
+        };
+        let acc_class = heap.get(acc_ref)?.class_name.clone();
+        for elem in elems {
+            ops.invoke(
+                heap,
+                out,
+                &acc_class,
+                "accept",
+                "(Ljava/lang/Object;Ljava/lang/Object;)V",
+                vec![accumulator, container, elem],
+            )?;
+        }
+
+        // result = collector.finisher().apply(container)
+        let finisher = ops
+            .invoke(
+                heap,
+                out,
+                &collector_class,
+                "finisher",
+                "()Ljava/util/function/Function;",
+                vec![collector_slot],
+            )?
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(fin_ref)) = finisher else {
+            // No finisher (should not happen for a well-formed Collector) — the
+            // container itself is the result (IDENTITY_FINISH semantics).
+            return Ok(Some(container));
+        };
+        let fin_class = heap.get(fin_ref)?.class_name.clone();
+        let result = ops.invoke(
+            heap,
+            out,
+            &fin_class,
+            "apply",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![finisher, container],
+        )?;
+        Ok(result.or(Some(Slot::Reference(None))))
     } else {
         // ToListCollector (default): collect into ArrayList.
         let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
@@ -8551,6 +8641,44 @@ pub(crate) fn native_class_is_array(
     let class_ref = extract_ref_arg(args, 0)?;
     let internal_name = class_internal_name_from_ref(heap, class_ref)?;
     Ok(Some(Slot::Int(i32::from(internal_name.starts_with('[')))))
+}
+
+/// Native: `Class.getPrimitiveClass(String)Class` — static factory returning the
+/// `Class` mirror for a primitive type name ("int", "long", ...).
+///
+/// Returns the same string-keyed mirror that
+/// [`initialize_primitive_wrapper_type_field`] uses for `Integer.TYPE` etc.,
+/// so `int.class` and `Integer.TYPE` share object identity across the runtime.
+pub(crate) fn native_class_get_primitive_class(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let name_ref = extract_ref_arg(args, 0)?;
+    let name = heap
+        .get(name_ref)?
+        .string_value
+        .clone()
+        .ok_or(Error::NullPointerException)?;
+    let descriptor = match name.as_str() {
+        "int" => "I",
+        "long" => "J",
+        "float" => "F",
+        "double" => "D",
+        "boolean" => "Z",
+        "byte" => "B",
+        "char" => "C",
+        "short" => "S",
+        "void" => "V",
+        _ => {
+            return Err(Error::JavaException {
+                class_name: "java/lang/ClassNotFoundException".to_string(),
+            });
+        }
+    };
+    let class_ref = allocate_class_object(heap, descriptor)?;
+    Ok(Some(Slot::Reference(Some(class_ref))))
 }
 
 /// Native: `Class.desiredAssertionStatus()` - Duke currently runs with assertions disabled.
@@ -28089,6 +28217,124 @@ fn expand_ascii_case_insensitive(pattern: &str) -> String {
     out
 }
 
+/// Unicode block table: normalized Java `In…` name → inclusive codepoint range.
+/// Seeded with the commons-lang3 blocker plus a few neighbours; extend as more
+/// libraries demand blocks. `Character.UnicodeBlock.forName` normalizes names by
+/// stripping spaces/hyphens/underscores and uppercasing, which `normalize_block_name`
+/// mirrors, so every key here is already normalized.
+const UNICODE_BLOCKS: &[(&str, u32, u32)] = &[
+    ("COMBININGDIACRITICALMARKS", 0x0300, 0x036F),
+    ("BASICLATIN", 0x0000, 0x007F),
+    ("LATIN1SUPPLEMENT", 0x0080, 0x00FF),
+    ("GREEKANDCOPTIC", 0x0370, 0x03FF),
+    ("CYRILLIC", 0x0400, 0x04FF),
+];
+
+/// Normalize a Java Unicode block name the way `Character.UnicodeBlock.forName`
+/// does: drop spaces, hyphens and underscores, then uppercase.
+fn normalize_block_name(name: &str) -> String {
+    name.chars()
+        .filter(|c| !matches!(c, ' ' | '-' | '_'))
+        .flat_map(char::to_uppercase)
+        .collect()
+}
+
+/// Translate one `\p{name}` / `\P{name}` property token into Rust regex syntax.
+/// `negated` is true for `\P`; `in_class` is true when the token sits inside an
+/// existing `[...]` class. Returns `Err` (a `PatternSyntaxException`) for an
+/// unknown block name, matching real Java's `Pattern.compile`.
+fn translate_one_property(name: &str, negated: bool, in_class: bool) -> Result<String> {
+    if let Some(block) = name.strip_prefix("In") {
+        // Unicode block: Rust has no block support, so expand to a codepoint range.
+        let norm = normalize_block_name(block);
+        let (start, end) = UNICODE_BLOCKS
+            .iter()
+            .find(|(key, _, _)| *key == norm)
+            .map(|(_, start, end)| (*start, *end))
+            .ok_or_else(|| {
+                regex_pattern_syntax_error(format!("Unknown character block name {{{block}}}"))
+            })?;
+        let range = format!("\\x{{{start:04X}}}-\\x{{{end:04X}}}");
+        if negated {
+            // `[^...]` works both at top level and nested inside another class.
+            Ok(format!("[^{range}]"))
+        } else if in_class {
+            Ok(range)
+        } else {
+            Ok(format!("[{range}]"))
+        }
+    } else if let Some(script) = name.strip_prefix("Is") {
+        // Script or binary property: strip Java's `Is` and let Rust validate.
+        let sigil = if negated { 'P' } else { 'p' };
+        Ok(format!("\\{sigil}{{{script}}}"))
+    } else {
+        // General category / POSIX / anything else: Rust uses the same names.
+        let sigil = if negated { 'P' } else { 'p' };
+        Ok(format!("\\{sigil}{{{name}}}"))
+    }
+}
+
+/// Rewrite Java `\p{…}` / `\P{…}` property classes into Rust-regex-compatible
+/// syntax, translating Unicode blocks (`\p{InXxx}`) to explicit codepoint ranges
+/// and stripping the `Is` script prefix. Escaping- and class-aware. Unknown
+/// block names return `Err`, matching Java's `PatternSyntaxException`.
+fn translate_property_classes(pattern: &str) -> Result<String> {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut out = String::with_capacity(pattern.len());
+    let mut i = 0;
+    let mut class_depth: usize = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '\\' {
+            let next = chars.get(i + 1).copied();
+            if matches!(next, Some('p' | 'P')) && chars.get(i + 2) == Some(&'{') {
+                let sigil = next.expect("checked by matches!");
+                let mut j = i + 3;
+                let mut name = String::new();
+                while j < chars.len() && chars[j] != '}' {
+                    name.push(chars[j]);
+                    j += 1;
+                }
+                if j >= chars.len() {
+                    // Unterminated `{`; leave verbatim and let the regex builder report it.
+                    out.push(c);
+                    out.push(sigil);
+                    out.push('{');
+                    out.push_str(&name);
+                    break;
+                }
+                let translated = translate_one_property(&name, sigil == 'P', class_depth > 0)?;
+                out.push_str(&translated);
+                i = j + 1;
+                continue;
+            }
+            // Ordinary escape (including `\\`): copy the pair verbatim so an
+            // escaped backslash before `p` is not mistaken for a property token.
+            out.push(c);
+            if let Some(n) = next {
+                out.push(n);
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+        match c {
+            '[' => {
+                class_depth += 1;
+                out.push(c);
+            }
+            ']' if class_depth > 0 => {
+                class_depth -= 1;
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+        i += 1;
+    }
+    Ok(out)
+}
+
 /// Helper: compile a regex from a pattern string.
 /// Returns `Err` with `JavaException` on bad pattern.
 fn compile_java_regex(pattern: &str) -> Result<regex::Regex> {
@@ -28100,7 +28346,8 @@ fn compile_java_regex_with_flags(pattern: &str, flags: i32) -> Result<regex::Reg
     let mut source = if flags & PATTERN_LITERAL != 0 {
         regex::escape(pattern)
     } else {
-        translate_java_named_groups(pattern)
+        let named = translate_java_named_groups(pattern);
+        translate_property_classes(&named)?
     };
     let ascii_case_insensitive =
         flags & PATTERN_CASE_INSENSITIVE != 0 && flags & PATTERN_UNICODE_CASE == 0;
@@ -28370,6 +28617,36 @@ fn last_match_bounds(heap: &duke_gc::Heap, m_ref: u64) -> Result<(usize, usize)>
     ))
 }
 
+/// Convert a UTF-8 byte offset within `input` to a UTF-16 code-unit offset.
+/// The `regex` crate yields byte offsets, but every match index Java's `Matcher`
+/// exposes (`start()`/`end()`) is a UTF-16 code-unit offset. They coincide for
+/// ASCII but diverge for multi-byte characters (e.g. combining marks matched by
+/// `\p{InCombiningDiacriticalMarks}`), so the Java-visible getters must convert.
+fn byte_to_utf16_index(input: &str, byte_idx: usize) -> usize {
+    let clamped = byte_idx.min(input.len());
+    input[..clamped].chars().map(char::len_utf16).sum()
+}
+
+/// Like `matcher_group_bounds`, but returns bounds as UTF-16 code-unit offsets so
+/// they match Java's `Matcher.start()`/`end()` semantics. Used only by the
+/// Java-visible index getters; internal consumers keep byte offsets.
+fn matcher_group_bounds_java(
+    heap: &duke_gc::Heap,
+    m_ref: u64,
+    group: MatcherGroup<'_>,
+) -> Result<Option<(usize, usize)>> {
+    let Some((start, end)) = matcher_group_bounds(heap, m_ref, group)? else {
+        return Ok(None);
+    };
+    let Some((_, _, input)) = matcher_pattern_input_text(heap, m_ref)? else {
+        return Ok(Some((start, end)));
+    };
+    Ok(Some((
+        byte_to_utf16_index(&input, start),
+        byte_to_utf16_index(&input, end),
+    )))
+}
+
 fn matcher_group_bounds(
     heap: &duke_gc::Heap,
     m_ref: u64,
@@ -28574,7 +28851,7 @@ pub(crate) fn native_matcher_start(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
-    let start = matcher_group_bounds(heap, m_ref, MatcherGroup::Index(0))?
+    let start = matcher_group_bounds_java(heap, m_ref, MatcherGroup::Index(0))?
         .map_or(-1, |(start, _)| i32::try_from(start).unwrap_or(i32::MAX));
     Ok(Some(Slot::Int(start)))
 }
@@ -28593,7 +28870,7 @@ pub(crate) fn native_matcher_start_name(
         .string_value
         .clone()
         .unwrap_or_default();
-    let start = matcher_group_bounds(heap, m_ref, MatcherGroup::Name(&name))?
+    let start = matcher_group_bounds_java(heap, m_ref, MatcherGroup::Name(&name))?
         .map_or(-1, |(start, _)| i32::try_from(start).unwrap_or(i32::MAX));
     Ok(Some(Slot::Int(start)))
 }
@@ -28606,7 +28883,7 @@ pub(crate) fn native_matcher_end(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
-    let end = matcher_group_bounds(heap, m_ref, MatcherGroup::Index(0))?
+    let end = matcher_group_bounds_java(heap, m_ref, MatcherGroup::Index(0))?
         .map_or(-1, |(_, end)| i32::try_from(end).unwrap_or(i32::MAX));
     Ok(Some(Slot::Int(end)))
 }
@@ -28625,7 +28902,7 @@ pub(crate) fn native_matcher_end_name(
         .string_value
         .clone()
         .unwrap_or_default();
-    let end = matcher_group_bounds(heap, m_ref, MatcherGroup::Name(&name))?
+    let end = matcher_group_bounds_java(heap, m_ref, MatcherGroup::Name(&name))?
         .map_or(-1, |(_, end)| i32::try_from(end).unwrap_or(i32::MAX));
     Ok(Some(Slot::Int(end)))
 }

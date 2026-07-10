@@ -166,7 +166,9 @@ fn combining_diacritical_marks_block_matches_marks() {
     let re = compile("\\p{InCombiningDiacriticalMarks}+");
     // 'e' + combining acute (U+0301) + combining grave (U+0300) + 'x'.
     let input = "e\u{0301}\u{0300}x";
-    let m = re.find(input).expect("should match the run of combining marks");
+    let m = re
+        .find(input)
+        .expect("should match the run of combining marks");
     assert_eq!(m.as_str(), "\u{0301}\u{0300}");
     // Negative: plain ASCII has no combining marks.
     assert!(!re.is_match("abc"));
@@ -201,7 +203,10 @@ fn unknown_block_name_is_rejected() {
         err.contains("Unknown character block name"),
         "expected a Java-style block error, got: {err}"
     );
-    assert!(err.contains("NotARealBlockName"), "error should name the bad block: {err}");
+    assert!(
+        err.contains("NotARealBlockName"),
+        "error should name the bad block: {err}"
+    );
 }
 
 #[test]
@@ -222,8 +227,14 @@ fn block_name_normalization_is_lenient() {
 
 #[test]
 fn script_is_prefix_is_stripped() {
-    assert_eq!(translate_property_classes("\\p{IsLatin}+").unwrap(), "\\p{Latin}+");
-    assert_eq!(translate_property_classes("\\P{IsGreek}").unwrap(), "\\P{Greek}");
+    assert_eq!(
+        translate_property_classes("\\p{IsLatin}+").unwrap(),
+        "\\p{Latin}+"
+    );
+    assert_eq!(
+        translate_property_classes("\\P{IsGreek}").unwrap(),
+        "\\P{Greek}"
+    );
     let re = compile("\\p{IsLatin}+");
     assert!(re.is_match("abc"));
     assert!(!re.is_match("\u{0391}")); // Greek capital alpha
@@ -257,10 +268,10 @@ fn non_property_pattern_is_unchanged() {
 // ---------------------------------------------------------------------------
 // End-to-end canary through the real Pattern.compile native path.
 //
-// Ignored until the native.rs `translate_property_classes` wiring described in
-// docs/findings/2026-07-09-regex-unicode-blocks.md lands. Once it does, run:
-//   cargo test -p duke-interpreter --test regex_unicode_blocks -- --ignored
-// and un-ignore.
+// The native.rs `translate_property_classes` wiring (plus the Matcher UTF-16
+// match-index conversion) described in
+// docs/findings/2026-07-09-regex-unicode-blocks.md has landed, so this runs by
+// default now.
 // ---------------------------------------------------------------------------
 
 fn repo_root() -> PathBuf {
@@ -285,9 +296,6 @@ fn jdk_modules_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "Blocked on native.rs translate_property_classes wiring (see \
-            docs/findings/2026-07-09-regex-unicode-blocks.md); un-ignore once the \
-            regex engine supports \\p{InBlockName}."]
 fn regex_unicode_block_pattern_executes_end_to_end() {
     let Some(modules_path) = jdk_modules_path() else {
         eprintln!("skipping: no JDK lib/modules found");

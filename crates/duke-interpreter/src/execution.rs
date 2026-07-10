@@ -3396,9 +3396,16 @@ pub fn run_execution(
                                     Err(other) => return Err(other),
                                 }
                                 if gc_allowed && heap.should_gc() {
-                                    let roots = gather_roots(frame, call_stack, registry, string_intern);
+                                    let roots =
+                                        gather_roots(frame, call_stack, registry, string_intern);
                                     heap.collect(&roots);
-                                    patch_forwarded_slots(frame, call_stack, registry, heap, string_intern);
+                                    patch_forwarded_slots(
+                                        frame,
+                                        call_stack,
+                                        registry,
+                                        heap,
+                                        string_intern,
+                                    );
                                 }
                                 frame.push(Slot::Reference(Some(new_ref)))?;
                                 *idx += 1;
