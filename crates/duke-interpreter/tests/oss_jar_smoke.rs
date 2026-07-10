@@ -258,41 +258,6 @@ fn explicit_missing_capability_accepts_map_of_native() {
 }
 
 #[test]
-#[ignore = "slf4j smoke now runs end-to-end (see slf4j_simple_smoke_runs_real_jar_bytecode); there is no next missing capability to surface."]
-fn slf4j_simple_smoke_surfaces_next_missing_capability_explicitly() {
-    let smoke = run_slf4j_simple_smoke();
-    let err = smoke
-        .result
-        .expect_err("slf4j smoke should still hit the next unsupported capability");
-    let rendered = render_smoke_error(&err);
-
-    assert!(
-        !rendered.contains("java/lang/System.getSecurityManager()Ljava/lang/SecurityManager;"),
-        "smoke should progress past getSecurityManager, got: {rendered}"
-    );
-    assert!(
-        !rendered.contains("java/security/AccessController"),
-        "smoke should progress past AccessController.doPrivileged, got: {rendered}"
-    );
-    assert!(
-        !rendered.contains("java/lang/ClassLoader.getSystemResourceAsStream"),
-        "smoke should progress past getSystemResourceAsStream, got: {rendered}"
-    );
-    assert!(
-        !rendered.contains("java/lang/String.equalsIgnoreCase"),
-        "smoke should progress past String.equalsIgnoreCase, got: {rendered}"
-    );
-    assert!(
-        is_explicit_missing_slf4j_capability(&rendered),
-        "expected explicit next missing capability, got: {rendered}"
-    );
-    assert_eq!(
-        rendered, "Unsupported native: java/util/ArrayList.<init>(I)V",
-        "expected the next SLF4J blocker to stay explicit"
-    );
-}
-
-#[test]
 fn slf4j_simple_smoke_runs_real_jar_bytecode() {
     let smoke = run_slf4j_simple_smoke();
 
