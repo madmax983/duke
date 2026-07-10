@@ -35,6 +35,22 @@ const KEEP_SYNTHETIC: &[&str] = &[
     "java/lang/Float",
     "java/lang/Double",
     "java/lang/Number",
+    // Print/IO stack: `System.out`/`System.err` are allocated synthetically by
+    // `bootstrap_stdlib` (System is KEEP_SYNTHETIC) with the synthetic PrintStream layout.
+    // Keeping the whole stream/writer stack synthetic prevents real JDK bytecode from
+    // running against those synthetically-allocated instances (layout-coherence boundary).
+    "java/io/PrintStream",
+    "java/io/OutputStream",
+    "java/io/FilterOutputStream",
+    "java/io/BufferedOutputStream",
+    "java/io/Writer",
+    "java/io/OutputStreamWriter",
+    "java/io/BufferedWriter",
+    "java/io/PrintWriter",
+    "java/io/InputStream",
+    "java/io/FileOutputStream",
+    "java/io/FileInputStream",
+    "java/io/FileDescriptor",
 ];
 
 fn class_internal_name_fragment(name: &str) -> &str {
