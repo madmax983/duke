@@ -740,7 +740,7 @@ impl ClassRegistry {
                 eprintln!("[real-jdk] shadowing synthetic {}", ctx.class_name);
             }
             self.shadowed_set.insert(ctx.class_name.clone());
-            self.shadowed_classes.push(ctx.class_name.clone());
+            self.shadowed_classes.push(ctx.class_name);
             return;
         }
         self.classes.insert(ctx.class_name.clone(), ctx);
