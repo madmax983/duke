@@ -111,6 +111,62 @@ fn extract_jar_flag(args: &mut Vec<String>) -> Option<String> {
     jar
 }
 
+/// Strip `--real-jdk` / `--no-real-jdk` from `args` and return whether "real JDK
+/// shadow" mode is requested. Defaults to the `DUKE_REAL_JDK=1` env var; CLI wins.
+fn extract_real_jdk_flag(args: &mut Vec<String>) -> bool {
+    let mut enabled = matches!(std::env::var("DUKE_REAL_JDK").as_deref(), Ok("1"));
+    args.retain(|arg| {
+        if arg == "--real-jdk" {
+            enabled = true;
+            return false;
+        }
+        if arg == "--no-real-jdk" {
+            enabled = false;
+            return false;
+        }
+        true
+    });
+    enabled
+}
+
+/// Build a jimage-backed loader (`BootstrapLoader`) used solely to decide, during
+/// `bootstrap_stdlib`, whether a real JDK classfile exists for a synthetic class.
+/// Returns `None` when no JDK jimage is available.
+fn make_shadow_loader(
+    jdk_home: Option<&str>,
+) -> Option<std::sync::Arc<dyn ClassLoader + Send + Sync>> {
+    let home = jdk_home?;
+    let modules = std::path::Path::new(home).join("lib").join("modules");
+    if !modules.exists() {
+        return None;
+    }
+    match BootstrapLoader::new(&modules, Vec::<std::path::PathBuf>::new()) {
+        Ok(bl) => Some(std::sync::Arc::new(bl)),
+        Err(e) => {
+            eprintln!("duke: warning: cannot open JDK modules for real-jdk shadow ({e})");
+            None
+        }
+    }
+}
+
+/// Enable real-JDK shadow mode on `registry` when requested. Must run *before*
+/// `bootstrap_stdlib`. Warns and does nothing if no jimage loader is available.
+fn apply_real_jdk_shadow(registry: &mut ClassRegistry, real_jdk: bool, jdk_home: Option<&str>) {
+    if !real_jdk {
+        return;
+    }
+    if let Some(loader) = make_shadow_loader(jdk_home) {
+        eprintln!(
+            "duke: real-jdk mode enabled (non-allowlisted synthetic stdlib classes load real JDK bytecode)"
+        );
+        registry.enable_real_jdk_shadow(loader);
+    } else {
+        eprintln!(
+            "duke: warning: --real-jdk requested but no JDK jimage loader is available (need --jdk=<path> or JAVA_HOME pointing at a JDK with lib/modules); continuing with synthetic stdlib"
+        );
+    }
+}
+
 /// Build a class loader: `BootstrapLoader` (JDK jimage + app dir) when JDK path
 /// is known, or plain `DirectoryLoader` otherwise.
 struct CliLoader(Box<dyn ClassLoader + Send + Sync>);
@@ -271,6 +327,7 @@ fn main() {
     let telemetry = extract_telemetry_flag(&mut args);
     let mermaid_dest = extract_mermaid_heap_flag(&mut args);
     let jdk_home = extract_jdk_flag(&mut args);
+    let real_jdk = extract_real_jdk_flag(&mut args);
     let jdwp_cfg = extract_jdwp_flag(&mut args);
     let jar_path = extract_jar_flag(&mut args);
 
@@ -338,6 +395,10 @@ fn main() {
         eprintln!("         --telemetry-md[=p]  dump telemetry Markdown report after execution");
         eprintln!("         --jdk=<path>        JDK home for loading real JDK classes");
         eprintln!("         (also reads JAVA_HOME env var)");
+        eprintln!(
+            "         --real-jdk          load real JDK bytecode for non-allowlisted stdlib classes"
+        );
+        eprintln!("         (also enabled by DUKE_REAL_JDK=1; needs a JDK jimage)");
         process::exit(1);
     }
 
@@ -415,6 +476,7 @@ fn main() {
             telemetry,
             mermaid_dest,
             jdk_home.as_deref(),
+            real_jdk,
         );
         return;
     }
@@ -542,13 +604,13 @@ fn main() {
 
     // Dispatch `exec`: run a static method and print the result.
     if args.len() >= 4 && args[1] == "exec" {
-        exec_method(&args[2..], telemetry, mermaid_dest, jdk_home.as_deref());
+        exec_method(&args[2..], telemetry, mermaid_dest, jdk_home.as_deref(), real_jdk);
         return;
     }
 
     // Dispatch `run`: execute main(String[]) entry point.
     if args.len() >= 3 && args[1] == "run" {
-        run_main(&args[2..], telemetry, mermaid_dest, jdk_home.as_deref());
+        run_main(&args[2..], telemetry, mermaid_dest, jdk_home.as_deref(), real_jdk);
         return;
     }
 
@@ -661,6 +723,7 @@ fn exec_method(
     telemetry: Option<TelemetryDest>,
     mermaid_dest: Option<MermaidDest>,
     jdk_home: Option<&str>,
+    real_jdk: bool,
 ) {
     if args.len() < 2 {
         eprintln!("Usage: duke exec <classfile.class> <method> [int-arg...]");
@@ -717,6 +780,7 @@ fn exec_method(
         .unwrap_or_else(|| std::path::Path::new("."));
     let loader = make_loader(jdk_home, &[parent.to_path_buf()]);
     let mut heap = Heap::new();
+    apply_real_jdk_shadow(&mut registry, real_jdk, jdk_home);
     bootstrap_stdlib(&mut registry, &mut heap);
 
     let mut stdout = std::io::stdout();
@@ -765,6 +829,7 @@ fn run_main(
     telemetry: Option<TelemetryDest>,
     mermaid_dest: Option<MermaidDest>,
     jdk_home: Option<&str>,
+    real_jdk: bool,
 ) {
     if args.is_empty() {
         eprintln!("Usage: duke run <classfile.class> [string-arg...]");
@@ -792,6 +857,7 @@ fn run_main(
         .unwrap_or_else(|| std::path::Path::new("."));
     let loader = make_loader(jdk_home, &[parent.to_path_buf()]);
     let mut heap = Heap::new();
+    apply_real_jdk_shadow(&mut registry, real_jdk, jdk_home);
     bootstrap_stdlib(&mut registry, &mut heap);
 
     // Build String[] args array on the heap.
@@ -869,6 +935,7 @@ fn run_jar(
     telemetry: Option<TelemetryDest>,
     mermaid_dest: Option<MermaidDest>,
     jdk_home: Option<&str>,
+    real_jdk: bool,
 ) {
     let jar = std::path::Path::new(jar_path);
     let reader = ZipReader::open(jar).unwrap_or_else(|e| {
@@ -903,6 +970,7 @@ fn run_jar(
 
     let mut registry = ClassRegistry::new();
     let mut heap = Heap::new();
+    apply_real_jdk_shadow(&mut registry, real_jdk, jdk_home);
     bootstrap_stdlib(&mut registry, &mut heap);
     let jar_code_source = std::fs::canonicalize(jar).unwrap_or_else(|_| jar.to_path_buf());
     registry.set_default_code_source(jar_code_source.to_string_lossy().to_string());
