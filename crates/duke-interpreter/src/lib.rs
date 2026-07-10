@@ -66,6 +66,7 @@ include!("native/java_io.rs");
 include!("native/java_security.rs");
 include!("native/java_util_regex.rs");
 include!("native/reflect.rs");
+include!("native/jdk_internal.rs");
 
 // Tests
 // ---------------------------------------------------------------------------
