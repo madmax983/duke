@@ -36,13 +36,19 @@ fn spring_boot_fixture(name: &str) -> PathBuf {
 const APP_JAR: &str = "duke-spring-boot-app-3.5.12.jar";
 const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 
-// The post-fix first blocker shared by BOTH fixtures (observed 2026-07-10, after
-// the `ensure_loaded_inner` plain-bootstrap-provenance fix). Both boot into the
-// JarLauncher / Spring Boot classpath-scanning path and land on the same missing
-// synthetic `java/lang/ClassLoader` resource method. This lives in
-// crates/duke-interpreter/src/stdlib.rs (other lane), so it is pinned here rather
-// than fixed. If boot advances past it, re-observe and update this pin.
-const CURRENT_BLOCKER: &str = "method not found: java/lang/ClassLoader.getSystemResources(Ljava/lang/String;)Ljava/util/Enumeration;";
+// Per-fixture first blockers (re-observed 2026-07-10, after #1320 landed the gson
+// natives and advanced the app fixture's boot). Both fixtures boot into the
+// JarLauncher / Spring Boot classpath-scanning path and land on a missing synthetic
+// `java/lang/ClassLoader` method that lives in crates/duke-interpreter/src/stdlib.rs
+// (other lane), so both are pinned here rather than fixed.
+//
+// The two fixtures now diverge: #1320 pushed the APP past the previously-shared
+// `getSystemResources` rung onto `getSystemClassLoader`, while the LADDER still
+// lands on `getSystemResources`. If either boot advances past its pin, re-observe
+// and update. See docs/findings/2026-07-10-spring-boot-real-app.md.
+const APP_BLOCKER: &str =
+    "method not found: java/lang/ClassLoader.getSystemClassLoader()Ljava/lang/ClassLoader;";
+const LADDER_BLOCKER: &str = "method not found: java/lang/ClassLoader.getSystemResources(Ljava/lang/String;)Ljava/util/Enumeration;";
 
 fn run_fixture(jar: &str) -> Output {
     let jar_path = spring_boot_fixture(jar);
@@ -71,8 +77,9 @@ fn combined_output(output: &Output) -> String {
 /// End-to-end CANARY for the real Spring Boot app fixture. Ignored until boot
 /// reaches the started-application line. Un-ignore when the happy path clears.
 #[test]
-#[ignore = "Blocked on missing synthetic java/lang/ClassLoader.getSystemResources \
-            (stdlib lane); keep ignored until the Spring Boot app boot completes. \
+#[ignore = "Blocked on missing synthetic java/lang/ClassLoader.getSystemClassLoader \
+            (stdlib lane; #1320 cleared the earlier getSystemResources rung for the \
+            app); keep ignored until the Spring Boot app boot completes. \
             See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_app_boots_end_to_end() {
     let output = run_fixture(APP_JAR);
@@ -104,9 +111,9 @@ fn spring_boot_app_surfaces_next_missing_capability_explicitly() {
         "app fixture is expected to still fail at the pinned blocker; output:\n{combined}"
     );
     assert!(
-        combined.contains(CURRENT_BLOCKER),
+        combined.contains(APP_BLOCKER),
         "expected the app fixture to stay pinned at the current first blocker \
-         ({CURRENT_BLOCKER:?}); if it moved, re-observe and update this pin \
+         ({APP_BLOCKER:?}); if it moved, re-observe and update this pin \
          (docs/findings/2026-07-10-spring-boot-real-app.md). Output:\n{combined}"
     );
 }
@@ -149,9 +156,9 @@ fn spring_boot_ladder_surfaces_next_missing_capability_explicitly() {
         "ladder fixture is expected to still fail at the pinned blocker; output:\n{combined}"
     );
     assert!(
-        combined.contains(CURRENT_BLOCKER),
+        combined.contains(LADDER_BLOCKER),
         "expected the ladder fixture to stay pinned at the current first blocker \
-         ({CURRENT_BLOCKER:?}); if it moved, re-observe and update this pin \
+         ({LADDER_BLOCKER:?}); if it moved, re-observe and update this pin \
          (docs/findings/2026-07-10-spring-boot-real-app.md). Output:\n{combined}"
     );
 }

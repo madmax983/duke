@@ -53,9 +53,15 @@ With the loader-lane fix in this branch (`5860f6b`, see below), `duke -jar` on
 3. Reaches Spring Boot's **classpath-scanning phase** — the point where the
    framework enumerates classpath resources to discover configuration.
 
-It then stops with:
+It then stops. **Update 2026-07-10 (after #1320):** the gson-natives work in
+#1320 advanced the **app** fixture past the `getSystemResources` rung; the two
+fixtures now diverge on the first blocker:
 
 ```
+# app  (duke-spring-boot-app-3.5.12.jar):
+duke: runtime error: method not found: java/lang/ClassLoader.getSystemClassLoader()Ljava/lang/ClassLoader;
+
+# ladder (duke-spring-boot-ladder-3.5.12.jar) — still parked at the old rung:
 duke: runtime error: method not found: java/lang/ClassLoader.getSystemResources(Ljava/lang/String;)Ljava/util/Enumeration;
 ```
 
@@ -75,7 +81,8 @@ under the default synthetic-stdlib path).
 | # | Blocker (symptom) | Root cause | Status | Owning lane |
 | --- | --- | --- | --- | --- |
 | **0** | `class not found: java/lang/System` (app) / `java/lang/ClassLoader` (ladder) — died before any framework code, at a loader-suffixed key (`java/lang/System\0loader:113`). | `ensure_loaded_inner` recorded per-loader/per-code-source provenance onto **plain synthetic bootstrap singletons**, flipping `is_plain_bootstrap_class` false and desyncing it from `class_key_from_provenance`, which then computed a loader-suffixed key nothing was stored under. | **FIXED here** (`5860f6b`) | classloader/registry (**this lane**) |
-| **1** | `method not found: java/lang/ClassLoader.getSystemResources(Ljava/lang/String;)Ljava/util/Enumeration;` — boot reaches classpath scanning, no banner. | `getSystemResources` is a **missing synthetic method** on the synthetic `java/lang/ClassLoader` in `stdlib.rs`. The resource-enumeration API surface (`getResource(s)`, `getSystemResource(s)`, `getResourceAsStream`) is incomplete. | **OBSERVED — current pin** | synthetic-stdlib / native — `java_lang` (`ClassLoader` resource API) |
+| **1** | `method not found: java/lang/ClassLoader.getSystemResources(Ljava/lang/String;)Ljava/util/Enumeration;` — boot reaches classpath scanning, no banner. | `getSystemResources` is a **missing synthetic method** on the synthetic `java/lang/ClassLoader` in `stdlib.rs`. The resource-enumeration API surface (`getResource(s)`, `getSystemResource(s)`, `getResourceAsStream`) is incomplete. | **CLEARED for app by #1320** (gson natives advanced the app past this rung). **Still OBSERVED for the ladder — current ladder pin.** | synthetic-stdlib / native — `java_lang` (`ClassLoader` resource API) |
+| **1a** | `method not found: java/lang/ClassLoader.getSystemClassLoader()Ljava/lang/ClassLoader;` — app fixture's new first blocker after #1320, still in the classpath-scanning / classloader-bootstrap path, no banner. | `getSystemClassLoader` is another **missing synthetic method** on the synthetic `java/lang/ClassLoader` in `stdlib.rs` — same `ClassLoader` surface as #1, next method the app reaches. | **OBSERVED — current app pin** | synthetic-stdlib / native — `java_lang` (`ClassLoader` static/system-loader API) |
 | **2** | `--real-jdk` probe: getfield slot 10 out of bounds on a `java/net/URL` allocated with 1 slot where real `URL` bytecode expects 13 (`crates/duke-interpreter/src/execution.rs:1600`). | Synthetic-vs-real **object-layout coherence** boundary: `java/net/URL` is allocated synthetically (1 slot) but real `URL` bytecode indexes its full 13-field layout. | **INFERRED** (seen only under `--real-jdk`, past blocker #1) | native / stdlib object-layout — `java_net` (`URL`) |
 | **3** | Resource enumeration + `META-INF/spring.factories` and `META-INF/spring/…AutoConfiguration.imports` discovery returning empty/failing. | Spring's `SpringFactoriesLoader` / `ImportCandidates` walk **every** classpath entry via `ClassLoader.getResources`; requires working nested-jar resource enumeration (depends on #1). | **INFERRED** | java_util + classloader/registry (resource enumeration) |
 | **4** | Heavy `java.lang.reflect` use during auto-configuration: `Constructor.newInstance`, `Method.invoke`, annotation reads, `Class.forName` fan-out. | `SpringApplication.run` instantiates and wires beans almost entirely reflectively; annotation metadata is read via reflection/ASM. | **INFERRED** | reflect (`java_lang_reflect`) + `java_lang` (`Class`) |
@@ -131,7 +138,8 @@ regression witnesses, but the fix is generic.
 | Blocker | Owning lane | Status |
 | --- | --- | --- |
 | #0 provenance-poison on bootstrap singletons | classloader / registry (`registry.rs`) | **DONE (this branch)** |
-| #1 `ClassLoader.getSystemResources` missing | synthetic-stdlib `java_lang` — `ClassLoader` resource API (`stdlib.rs`) | **NEXT** |
+| #1 `ClassLoader.getSystemResources` missing | synthetic-stdlib `java_lang` — `ClassLoader` resource API (`stdlib.rs`) | **CLEARED for app by #1320; still NEXT for ladder** |
+| #1a `ClassLoader.getSystemClassLoader` missing | synthetic-stdlib `java_lang` — `ClassLoader` static/system-loader API (`stdlib.rs`) | **NEXT for app (current pin)** |
 | #2 `java/net/URL` layout coherence | native / stdlib object-layout — `java_net` (`URL`) | inferred |
 | #3 `spring.factories` / `AutoConfiguration.imports` resource enumeration | java_util + classloader/registry | inferred |
 | #4 reflective bean instantiation / annotations | reflect (`java_lang_reflect`) + `java_lang` (`Class`) | inferred |
@@ -152,9 +160,12 @@ fixture:
 - **2 non-ignored PINS** —
   `spring_boot_app_surfaces_next_missing_capability_explicitly`,
   `spring_boot_ladder_surfaces_next_missing_capability_explicitly`. Each asserts
-  the process still fails at **exactly** the current blocker
-  (`CURRENT_BLOCKER = "method not found: java/lang/ClassLoader.getSystemResources(Ljava/lang/String;)Ljava/util/Enumeration;"`).
-  If boot advances (or regresses) past that string, the pin **trips**, forcing a
+  the process still fails at **exactly** the current blocker. As of #1320 the
+  two fixtures diverge, so the pins assert per-fixture constants:
+  `APP_BLOCKER = "method not found: java/lang/ClassLoader.getSystemClassLoader()Ljava/lang/ClassLoader;"`
+  and
+  `LADDER_BLOCKER = "method not found: java/lang/ClassLoader.getSystemResources(Ljava/lang/String;)Ljava/util/Enumeration;"`.
+  If boot advances (or regresses) past those strings, the pin **trips**, forcing a
   re-observe and an update to this doc.
 
 **Repro commands:**
