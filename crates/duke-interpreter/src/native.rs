@@ -28089,6 +28089,124 @@ fn expand_ascii_case_insensitive(pattern: &str) -> String {
     out
 }
 
+/// Unicode block table: normalized Java `In…` name → inclusive codepoint range.
+/// Seeded with the commons-lang3 blocker plus a few neighbours; extend as more
+/// libraries demand blocks. `Character.UnicodeBlock.forName` normalizes names by
+/// stripping spaces/hyphens/underscores and uppercasing, which `normalize_block_name`
+/// mirrors, so every key here is already normalized.
+const UNICODE_BLOCKS: &[(&str, u32, u32)] = &[
+    ("COMBININGDIACRITICALMARKS", 0x0300, 0x036F),
+    ("BASICLATIN", 0x0000, 0x007F),
+    ("LATIN1SUPPLEMENT", 0x0080, 0x00FF),
+    ("GREEKANDCOPTIC", 0x0370, 0x03FF),
+    ("CYRILLIC", 0x0400, 0x04FF),
+];
+
+/// Normalize a Java Unicode block name the way `Character.UnicodeBlock.forName`
+/// does: drop spaces, hyphens and underscores, then uppercase.
+fn normalize_block_name(name: &str) -> String {
+    name.chars()
+        .filter(|c| !matches!(c, ' ' | '-' | '_'))
+        .flat_map(char::to_uppercase)
+        .collect()
+}
+
+/// Translate one `\p{name}` / `\P{name}` property token into Rust regex syntax.
+/// `negated` is true for `\P`; `in_class` is true when the token sits inside an
+/// existing `[...]` class. Returns `Err` (a `PatternSyntaxException`) for an
+/// unknown block name, matching real Java's `Pattern.compile`.
+fn translate_one_property(name: &str, negated: bool, in_class: bool) -> Result<String> {
+    if let Some(block) = name.strip_prefix("In") {
+        // Unicode block: Rust has no block support, so expand to a codepoint range.
+        let norm = normalize_block_name(block);
+        let (start, end) = UNICODE_BLOCKS
+            .iter()
+            .find(|(key, _, _)| *key == norm)
+            .map(|(_, start, end)| (*start, *end))
+            .ok_or_else(|| {
+                regex_pattern_syntax_error(format!("Unknown character block name {{{block}}}"))
+            })?;
+        let range = format!("\\x{{{start:04X}}}-\\x{{{end:04X}}}");
+        if negated {
+            // `[^...]` works both at top level and nested inside another class.
+            Ok(format!("[^{range}]"))
+        } else if in_class {
+            Ok(range)
+        } else {
+            Ok(format!("[{range}]"))
+        }
+    } else if let Some(script) = name.strip_prefix("Is") {
+        // Script or binary property: strip Java's `Is` and let Rust validate.
+        let sigil = if negated { 'P' } else { 'p' };
+        Ok(format!("\\{sigil}{{{script}}}"))
+    } else {
+        // General category / POSIX / anything else: Rust uses the same names.
+        let sigil = if negated { 'P' } else { 'p' };
+        Ok(format!("\\{sigil}{{{name}}}"))
+    }
+}
+
+/// Rewrite Java `\p{…}` / `\P{…}` property classes into Rust-regex-compatible
+/// syntax, translating Unicode blocks (`\p{InXxx}`) to explicit codepoint ranges
+/// and stripping the `Is` script prefix. Escaping- and class-aware. Unknown
+/// block names return `Err`, matching Java's `PatternSyntaxException`.
+fn translate_property_classes(pattern: &str) -> Result<String> {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut out = String::with_capacity(pattern.len());
+    let mut i = 0;
+    let mut class_depth: usize = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '\\' {
+            let next = chars.get(i + 1).copied();
+            if matches!(next, Some('p' | 'P')) && chars.get(i + 2) == Some(&'{') {
+                let sigil = next.expect("checked by matches!");
+                let mut j = i + 3;
+                let mut name = String::new();
+                while j < chars.len() && chars[j] != '}' {
+                    name.push(chars[j]);
+                    j += 1;
+                }
+                if j >= chars.len() {
+                    // Unterminated `{`; leave verbatim and let the regex builder report it.
+                    out.push(c);
+                    out.push(sigil);
+                    out.push('{');
+                    out.push_str(&name);
+                    break;
+                }
+                let translated = translate_one_property(&name, sigil == 'P', class_depth > 0)?;
+                out.push_str(&translated);
+                i = j + 1;
+                continue;
+            }
+            // Ordinary escape (including `\\`): copy the pair verbatim so an
+            // escaped backslash before `p` is not mistaken for a property token.
+            out.push(c);
+            if let Some(n) = next {
+                out.push(n);
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+        match c {
+            '[' => {
+                class_depth += 1;
+                out.push(c);
+            }
+            ']' if class_depth > 0 => {
+                class_depth -= 1;
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+        i += 1;
+    }
+    Ok(out)
+}
+
 /// Helper: compile a regex from a pattern string.
 /// Returns `Err` with `JavaException` on bad pattern.
 fn compile_java_regex(pattern: &str) -> Result<regex::Regex> {
@@ -28100,7 +28218,8 @@ fn compile_java_regex_with_flags(pattern: &str, flags: i32) -> Result<regex::Reg
     let mut source = if flags & PATTERN_LITERAL != 0 {
         regex::escape(pattern)
     } else {
-        translate_java_named_groups(pattern)
+        let named = translate_java_named_groups(pattern);
+        translate_property_classes(&named)?
     };
     let ascii_case_insensitive =
         flags & PATTERN_CASE_INSENSITIVE != 0 && flags & PATTERN_UNICODE_CASE == 0;
