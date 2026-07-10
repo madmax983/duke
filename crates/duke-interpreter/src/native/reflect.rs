@@ -408,6 +408,9 @@ pub(crate) fn native_class_get_modifiers(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let _ = extract_ref_arg(args, 0)?;
+    // TODO(known-limitation): getModifiers/isInterface report ACC_PUBLIC-only; needs real access flags
+    // (ReflectedClassInfo does not carry ClassAccessFlags; plumbing them requires
+    // touching registry.rs, which is out of scope here).
     // ACC_PUBLIC
     Ok(Some(Slot::Int(0x0001)))
 }
@@ -510,6 +513,9 @@ pub(crate) fn native_class_is_interface(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let _ = extract_ref_arg(args, 0)?;
+    // TODO(known-limitation): getModifiers/isInterface report ACC_PUBLIC-only; needs real access flags
+    // (ReflectedClassInfo does not carry ClassAccessFlags; plumbing them requires
+    // touching registry.rs, which is out of scope here).
     Ok(Some(Slot::Int(0)))
 }
 
@@ -534,6 +540,10 @@ pub(crate) fn native_reflect_field_get_modifiers(
     if field.is_static {
         modifiers |= 0x0008; // ACC_STATIC
     }
+    // TODO(known-limitation): Field.getModifiers omits transient/final
+    // (ReflectedFieldHandle/ReflectedFieldInfo only carry public/static; the
+    // transient/final bits are dropped when the Field mirror is built, and
+    // retaining them requires touching registry.rs, which is out of scope here).
     Ok(Some(Slot::Int(modifiers)))
 }
 

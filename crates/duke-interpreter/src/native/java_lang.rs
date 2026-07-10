@@ -1910,6 +1910,17 @@ pub(crate) fn native_string_get_chars(
             class_name: "java/lang/StringIndexOutOfBoundsException".to_string(),
         });
     }
+    // The destination array must be large enough to hold the copied range,
+    // otherwise indexing `dst.fields` below would Rust-panic on Java-controlled
+    // input. `src_end >= src_begin` and `dst_begin >= 0` are already validated,
+    // so `end` cannot underflow here.
+    let dst_len = heap.get(dst_ref)?.fields.len();
+    let end = dst_begin + (src_end - src_begin);
+    if end as usize > dst_len {
+        return Err(Error::JavaException {
+            class_name: "java/lang/ArrayIndexOutOfBoundsException".to_string(),
+        });
+    }
     let mut dst_idx = dst_begin as usize;
     for &c in &chars[src_begin as usize..src_end as usize] {
         heap.get_mut(dst_ref)?.fields[dst_idx] = Slot::Int(c as i32);

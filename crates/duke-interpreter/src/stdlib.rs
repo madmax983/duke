@@ -5167,7 +5167,9 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     // java/lang/Long — boxed long with value field + numeric constants
     let long_ctx = ClassContext {
         class_name: "java/lang/Long".to_string(),
-        super_class: Some("java/lang/Object".to_string()),
+        // Extends java/lang/Number (not Object) so `checkcast`/`instanceof
+        // Number` succeeds on boxed longs, matching real Java.
+        super_class: Some("java/lang/Number".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
@@ -5339,7 +5341,9 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     // java/lang/Double — boxed double with value field + numeric constants
     let double_ctx = ClassContext {
         class_name: "java/lang/Double".to_string(),
-        super_class: Some("java/lang/Object".to_string()),
+        // Extends java/lang/Number (not Object) so `checkcast`/`instanceof
+        // Number` succeeds on boxed doubles, matching real Java.
+        super_class: Some("java/lang/Number".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
@@ -5448,7 +5452,9 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     // java/lang/Float — boxed float with value field
     let float_ctx = ClassContext {
         class_name: "java/lang/Float".to_string(),
-        super_class: Some("java/lang/Object".to_string()),
+        // Extends java/lang/Number (not Object) so `checkcast`/`instanceof
+        // Number` succeeds on boxed floats, matching real Java.
+        super_class: Some("java/lang/Number".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
@@ -5601,7 +5607,9 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
 
     let byte_ctx = ClassContext {
         class_name: "java/lang/Byte".to_string(),
-        super_class: Some("java/lang/Object".to_string()),
+        // Extends java/lang/Number (not Object) so `checkcast`/`instanceof
+        // Number` succeeds on boxed bytes, matching real Java.
+        super_class: Some("java/lang/Number".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
@@ -5671,7 +5679,9 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
 
     let short_ctx = ClassContext {
         class_name: "java/lang/Short".to_string(),
-        super_class: Some("java/lang/Object".to_string()),
+        // Extends java/lang/Number (not Object) so `checkcast`/`instanceof
+        // Number` succeeds on boxed shorts, matching real Java.
+        super_class: Some("java/lang/Number".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
