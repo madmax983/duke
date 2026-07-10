@@ -61,6 +61,7 @@ include!("native/java_util.rs");
 include!("native/duke_util.rs");
 include!("native/java_util_concurrent.rs");
 include!("native/java_time.rs");
+include!("native/java_util_logging.rs");
 
 // Tests
 // ---------------------------------------------------------------------------
