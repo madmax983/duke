@@ -1907,6 +1907,54 @@ pub(crate) fn native_string_tochararray(
     }
     Ok(Some(Slot::Reference(Some(arr_ref))))
 }
+/// Native: `String.getChars(int srcBegin, int srcEnd, char[] dst, int dstBegin)V`
+/// — copies `[srcBegin, srcEnd)` of this string into `dst` starting at `dstBegin`.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)]
+pub(crate) fn native_string_get_chars(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let src_begin = extract_int_arg(args, 1)?;
+    let src_end = extract_int_arg(args, 2)?;
+    let dst_ref = extract_ref_arg(args, 3)?;
+    let dst_begin = extract_int_arg(args, 4)?;
+    let chars: Vec<char> = heap
+        .get(this_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_default()
+        .chars()
+        .collect();
+    if src_begin < 0 || src_begin > src_end || src_end > chars.len() as i32 || dst_begin < 0 {
+        return Err(Error::JavaException {
+            class_name: "java/lang/StringIndexOutOfBoundsException".to_string(),
+        });
+    }
+    // The destination array must be large enough to hold the copied range,
+    // otherwise indexing `dst.fields` below would Rust-panic on Java-controlled
+    // input. `src_end >= src_begin` and `dst_begin >= 0` are already validated,
+    // so `end` cannot underflow here.
+    let dst_len = heap.get(dst_ref)?.fields.len();
+    let end = dst_begin + (src_end - src_begin);
+    if end as usize > dst_len {
+        return Err(Error::JavaException {
+            class_name: "java/lang/ArrayIndexOutOfBoundsException".to_string(),
+        });
+    }
+    for (dst_idx, &c) in
+        (dst_begin as usize..).zip(&chars[src_begin as usize..src_end as usize])
+    {
+        heap.get_mut(dst_ref)?.fields[dst_idx] = Slot::Int(c as i32);
+    }
+    Ok(None)
+}
 /// Native: `Integer.parseInt(String)` — parses string to int.
 pub(crate) fn native_integer_parseint(
     args: &[Slot],
@@ -2367,6 +2415,44 @@ pub(crate) fn native_string_init_from_chars(
             _ => None,
         })
         .collect();
+    heap.get_mut(this_ref)?.string_value = Some(chars);
+    Ok(None)
+}
+/// Native: `String.<init>(char[], int offset, int count)V` — constructs a String
+/// from a subrange of a char array. gson's `JsonReader` builds strings this way.
+pub(crate) fn native_string_init_from_chars_range(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let offset = extract_int_arg(args, 2)?;
+    let count = extract_int_arg(args, 3)?;
+    let Some(Slot::Reference(Some(arr_ref))) = args.get(1).copied() else {
+        heap.get_mut(this_ref)?.string_value = Some(String::new());
+        return Ok(None);
+    };
+    let all: Vec<char> = heap
+        .get(arr_ref)?
+        .fields
+        .iter()
+        .map(|s| match s {
+            Slot::Int(n) => char::from_u32(u32::try_from(*n).unwrap_or(0)).unwrap_or('\0'),
+            _ => '\0',
+        })
+        .collect();
+    let range = usize::try_from(offset)
+        .ok()
+        .zip(usize::try_from(count).ok())
+        .and_then(|(o, c)| o.checked_add(c).map(|end| (o, end)))
+        .filter(|&(_, end)| end <= all.len());
+    let Some((start, end)) = range else {
+        return Err(Error::JavaException {
+            class_name: "java/lang/StringIndexOutOfBoundsException".to_string(),
+        });
+    };
+    let chars: String = all[start..end].iter().collect();
     heap.get_mut(this_ref)?.string_value = Some(chars);
     Ok(None)
 }
@@ -4928,5 +5014,63 @@ pub(crate) fn native_stringbuilder_set_char_at(
         let mut b = [0; 4];
         buf.replace_range(byte_offset..byte_offset + old_ch.len_utf8(), ch.encode_utf8(&mut b));
     }
+    Ok(None)
+}
+
+// ---------------------------------------------------------------------------
+// java/lang/ThreadLocal — synthetic single-slot holder.
+//
+// The real JDK ThreadLocal routes through `Thread.threadLocals`, which Duke's
+// synthetic `java/lang/Thread` stub does not carry. For the single-host-thread
+// interpreter, storing the value directly on the ThreadLocal instance (field 0)
+// is observationally equivalent to per-thread storage.
+// ---------------------------------------------------------------------------
+
+/// `ThreadLocal.<init>()V` — initialise the value slot to null.
+pub(crate) fn native_thread_local_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Reference(None);
+    Ok(None)
+}
+
+/// `ThreadLocal.get()Ljava/lang/Object;` — return the stored value (null until set).
+pub(crate) fn native_thread_local_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(extract_field_arg(heap, this_ref, 0)?))
+}
+
+/// `ThreadLocal.set(Ljava/lang/Object;)V` — store the value in the slot.
+pub(crate) fn native_thread_local_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let value = extract_slot_arg(args, 1);
+    heap.get_mut(this_ref)?.fields[0] = value;
+    heap.remember_reference_write(this_ref, value);
+    Ok(None)
+}
+
+/// `ThreadLocal.remove()V` — clear the slot back to null.
+pub(crate) fn native_thread_local_remove(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Reference(None);
     Ok(None)
 }

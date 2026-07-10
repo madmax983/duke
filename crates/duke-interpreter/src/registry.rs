@@ -1205,15 +1205,25 @@ impl ClassRegistry {
         let internal_name = class_internal_name_fragment(name).to_string();
         let class_key = self.class_key_from_provenance(&internal_name, code_source, runtime_loader);
         if self.classes.contains_key(&class_key) {
-            if let Some(path) = code_source {
-                self.class_code_sources
-                    .entry(class_key.clone())
-                    .or_insert_with(|| path.to_string());
-            }
-            if let Some(loader_ref) = runtime_loader {
-                self.class_runtime_loaders
-                    .entry(class_key)
-                    .or_insert(loader_ref);
+            // Do not record provenance onto plain bootstrap classes. They are
+            // loader-agnostic singletons (`java/lang/System`, `java/lang/ClassLoader`,
+            // ...): `class_key_from_provenance` deliberately returns their plain key
+            // regardless of the code source / runtime loader passed in. If we recorded
+            // provenance here, `is_plain_bootstrap_class` would flip false and a later
+            // `class_key_from_provenance` call would start computing a loader-suffixed
+            // key for the same class — desyncing the two functions and orphaning the
+            // singleton under a key nothing is stored under (ClassNotFound).
+            if !self.is_plain_bootstrap_class(&internal_name) {
+                if let Some(path) = code_source {
+                    self.class_code_sources
+                        .entry(class_key.clone())
+                        .or_insert_with(|| path.to_string());
+                }
+                if let Some(loader_ref) = runtime_loader {
+                    self.class_runtime_loaders
+                        .entry(class_key)
+                        .or_insert(loader_ref);
+                }
             }
             return Ok(true);
         }

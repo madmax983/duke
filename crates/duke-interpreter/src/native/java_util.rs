@@ -423,6 +423,27 @@ pub(crate) fn native_arraylist_add_all(
     Ok(Some(Slot::Int(i32::from(modified))))
 }
 /// Native: `HashMap.putAll(Map)V` — copies all entries from the source `HashMap`.
+/// Native: `HashMap.<init>(Map)V` — copy constructor; initialises then bulk-copies
+/// all entries from the source map (gson builds a mutable `new HashMap<>(mapOf...)`).
+pub(crate) fn native_hashmap_init_map(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    native_hashmap_init(args, heap, out, control)?;
+    let this_ref = extract_ref_arg(args, 0)?;
+    let source_ref = extract_ref_arg(args, 1)?;
+    native_hashmap_put_all(
+        &[
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(source_ref)),
+        ],
+        heap,
+        out,
+        control,
+    )
+}
 pub(crate) fn native_hashmap_put_all(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -5039,4 +5060,30 @@ pub(crate) fn native_hashmap_remove_key_value(
         }
     }
     Ok(Some(Slot::Int(0)))
+}
+
+/// Native: `Objects.checkFromIndexSize(int fromIndex, int size, int length)I`.
+///
+/// Validates that the subrange `[fromIndex, fromIndex + size)` lies within
+/// `[0, length)`; returns `fromIndex` when valid, else throws
+/// `IndexOutOfBoundsException`. gson's string handling routes through this.
+pub(crate) fn native_objects_check_from_index_size(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let from_index = extract_int_arg(args, 0)?;
+    let size = extract_int_arg(args, 1)?;
+    let length = extract_int_arg(args, 2)?;
+    if from_index < 0
+        || size < 0
+        || length < 0
+        || i64::from(from_index) + i64::from(size) > i64::from(length)
+    {
+        return Err(Error::JavaException {
+            class_name: "java/lang/IndexOutOfBoundsException".to_string(),
+        });
+    }
+    Ok(Some(Slot::Int(from_index)))
 }
