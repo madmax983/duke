@@ -369,3 +369,100 @@ pub(crate) fn native_reflect_constructor_new_instance(
         Err(err) => Err(err),
     }
 }
+
+// ─── java/lang/reflect/Array natives (commons-lang3 canary) ──────────────────
+// Appended (append-only, shared file). Support commons-lang3 ArrayUtils growth
+// helpers, which call Array.newInstance(Integer.TYPE, n)/getLength/set on a
+// primitive int[].
+
+/// Given a component type's internal name (a primitive descriptor letter such
+/// as `I`, an array descriptor such as `[I`, or a reference internal name such
+/// as `java/lang/String`), return the array class descriptor plus the default
+/// element `Slot` that a freshly allocated array of that type uses.
+fn array_descriptor_and_default(component_internal: &str) -> (String, Slot) {
+    match component_internal {
+        "J" => ("[J".to_string(), Slot::Long(0)),
+        "F" => ("[F".to_string(), Slot::Float(0.0)),
+        "D" => ("[D".to_string(), Slot::Double(0.0)),
+        // Boolean/byte/char/short/int arrays are all backed by Slot::Int.
+        "Z" | "B" | "C" | "S" | "I" => (format!("[{component_internal}"), Slot::Int(0)),
+        // Component already an array type (multi-dimensional) → prefix another '['.
+        other if other.starts_with('[') => (format!("[{other}"), Slot::Reference(None)),
+        // Reference component type.
+        other => (format!("[L{other};"), Slot::Reference(None)),
+    }
+}
+
+/// The element-type descriptor char for an array whose class descriptor is
+/// `array_descriptor` (e.g. `[I` → `I`, `[Ljava/lang/String;` → `L`).
+fn array_element_type_char(array_descriptor: &str) -> char {
+    array_descriptor
+        .strip_prefix('[')
+        .and_then(|rest| rest.chars().next())
+        .unwrap_or('L')
+}
+
+/// Native: `java/lang/reflect/Array.newInstance(Ljava/lang/Class;I)Ljava/lang/Object;`
+pub(crate) fn native_reflect_array_new_instance(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let component_ref = extract_ref_arg(args, 0)?;
+    let length = extract_int_arg(args, 1)?;
+    if length < 0 {
+        return Err(Error::NegativeArraySize { size: length });
+    }
+    let component_key = class_key_from_ref(heap, component_ref)?;
+    let component_internal = class_internal_name_from_key(&component_key);
+    if component_internal == "V" {
+        return Err(Error::JavaException {
+            class_name: "java/lang/IllegalArgumentException".to_string(),
+        });
+    }
+    let (descriptor, default) = array_descriptor_and_default(component_internal);
+    let count = usize::try_from(length).map_err(|_| index_out_of_bounds_error())?;
+    let array_ref = heap.allocate(descriptor, count);
+    let obj = heap.get_mut(array_ref)?;
+    for slot in &mut obj.fields {
+        *slot = default;
+    }
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+/// Native: `java/lang/reflect/Array.getLength(Ljava/lang/Object;)I`
+pub(crate) fn native_reflect_array_get_length(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let array_ref = extract_ref_arg(args, 0)?;
+    let length = i32::try_from(heap.get(array_ref)?.fields.len())
+        .map_err(|_| index_out_of_bounds_error())?;
+    Ok(Some(Slot::Int(length)))
+}
+
+/// Native: `java/lang/reflect/Array.set(Ljava/lang/Object;ILjava/lang/Object;)V`
+///
+/// Stores `value` at `index`. For primitive-typed arrays the boxed `value`
+/// (e.g. `Integer`) is unboxed to the matching primitive slot.
+pub(crate) fn native_reflect_array_set(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let array_ref = extract_ref_arg(args, 0)?;
+    let index = extract_int_arg(args, 1)?;
+    let value_slot = extract_slot_arg(args, 2);
+    let element_type = array_element_type_char(&heap.get(array_ref)?.class_name);
+    let stored = unbox_reflection_argument(heap, element_type, value_slot)?;
+    let idx = usize::try_from(index).map_err(|_| index_out_of_bounds_error())?;
+    if idx >= heap.get(array_ref)?.fields.len() {
+        return Err(index_out_of_bounds_error());
+    }
+    heap.write_field(array_ref, idx, stored)?;
+    Ok(None)
+}

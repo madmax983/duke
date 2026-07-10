@@ -1464,6 +1464,47 @@ pub(crate) fn native_string_init_bytes_default_range(
     init_string_from_bytes(args, heap, &bytes, StandardCharset::Utf8)
 }
 
+/// Native: `String.<init>([III)V` — construct a `String` from a range of a
+/// code-point `int[]` (`new String(int[] codePoints, int offset, int count)`).
+/// Used by `StringUtils.capitalize`, which rebuilds a string from its code
+/// points after titlecasing the first.
+pub(crate) fn native_string_init_code_points(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let array_ref = extract_ref_arg(args, 1)?;
+    let offset = extract_int_arg(args, 2)?;
+    let count = extract_int_arg(args, 3)?;
+    if offset < 0 || count < 0 {
+        return Err(index_out_of_bounds_error());
+    }
+    let start = usize::try_from(offset).map_err(|_| index_out_of_bounds_error())?;
+    let n = usize::try_from(count).map_err(|_| index_out_of_bounds_error())?;
+    let end = start.checked_add(n).ok_or_else(index_out_of_bounds_error)?;
+    let fields = &heap.get(array_ref)?.fields;
+    if end > fields.len() {
+        return Err(index_out_of_bounds_error());
+    }
+    let mut decoded = String::with_capacity(n);
+    for slot in &fields[start..end] {
+        let cp = match slot {
+            Slot::Int(v) => *v,
+            _ => {
+                return Err(Error::TypeMismatch {
+                    expected: "Int (code point)",
+                    got: "other",
+                });
+            }
+        };
+        decoded.push(char::from_u32(cp.cast_unsigned()).unwrap_or(REPLACEMENT_CHAR));
+    }
+    heap.get_mut(this_ref)?.string_value = Some(decoded);
+    Ok(None)
+}
+
 pub(crate) fn native_string_init_bytes_named(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -12271,6 +12312,61 @@ pub(crate) fn native_char_to_lowercase(
     Ok(Some(Slot::Int(lower as i32)))
 }
 
+/// Simple (single-code-point) uppercase mapping, matching
+/// `java.lang.Character.toUpperCase` semantics rather than Rust's full
+/// `char::to_uppercase` (which can expand e.g. `ß` → `SS`). When the full
+/// uppercase expansion is a single character we use it; otherwise the
+/// character has no simple uppercase mapping and maps to itself.
+fn simple_uppercase(ch: char) -> char {
+    let mut it = ch.to_uppercase();
+    match (it.next(), it.next()) {
+        (Some(upper), None) => upper,
+        _ => ch,
+    }
+}
+
+/// Native: `Character.toTitleCase(C)C` / `Character.toTitleCase(I)I`.
+///
+/// Returns the simple (single-code-point) titlecase mapping. For the BMP this
+/// equals the simple uppercase mapping except for the Latin digraph titlecase
+/// characters, which map to their dedicated titlecase forms.
+pub(crate) fn native_char_to_titlecase(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let ch = slot_to_char(args.first().ok_or(Error::StackUnderflow)?)?;
+    let title = match ch as u32 {
+        0x01C4..=0x01C6 => '\u{01C5}',
+        0x01C7..=0x01C9 => '\u{01C8}',
+        0x01CA..=0x01CC => '\u{01CB}',
+        0x01F1..=0x01F3 => '\u{01F2}',
+        _ => simple_uppercase(ch),
+    };
+    Ok(Some(Slot::Int(title as i32)))
+}
+
+/// Native: `Character.charCount(I)I` — number of `char` values needed to
+/// represent the given code point (2 for supplementary code points, else 1).
+pub(crate) fn native_char_char_count(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let cp = match args.first().ok_or(Error::StackUnderflow)? {
+        Slot::Int(v) => *v,
+        _ => {
+            return Err(Error::TypeMismatch {
+                expected: "Int (code point)",
+                got: "other",
+            });
+        }
+    };
+    Ok(Some(Slot::Int(if cp >= 0x0001_0000 { 2 } else { 1 })))
+}
+
 /// Native: `Character.isLetterOrDigit(C)Z`
 pub(crate) fn native_char_is_letter_or_digit(
     args: &[Slot],
@@ -17943,5 +18039,65 @@ mod unsafe_object_field_tests {
         let err =
             native_unsafe_get_reference(&args, &mut heap, &mut out, &mut ctrl()).unwrap_err();
         assert!(matches!(err, Error::NullPointerException));
+    }
+}
+
+#[cfg(test)]
+mod tests_char_titlecase {
+    use super::*;
+
+    /// Golden `(codepoint, Character.toTitleCase(codepoint))` pairs captured
+    /// from `OpenJDK` 21 (`javac`/`java` 21.0.10). titlecase equals simple
+    /// uppercase everywhere except the Latin digraph titlecase characters, and
+    /// characters with no simple uppercase (`ß`, `ﬀ`) map to themselves.
+    const TITLECASE_GOLDENS: &[(u32, u32)] = &[
+        (0x0061, 0x0041), // 'a' -> 'A'
+        (0x007A, 0x005A), // 'z' -> 'Z'
+        (0x0041, 0x0041), // 'A' -> 'A'
+        (0x0020, 0x0020), // space unchanged
+        (0x0039, 0x0039), // '9' unchanged
+        (0x00DF, 0x00DF), // 'ß' has no simple uppercase -> itself
+        (0x01C4, 0x01C5), // 'Ǆ' -> titlecase 'ǅ'
+        (0x01C5, 0x01C5), // 'ǅ' already titlecase
+        (0x01C6, 0x01C5), // 'ǆ' -> titlecase 'ǅ'
+        (0x01C7, 0x01C8),
+        (0x01C8, 0x01C8),
+        (0x01C9, 0x01C8),
+        (0x01CA, 0x01CB),
+        (0x01CB, 0x01CB),
+        (0x01CC, 0x01CB),
+        (0x01F1, 0x01F2),
+        (0x01F2, 0x01F2),
+        (0x01F3, 0x01F2),
+        (0x0068, 0x0048), // 'h' -> 'H' (commons-lang3 capitalize path)
+        (0x0048, 0x0048), // 'H' unchanged
+        (0x00E9, 0x00C9), // 'é' -> 'É'
+        (0x00C9, 0x00C9), // 'É' unchanged
+        (0x4E2D, 0x4E2D), // CJK unchanged
+        (0x1F600, 0x1F600), // emoji (supplementary) unchanged
+        (0x0130, 0x0130), // 'İ' unchanged
+        (0x0131, 0x0049), // 'ı' dotless i -> 'I'
+        (0x1E9E, 0x1E9E), // 'ẞ' capital sharp s unchanged
+        (0xFB00, 0xFB00), // 'ﬀ' ligature has no simple uppercase -> itself
+    ];
+
+    #[test]
+    fn to_titlecase_matches_java21_goldens() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        for &(cp, expected) in TITLECASE_GOLDENS {
+            let result = native_char_to_titlecase(
+                &[Slot::Int(cp.cast_signed())],
+                &mut heap,
+                &mut out,
+                &mut NativeControl::default(),
+            )
+            .unwrap();
+            assert_eq!(
+                result,
+                Some(Slot::Int(expected.cast_signed())),
+                "toTitleCase(0x{cp:04X}) expected 0x{expected:04X}",
+            );
+        }
     }
 }

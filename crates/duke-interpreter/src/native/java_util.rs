@@ -1836,12 +1836,7 @@ pub(crate) fn native_objects_tostring(
     let s = match args.first() {
         Some(Slot::Reference(None)) | None => heap.allocate_string("null".to_string()),
         Some(Slot::Reference(Some(r))) => {
-            let obj = heap.get(*r)?;
-            let text = obj
-                .string_value
-                .as_deref()
-                .map_or_else(|| format!("{}@{}", obj.class_name, r), str::to_owned);
-            let _ = obj;
+            let text = heap_object_to_string(heap.get(*r)?, *r);
             heap.allocate_string(text)
         }
         Some(Slot::Int(n)) => heap.allocate_string(n.to_string()),
@@ -1867,12 +1862,7 @@ pub(crate) fn native_objects_tostring_default(
             Ok(Some(Slot::Reference(Some(default_ref))))
         }
         Some(Slot::Reference(Some(r))) => {
-            let obj = heap.get(*r)?;
-            let text = obj
-                .string_value
-                .as_deref()
-                .map_or_else(|| format!("{}@{}", obj.class_name, r), str::to_owned);
-            let _ = obj;
+            let text = heap_object_to_string(heap.get(*r)?, *r);
             let s = heap.allocate_string(text);
             Ok(Some(Slot::Reference(Some(s))))
         }
@@ -2788,6 +2778,36 @@ pub(crate) fn native_arrays_fill_object(
     let obj = heap.get_mut(arr_ref)?;
     for slot in &mut obj.fields {
         *slot = val;
+    }
+    Ok(None)
+}
+/// Native: `Arrays.setAll(Object[] array, IntFunction generator)V` — sets each
+/// element to `generator.apply(index)`. Used by commons-lang3 `ArrayUtils`.
+pub(crate) fn native_arrays_set_all_object(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let arr_ref = extract_ref_arg(args, 0)?;
+    let generator_slot = extract_slot_arg(args, 1);
+    let Slot::Reference(Some(generator_ref)) = generator_slot else {
+        return Err(Error::NullPointerException);
+    };
+    let generator_class = heap.get(generator_ref)?.class_name.clone();
+    let length = heap.get(arr_ref)?.fields.len();
+    for i in 0..length {
+        let index = i32::try_from(i).map_err(|_| index_out_of_bounds_error())?;
+        let produced = ops.invoke(
+            heap,
+            out,
+            &generator_class,
+            "apply",
+            "(I)Ljava/lang/Object;",
+            vec![generator_slot, Slot::Int(index)],
+        )?;
+        heap.write_field(arr_ref, i, produced.unwrap_or(Slot::Reference(None)))?;
     }
     Ok(None)
 }

@@ -13263,6 +13263,70 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             native_unmodifiable_list_mutation,
         );
     }
+
+    // --- commons-lang3 canary natives ---
+    // Character.toTitleCase(C)C and (I)I — simple titlecase mapping used by
+    // StringUtils.capitalize.
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "toTitleCase",
+        "(C)C",
+        native_char_to_titlecase,
+    );
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "toTitleCase",
+        "(I)I",
+        native_char_to_titlecase,
+    );
+    // Character.charCount(I)I — used by StringUtils.capitalize code-point walk.
+    registry.natives_mut().register(
+        "java/lang/Character",
+        "charCount",
+        "(I)I",
+        native_char_char_count,
+    );
+    // String.<init>([III)V — new String(int[] codePoints, offset, count).
+    registry.natives_mut().register(
+        "java/lang/String",
+        "<init>",
+        "([III)V",
+        native_string_init_code_points,
+    );
+    // java/lang/reflect/Array — newInstance/getLength/set, used by
+    // commons-lang3 ArrayUtils array-growth helpers.
+    registry.natives_mut().register(
+        "java/lang/reflect/Array",
+        "newInstance",
+        "(Ljava/lang/Class;I)Ljava/lang/Object;",
+        native_reflect_array_new_instance,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Array",
+        "getLength",
+        "(Ljava/lang/Object;)I",
+        native_reflect_array_get_length,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Array",
+        "set",
+        "(Ljava/lang/Object;ILjava/lang/Object;)V",
+        native_reflect_array_set,
+    );
+    // Class.getComponentType()Ljava/lang/Class; — array element type mirror.
+    registry.natives_mut().register(
+        "java/lang/Class",
+        "getComponentType",
+        "()Ljava/lang/Class;",
+        native_class_get_component_type,
+    );
+    // Arrays.setAll(Object[], IntFunction)V — element-wise generator fill.
+    registry.natives_mut().register_callback(
+        "java/util/Arrays",
+        "setAll",
+        "([Ljava/lang/Object;Ljava/util/function/IntFunction;)V",
+        native_arrays_set_all_object,
+    );
 }
 
 // ─── Phase 88 natives ────────────────────────────────────────────────────────

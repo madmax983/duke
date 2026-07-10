@@ -597,6 +597,33 @@ pub(crate) fn native_class_is_array(
     let internal_name = class_internal_name_from_ref(heap, class_ref)?;
     Ok(Some(Slot::Int(i32::from(internal_name.starts_with('[')))))
 }
+/// Native: `Class.getComponentType()Ljava/lang/Class;` — the `Class` of an
+/// array type's element, or `null` for non-array types. The component mirror is
+/// keyed the same way as `Class.getPrimitiveClass`/`Integer.TYPE` (bare
+/// descriptor letter for primitives) so array-component identity is consistent.
+pub(crate) fn native_class_get_component_type(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let Some(component_descriptor) = internal_name.strip_prefix('[') else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    let component_key = match component_descriptor.chars().next() {
+        Some('L') => component_descriptor
+            .strip_prefix('L')
+            .and_then(|inner| inner.strip_suffix(';'))
+            .unwrap_or(component_descriptor)
+            .to_string(),
+        Some(_) => component_descriptor.to_string(),
+        None => return Ok(Some(Slot::Reference(None))),
+    };
+    let component_ref = allocate_class_object(heap, &component_key)?;
+    Ok(Some(Slot::Reference(Some(component_ref))))
+}
 /// Native: `Class.getPrimitiveClass(String)Class` — static factory returning the
 /// `Class` mirror for a primitive type name ("int", "long", ...).
 ///
