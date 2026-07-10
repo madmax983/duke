@@ -31561,6 +31561,7 @@ pub(crate) fn native_runtime_get_runtime(
 /// the JVM. The `this` receiver is ignored.
 #[allow(clippy::cast_possible_wrap)]
 #[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_runtime_available_processors(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -31678,6 +31679,7 @@ fn gather_roots(
     frame: &duke_runtime::Frame,
     call_stack: &[CallFrame],
     registry: &ClassRegistry,
+    string_intern: &std::collections::HashMap<(u8, String), u64>,
 ) -> Vec<duke_runtime::Slot> {
     let mut roots = Vec::new();
     roots.extend(frame.slots());
@@ -31686,6 +31688,14 @@ fn gather_roots(
     }
     for ctx in registry.all_classes() {
         roots.extend(ctx.static_fields.iter().copied());
+    }
+    // Interned string/class-constant references (populated by `ldc`) must be
+    // kept alive across collections. They are cached by the interpreter and
+    // re-served on every `ldc` of the same constant, so if the collector
+    // reclaimed one the cache would hand back a dangling reference (Java's
+    // string constant pool never GCs literals).
+    for &r in string_intern.values() {
+        roots.push(duke_runtime::Slot::Reference(Some(r)));
     }
     roots
 }
@@ -31698,6 +31708,7 @@ fn patch_forwarded_slots(
     call_stack: &mut [CallFrame],
     registry: &mut ClassRegistry,
     heap: &duke_gc::Heap,
+    string_intern: &mut std::collections::HashMap<(u8, String), u64>,
 ) {
     for slot in frame.slots_mut() {
         heap.apply_forward(slot);
@@ -31710,6 +31721,18 @@ fn patch_forwarded_slots(
     for ctx in registry.all_classes_mut() {
         for slot in &mut ctx.static_fields {
             heap.apply_forward(slot);
+        }
+    }
+    // Relocate the interned-constant cache so subsequent `ldc` hits return the
+    // constant's new address rather than a stale pre-collection reference. This
+    // was the root cause of the `String.format("\\u%04x", …)` `InvalidRef` in
+    // gson's `JsonWriter.<clinit>`: the collector moved the interned "\u%04x"
+    // literal but the cache kept handing out its old slot on the next loop turn.
+    for r in string_intern.values_mut() {
+        let mut slot = duke_runtime::Slot::Reference(Some(*r));
+        heap.apply_forward(&mut slot);
+        if let Some(new_r) = slot.as_reference() {
+            *r = new_r;
         }
     }
 }
@@ -38229,6 +38252,151 @@ mod havoc_string_indent_overflow_positive {
         let result = native_string_indent(&args, &mut heap, &mut sink(), &mut control);
         let err = result.unwrap_err();
         assert!(matches!(err, Error::JavaException { ref class_name } if class_name == "java/lang/OutOfMemoryError"));
+    }
+}
+
+#[cfg(test)]
+mod float_double_bit_natives_tests {
+    use super::*;
+    use std::io::sink;
+    use duke_gc::Heap;
+    use duke_runtime::Slot;
+
+    #[allow(clippy::type_complexity)]
+    fn call(
+        f: fn(&[Slot], &mut Heap, &mut dyn Write, &mut NativeControl) -> Result<Option<Slot>>,
+        args: &[Slot],
+    ) -> Slot {
+        let mut heap = Heap::new();
+        let mut control = NativeControl::default();
+        f(args, &mut heap, &mut sink(), &mut control)
+            .expect("native ok")
+            .expect("native returns a value")
+    }
+
+    #[test]
+    fn float_to_raw_int_bits_matches_java() {
+        // 1.0f == 0x3f800000
+        let out = call(native_float_float_to_raw_int_bits, &[Slot::Float(1.0)]);
+        assert_eq!(out, Slot::Int(0x3f80_0000));
+    }
+
+    #[test]
+    fn int_bits_to_float_round_trips() {
+        let out = call(native_float_int_bits_to_float, &[Slot::Int(0x3f80_0000)]);
+        assert_eq!(out, Slot::Float(1.0));
+    }
+
+    #[test]
+    fn float_to_int_bits_canonicalizes_nan() {
+        let out = call(native_float_float_to_int_bits, &[Slot::Float(f32::NAN)]);
+        assert_eq!(out, Slot::Int(0x7fc0_0000));
+    }
+
+    #[test]
+    fn double_to_raw_long_bits_matches_java() {
+        // 1.0 == 0x3ff0000000000000
+        let out = call(native_double_double_to_raw_long_bits, &[Slot::Double(1.0)]);
+        assert_eq!(out, Slot::Long(0x3ff0_0000_0000_0000));
+    }
+
+    #[test]
+    fn long_bits_to_double_round_trips() {
+        let out =
+            call(native_double_long_bits_to_double, &[Slot::Long(0x3ff0_0000_0000_0000)]);
+        assert_eq!(out, Slot::Double(1.0));
+    }
+
+    #[test]
+    fn double_to_long_bits_canonicalizes_nan() {
+        let out = call(native_double_double_to_long_bits, &[Slot::Double(f64::NAN)]);
+        assert_eq!(out, Slot::Long(0x7ff8_0000_0000_0000_u64.cast_signed()));
+    }
+}
+
+#[cfg(test)]
+mod string_format_boxed_hex_tests {
+    use super::*;
+    use std::io::sink;
+    use duke_gc::Heap;
+    use duke_runtime::Slot;
+
+    // Regression for gson's JsonWriter.<clinit>: `String.format("\\u%04x",
+    // Integer.valueOf(i))` must zero-pad the boxed int to width 4 and keep the
+    // literal "\u" prefix intact — e.g. i=31 -> "".
+    #[test]
+    fn formats_boxed_integer_with_backslash_u_prefix() {
+        let mut heap = Heap::new();
+        let mut control = NativeControl::default();
+
+        let fmt_ref = heap.allocate_string("\\u%04x".to_string());
+        // Boxed Integer(31), stored in a one-element Object[] varargs array.
+        let boxed = heap.allocate("java/lang/Integer".to_string(), 1);
+        heap.get_mut(boxed).unwrap().fields[0] = Slot::Int(31);
+        let arr = heap.allocate("[Ljava/lang/Object;".to_string(), 1);
+        heap.get_mut(arr).unwrap().fields[0] = Slot::Reference(Some(boxed));
+
+        let args = vec![Slot::Reference(Some(fmt_ref)), Slot::Reference(Some(arr))];
+        let out = native_string_format(&args, &mut heap, &mut sink(), &mut control)
+            .expect("format ok")
+            .expect("format returns a string");
+        let Slot::Reference(Some(r)) = out else {
+            panic!("expected string reference, got {out:?}");
+        };
+        assert_eq!(
+            heap.get(r).unwrap().string_value.as_deref(),
+            Some("\\u001f")
+        );
+    }
+}
+
+#[cfg(test)]
+mod intern_cache_gc_patch_tests {
+    use super::*;
+    use duke_gc::Heap;
+    use duke_runtime::{Frame, Slot};
+
+    // Root cause of the gson InvalidRef: after the collector relocates an
+    // interned constant, the interpreter's `string_intern` cache must be patched
+    // to the new address, otherwise the next `ldc` of the same constant serves a
+    // dangling reference. `patch_forwarded_slots` is responsible for that.
+    #[test]
+    fn patch_forwarded_slots_relocates_intern_cache_entries() {
+        let mut heap = Heap::new();
+        // Allocate an interned string and register it in the cache. Keep it live
+        // via a stack slot so the collector relocates (rather than reclaims) it.
+        let interned = heap.allocate_string("\\u%04x".to_string());
+        let mut string_intern: std::collections::HashMap<(u8, String), u64> =
+            std::collections::HashMap::new();
+        string_intern.insert((0, "\\u%04x".to_string()), interned);
+
+        let mut frame = Frame::new(4, 4, vec![Slot::Reference(Some(interned))])
+            .expect("frame");
+        let mut registry = ClassRegistry::new();
+        let mut call_stack: Vec<CallFrame> = Vec::new();
+
+        let roots = gather_roots(&frame, &call_stack, &registry, &string_intern);
+        heap.collect(&roots);
+        patch_forwarded_slots(
+            &mut frame,
+            &mut call_stack,
+            &mut registry,
+            &heap,
+            &mut string_intern,
+        );
+
+        // The cache entry must now resolve to a live object with the same payload.
+        let patched = string_intern
+            .get(&(0, "\\u%04x".to_string()))
+            .copied()
+            .expect("cache entry survives");
+        assert_eq!(
+            heap.get(patched)
+                .expect("patched ref is live")
+                .string_value
+                .as_deref(),
+            Some("\\u%04x")
+        );
     }
 }
 

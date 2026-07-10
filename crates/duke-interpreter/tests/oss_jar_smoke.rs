@@ -364,12 +364,19 @@ fn slf4j_simple_properties_lookup_returns_null_cleanly() {
 }
 
 // Unlike the slf4j trio (which blocks on a clean MethodNotFound "Unsupported
-// native"), gson's happy path blocks *inside* com/google/gson/stream/JsonWriter's
-// static initializer: the java/lang/String.format("\\u%04x", Integer.valueOf(i))
-// call that fills REPLACEMENT_CHARS surfaces an internal heap InvalidRef instead
-// of an explicit missing-native. We still deterministically pin that exact first
-// blocker so any forward progress (or regression) trips this test and forces the
-// pin to be re-observed.
+// native"), gson's happy path previously blocked *inside*
+// com/google/gson/stream/JsonWriter's static initializer: the
+// java/lang/String.format("\\u%04x", Integer.valueOf(i)) call that fills
+// REPLACEMENT_CHARS surfaced an internal heap InvalidRef. That blocker is now
+// fixed (the collector patches the interpreter's interned-constant cache, so the
+// relocated "\\u%04x" literal is no longer served stale on the next loop turn).
+//
+// gson now advances past JsonWriter.<clinit> and blocks further along, inside
+// Gson.toJson: constructing the streaming JsonWriter around the output
+// StringWriter surfaces a java/lang/ClassCastException (an Integer reaches the
+// java/io/Writer slot on the way through Streams.writerForAppendable →
+// JsonWriter.<init>). We deterministically pin that new frontier so any forward
+// progress (or regression) trips this test and forces the pin to be re-observed.
 #[test]
 fn gson_smoke_surfaces_next_missing_capability_explicitly() {
     let smoke = run_gson_smoke();
@@ -380,22 +387,21 @@ fn gson_smoke_surfaces_next_missing_capability_explicitly() {
 
     assert!(
         !is_explicit_missing_slf4j_capability(&rendered),
-        "gson's first blocker is currently a runtime heap error, not a missing \
+        "gson's next blocker is currently a thrown runtime exception, not a missing \
          native; if it turned explicit, re-observe and update this pin: {rendered}"
     );
-    // Pin the stable `InvalidRef` signal (String.format %04x returning a bad heap
-    // ref) rather than `assert_eq!`-ing the whole `InvalidRef { address: N }`
-    // string: the raw heap address shifts if unrelated bootstrap/allocation order
-    // changes, which would spuriously fail CI for other contributors.
+    // Pin the stable `ClassCastException` signal (Integer flowing into the
+    // java/io/Writer slot while gson builds its streaming writer) now that the
+    // earlier String.format %04x `InvalidRef` is resolved.
     assert!(
-        rendered.contains("InvalidRef"),
-        "expected the next gson blocker to stay pinned at JsonWriter.<clinit> \
-         String.format InvalidRef, got: {rendered}"
+        rendered.contains("ClassCastException"),
+        "expected the next gson blocker to stay pinned at Gson.toJson's \
+         JsonWriter/Writer construction ClassCastException, got: {rendered}"
     );
 }
 
 #[test]
-#[ignore = "Blocked on InvalidRef in JsonWriter.<clinit> String.format(\\u%04x); keep ignored until gson happy path executes."]
+#[ignore = "Blocked on ClassCastException in Gson.toJson JsonWriter/Writer construction (Integer reaches the java/io/Writer slot); keep ignored until gson happy path executes."]
 fn gson_smoke_runs_real_jar_bytecode() {
     let smoke = run_gson_smoke();
 

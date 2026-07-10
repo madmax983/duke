@@ -1412,9 +1412,9 @@ pub fn run_execution(
                 init_object_fields(registry, heap, r, &target_class_key);
                 frame.push(Slot::Reference(Some(r)))?;
                 if gc_allowed && heap.should_gc() {
-                    let roots = gather_roots(frame, call_stack, registry);
+                    let roots = gather_roots(frame, call_stack, registry, string_intern);
                     heap.collect(&roots);
-                    patch_forwarded_slots(frame, call_stack, registry, heap);
+                    patch_forwarded_slots(frame, call_stack, registry, heap, string_intern);
                 }
             }
 
@@ -2161,9 +2161,9 @@ pub fn run_execution(
                 }
                 frame.push(Slot::Reference(Some(r)))?;
                 if gc_allowed && heap.should_gc() {
-                    let roots = gather_roots(frame, call_stack, registry);
+                    let roots = gather_roots(frame, call_stack, registry, string_intern);
                     heap.collect(&roots);
-                    patch_forwarded_slots(frame, call_stack, registry, heap);
+                    patch_forwarded_slots(frame, call_stack, registry, heap, string_intern);
                 }
             }
             Instruction::Anewarray(cp_idx) => {
@@ -2184,9 +2184,9 @@ pub fn run_execution(
                 }
                 frame.push(Slot::Reference(Some(r)))?;
                 if gc_allowed && heap.should_gc() {
-                    let roots = gather_roots(frame, call_stack, registry);
+                    let roots = gather_roots(frame, call_stack, registry, string_intern);
                     heap.collect(&roots);
-                    patch_forwarded_slots(frame, call_stack, registry, heap);
+                    patch_forwarded_slots(frame, call_stack, registry, heap, string_intern);
                 }
             }
             Instruction::Arraylength => {
@@ -2658,9 +2658,9 @@ pub fn run_execution(
 
                     frame.push(Slot::Reference(Some(r)))?;
                     if gc_allowed && heap.should_gc() {
-                        let roots = gather_roots(frame, call_stack, registry);
+                        let roots = gather_roots(frame, call_stack, registry, string_intern);
                         heap.collect(&roots);
-                        patch_forwarded_slots(frame, call_stack, registry, heap);
+                        patch_forwarded_slots(frame, call_stack, registry, heap, string_intern);
                     }
                 } else {
                     // Unknown bootstrap method — pop args and push null.
@@ -3205,9 +3205,9 @@ pub fn run_execution(
                                     Err(other) => return Err(other),
                                 }
                                 if gc_allowed && heap.should_gc() {
-                                    let roots = gather_roots(frame, call_stack, registry);
+                                    let roots = gather_roots(frame, call_stack, registry, string_intern);
                                     heap.collect(&roots);
-                                    patch_forwarded_slots(frame, call_stack, registry, heap);
+                                    patch_forwarded_slots(frame, call_stack, registry, heap, string_intern);
                                 }
                                 frame.push(Slot::Reference(Some(new_ref)))?;
                                 *idx += 1;
@@ -3339,9 +3339,9 @@ pub fn run_execution(
                 let r = alloc_multi(heap, &dims, 0, &element_type)?;
                 frame.push(Slot::Reference(Some(r)))?;
                 if gc_allowed && heap.should_gc() {
-                    let roots = gather_roots(frame, call_stack, registry);
+                    let roots = gather_roots(frame, call_stack, registry, string_intern);
                     heap.collect(&roots);
-                    patch_forwarded_slots(frame, call_stack, registry, heap);
+                    patch_forwarded_slots(frame, call_stack, registry, heap, string_intern);
                 }
             }
 
