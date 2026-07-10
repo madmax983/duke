@@ -258,6 +258,7 @@ fn explicit_missing_capability_accepts_map_of_native() {
 }
 
 #[test]
+#[ignore = "slf4j smoke now runs end-to-end (see slf4j_simple_smoke_runs_real_jar_bytecode); there is no next missing capability to surface."]
 fn slf4j_simple_smoke_surfaces_next_missing_capability_explicitly() {
     let smoke = run_slf4j_simple_smoke();
     let err = smoke
@@ -292,7 +293,6 @@ fn slf4j_simple_smoke_surfaces_next_missing_capability_explicitly() {
 }
 
 #[test]
-#[ignore = "Blocked on ArrayList.<init>(I)V after String.equalsIgnoreCase was fixed."]
 fn slf4j_simple_smoke_runs_real_jar_bytecode() {
     let smoke = run_slf4j_simple_smoke();
 
