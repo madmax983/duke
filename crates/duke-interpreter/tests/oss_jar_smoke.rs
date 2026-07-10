@@ -142,7 +142,10 @@ fn gson_classpath() -> Vec<PathBuf> {
 }
 
 fn commons_lang3_classpath() -> Vec<PathBuf> {
-    vec![fixtures_dir(), oss_jars_dir().join("commons-lang3-3.17.0.jar")]
+    vec![
+        fixtures_dir(),
+        oss_jars_dir().join("commons-lang3-3.17.0.jar"),
+    ]
 }
 
 fn jdk_modules_path() -> Option<PathBuf> {
@@ -438,8 +441,7 @@ fn commons_lang3_smoke_surfaces_next_missing_capability_explicitly() {
          missing native; if it turned explicit, re-observe and update this pin: {rendered}"
     );
     assert_eq!(
-        rendered,
-        "JavaException { class_name: \"java/util/regex/PatternSyntaxException\" }",
+        rendered, "JavaException { class_name: \"java/util/regex/PatternSyntaxException\" }",
         "expected the next commons-lang3 blocker to stay pinned at StringUtils.<clinit> Pattern.compile"
     );
 }

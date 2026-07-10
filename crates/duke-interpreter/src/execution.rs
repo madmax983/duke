@@ -101,7 +101,10 @@ fn layout_coherence_check(
         }
     };
     let resolving_expected = registry.total_instance_slot_count(resolving_class_key);
-    let resolving_label = label(resolving_shadowed, registry.load_source_of(resolving_class_key));
+    let resolving_label = label(
+        resolving_shadowed,
+        registry.load_source_of(resolving_class_key),
+    );
     let object_label = label(object_shadowed, registry.load_source_of(object_class));
 
     let bounds = if hard_oob {

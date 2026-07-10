@@ -168,7 +168,10 @@ fn flag_off_helloworld_runs_identically() {
         "([Ljava/lang/String;)V",
         &[duke_runtime::Slot::Reference(None)],
     );
-    assert!(result.is_ok(), "HelloWorld must run to completion: {result:?}");
+    assert!(
+        result.is_ok(),
+        "HelloWorld must run to completion: {result:?}"
+    );
     let printed = String::from_utf8_lossy(&out);
     assert!(
         printed.contains("Hello, World!"),

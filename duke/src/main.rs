@@ -613,13 +613,25 @@ fn main() {
 
     // Dispatch `exec`: run a static method and print the result.
     if args.len() >= 4 && args[1] == "exec" {
-        exec_method(&args[2..], telemetry, mermaid_dest, jdk_home.as_deref(), real_jdk);
+        exec_method(
+            &args[2..],
+            telemetry,
+            mermaid_dest,
+            jdk_home.as_deref(),
+            real_jdk,
+        );
         return;
     }
 
     // Dispatch `run`: execute main(String[]) entry point.
     if args.len() >= 3 && args[1] == "run" {
-        run_main(&args[2..], telemetry, mermaid_dest, jdk_home.as_deref(), real_jdk);
+        run_main(
+            &args[2..],
+            telemetry,
+            mermaid_dest,
+            jdk_home.as_deref(),
+            real_jdk,
+        );
         return;
     }
 
