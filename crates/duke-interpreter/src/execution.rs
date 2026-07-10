@@ -21,6 +21,31 @@ use crate::registry::ClassRegistry;
 #[allow(clippy::wildcard_imports)]
 use crate::*;
 
+/// Under real-JDK shadow mode, convert a [`MethodHierarchyLookup::NativeOverride`]
+/// decision into a [`MethodHierarchyLookup::Bytecode`] one when the synthetic native is
+/// masking the real classfile body of a *shadowed* class.
+///
+/// This is a hard no-op unless `resolved` is `NativeOverride` AND real-JDK shadow mode
+/// is on AND a shadowed class in the hierarchy provides a concrete bytecode body — see
+/// [`ClassRegistry::shadowed_bytecode_override`]. With the flag off the shadowed set is
+/// empty, so it always returns `resolved` unchanged.
+fn apply_shadow_override(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    resolved: MethodHierarchyLookup,
+    start_class: &str,
+    method_name: &str,
+    method_desc: &str,
+) -> MethodHierarchyLookup {
+    if !matches!(resolved, MethodHierarchyLookup::NativeOverride) {
+        return resolved;
+    }
+    match registry.shadowed_bytecode_override(loader, start_class, method_name, method_desc) {
+        Some((class_name, method_idx)) => MethodHierarchyLookup::Bytecode(class_name, method_idx),
+        None => resolved,
+    }
+}
+
 /// Executes the active method's bytecode instructions to completion or exception.
 ///
 /// This is the central run-loop of the interpreter. It continually fetches the
@@ -417,7 +442,19 @@ pub fn run_execution(
                     &callee_name,
                     &callee_desc,
                 ) {
-                    None
+                    // Under real-JDK shadow mode a synthetic native may be masking the
+                    // real classfile body of a shadowed class — prefer real bytecode when
+                    // the concrete body lives on the callee class itself. No-op with the
+                    // flag off (shadowed_bytecode_override returns None immediately).
+                    registry
+                        .shadowed_bytecode_override(
+                            loader,
+                            &callee_class_key,
+                            &callee_name,
+                            &callee_desc,
+                        )
+                        .filter(|(owning_class, _)| owning_class == &callee_class_key)
+                        .map(|(_, idx)| idx)
                 } else {
                     let ctx = registry.get(&callee_class_key)?;
                     ctx.methods
@@ -1645,6 +1682,17 @@ pub fn run_execution(
                 } else {
                     MethodHierarchyLookup::Missing
                 };
+                // Real-JDK shadow mode: if the synthetic native masks a shadowed class's
+                // real bytecode body, dispatch the real bytecode instead. Walk from the
+                // runtime class when known, else the resolved callee class. No-op off-flag.
+                let resolved = apply_shadow_override(
+                    registry,
+                    loader,
+                    resolved,
+                    virtual_start.as_deref().unwrap_or(&callee_class_key),
+                    &callee_name,
+                    &callee_desc,
+                );
                 let allow_lambda_dispatch = matches!(resolved, MethodHierarchyLookup::Missing);
                 let (dispatch_class, callee_idx) = match resolved {
                     MethodHierarchyLookup::Bytecode(cls, i) => (cls, i),
@@ -2705,6 +2753,16 @@ pub fn run_execution(
                         &callee_desc,
                     ),
                 };
+                // Real-JDK shadow mode: prefer a shadowed class's real bytecode body over
+                // the synthetic native that would otherwise win. No-op when the flag is off.
+                let resolved = apply_shadow_override(
+                    registry,
+                    loader,
+                    resolved,
+                    &actual_class,
+                    &callee_name,
+                    &callee_desc,
+                );
                 let allow_lambda_dispatch = matches!(resolved, MethodHierarchyLookup::Missing);
 
                 let (dispatch_class, callee_idx) =

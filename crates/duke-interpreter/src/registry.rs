@@ -386,6 +386,9 @@ pub struct ClassRegistry {
     /// Internal names of synthetic classes that were skipped (shadowed by real JDK
     /// bytecode) — collected for later measurement.
     shadowed_classes: Vec<String>,
+    /// O(1) membership mirror of [`Self::shadowed_classes`] (internal names), used by
+    /// [`Self::is_shadowed`] during native-vs-bytecode dispatch decisions.
+    shadowed_set: HashSet<String>,
     /// Storage for execution telemetry (e.g. instruction counts, GC pause times).
     ///
     /// The [`TelemetryStore`](duke_telemetry::TelemetryStore) collects performance metrics
@@ -420,6 +423,7 @@ impl ClassRegistry {
             real_jdk_shadow: false,
             shadow_loader: None,
             shadowed_classes: Vec::new(),
+            shadowed_set: HashSet::new(),
             #[cfg(feature = "telemetry")]
             telemetry: duke_telemetry::TelemetryStore::default(),
         }
@@ -719,10 +723,81 @@ impl ClassRegistry {
             if std::env::var_os("DUKE_REAL_JDK_DEBUG").is_some() {
                 eprintln!("[real-jdk] shadowing synthetic {}", ctx.class_name);
             }
+            self.shadowed_set.insert(ctx.class_name.clone());
             self.shadowed_classes.push(ctx.class_name.clone());
             return;
         }
         self.classes.insert(ctx.class_name.clone(), ctx);
+    }
+
+    /// Whether `class` (any provenance-keyed form) is a synthetic class that was
+    /// shadowed by real JDK bytecode under real-JDK shadow mode. Always `false` when
+    /// the flag is off (the shadowed set is empty), so callers are no-ops in that case.
+    #[must_use]
+    pub fn is_shadowed(&self, class: &str) -> bool {
+        self.shadowed_set
+            .contains(class_internal_name_fragment(class))
+    }
+
+    /// Under real-JDK shadow mode, resolve the real classfile bytecode body that a
+    /// synthetic native is masking for a *shadowed* class.
+    ///
+    /// Walks the class hierarchy from `start_class` (ignoring registered native
+    /// overrides — that is the whole point) and returns `Some((owning_class_key,
+    /// method_idx))` for the first concrete (non-abstract, non-`native`) bytecode
+    /// method whose owning class [`Self::is_shadowed`]. Returns `None` when shadow mode
+    /// is off, when the resolved body is classfile-`native`/abstract-only, or when the
+    /// owning class is not shadowed (e.g. a `KEEP_SYNTHETIC` root) — in every such case
+    /// the caller keeps the synthetic native. This is a hard no-op when the flag is off.
+    pub fn shadowed_bytecode_override(
+        &mut self,
+        loader: &dyn ClassLoader,
+        start_class: &str,
+        method_name: &str,
+        method_desc: &str,
+    ) -> Option<(String, usize)> {
+        if !self.real_jdk_shadow {
+            return None;
+        }
+        let mut current = if self.contains(start_class) {
+            start_class.to_string()
+        } else {
+            self.class_key_from_source(start_class, Some(start_class))
+        };
+        let mut visited = HashSet::new();
+        loop {
+            if !visited.insert(current.clone()) {
+                return None; // circular hierarchy — bail
+            }
+            if !self.contains(&current) {
+                let _ = self.ensure_loaded_from(&current, Some(start_class), loader);
+                current = self.class_key_from_source(&current, Some(start_class));
+            }
+            let ctx = self.classes.get(&current)?;
+            if let Some(idx) = ctx
+                .methods
+                .iter()
+                .position(|m| m.name == method_name && m.descriptor == method_desc)
+            {
+                let method = &ctx.methods[idx];
+                if method.is_native {
+                    // Real classfile declares this method `native` — no bytecode body
+                    // to run, so fall back to the synthetic native.
+                    return None;
+                }
+                if !method.is_abstract {
+                    // Concrete bytecode body. Only bypass the synthetic native when the
+                    // owning class is itself shadowed; otherwise keep the native.
+                    return self.is_shadowed(&current).then_some((current, idx));
+                }
+                // Abstract override — keep walking supers for a concrete body.
+            }
+            let super_class = self.classes.get(&current)?.super_class.clone();
+            match super_class {
+                Some(s) => current = s,
+                None => return None,
+            }
+        }
     }
 
     /// Decide whether a synthetic `ClassContext` should be skipped so its real JDK
