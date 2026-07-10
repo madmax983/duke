@@ -8538,6 +8538,18 @@ pub(crate) fn native_class_get_package_name(
     Ok(Some(Slot::Reference(Some(package_ref))))
 }
 
+/// Native: `Class.isArray()Z` — true when the class represents an array type.
+pub(crate) fn native_class_is_array(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    Ok(Some(Slot::Int(i32::from(internal_name.starts_with('[')))))
+}
+
 /// Native: `Class.desiredAssertionStatus()` - Duke currently runs with assertions disabled.
 pub(crate) fn native_class_desired_assertion_status(
     args: &[Slot],
@@ -11679,6 +11691,17 @@ pub(crate) fn native_thread_current_thread(
     thread.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(java_host_key_for_current_host().unwrap_or(-1));
     thread.fields[THREAD_CONTEXT_CLASS_LOADER_SLOT] = Slot::Reference(None);
     Ok(Some(Slot::Reference(Some(thread_ref))))
+}
+
+#[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
+pub(crate) fn native_thread_get_name(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let name_ref = heap.allocate_string("main".to_string());
+    Ok(Some(Slot::Reference(Some(name_ref))))
 }
 
 pub(crate) fn native_thread_init(
@@ -23925,6 +23948,19 @@ pub(crate) fn native_sb_init(
     Ok(None)
 }
 
+/// Native: `StringBuilder.<init>(I)V` — initialise empty buffer, ignoring the initial capacity.
+pub(crate) fn native_sb_init_with_capacity(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get_mut(this_ref)?;
+    obj.string_value = Some(String::new());
+    Ok(None)
+}
+
 /// Native: `StringBuilder.<init>(Ljava/lang/String;)V` — init with string.
 pub(crate) fn native_sb_init_string(
     args: &[Slot],
@@ -23957,6 +23993,41 @@ pub(crate) fn native_sb_append_string(
     let obj = heap.get_mut(this_ref)?;
     if let Some(ref mut buf) = obj.string_value {
         buf.push_str(&append_str);
+    }
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `StringBuilder.append(Ljava/lang/CharSequence;II)Ljava/lang/StringBuilder;`
+/// Appends the subsequence `[start, end)` of the given `CharSequence`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub(crate) fn native_sb_append_charsequence_range(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let begin = extract_int_arg(args, 2)? as usize;
+    let end = extract_int_arg(args, 3)? as usize;
+    let sub = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => {
+            let s = heap.get(*r)?.string_value.clone().unwrap_or_default();
+            let char_count = s.chars().count();
+            if begin > end || end > char_count {
+                return Err(Error::ArrayIndexOutOfBounds {
+                    index: i32::try_from(end).unwrap_or(i32::MAX),
+                    length: char_count,
+                });
+            }
+            let byte_begin = s.char_indices().nth(begin).map_or(s.len(), |(i, _)| i);
+            let byte_end = s.char_indices().nth(end).map_or(s.len(), |(i, _)| i);
+            s[byte_begin..byte_end].to_string()
+        }
+        _ => "null".to_string(),
+    };
+    let obj = heap.get_mut(this_ref)?;
+    if let Some(ref mut buf) = obj.string_value {
+        buf.push_str(&sub);
     }
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
@@ -24400,6 +24471,18 @@ pub(crate) fn native_char_charvalue(
 
 /// Native: `ArrayList.<init>()V` — initializes with size=0.
 pub(crate) fn native_arraylist_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
+    Ok(None)
+}
+
+/// Native: `ArrayList.<init>(I)V` — initializes with size=0, ignoring the initial capacity.
+pub(crate) fn native_arraylist_init_with_capacity(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,

@@ -3037,6 +3037,10 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/io/PrintStream", "print", "(I)V", native_print_int);
+    // PrintStream.flush — Duke writes directly, so flushing is a no-op.
+    registry
+        .natives_mut()
+        .register("java/io/PrintStream", "flush", "()V", native_void_noop);
 
     // println overloads
     registry.natives_mut().register(
@@ -3255,6 +3259,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getPackageName",
         "()Ljava/lang/String;",
         native_class_get_package_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/Class",
+        "isArray",
+        "()Z",
+        native_class_is_array,
     );
     registry.natives_mut().register(
         "java/lang/Class",
@@ -4223,6 +4233,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "interrupted",
         "()Z",
         native_thread_interrupted,
+    );
+    registry.natives_mut().register(
+        "java/lang/Thread",
+        "getName",
+        "()Ljava/lang/String;",
+        native_thread_get_name,
     );
     registry.natives_mut().register(
         "java/lang/Thread",
@@ -5906,6 +5922,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/StringBuilder", "<init>", "()V", native_sb_init);
+    // StringBuilder.<init>(int)V
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "<init>",
+        "(I)V",
+        native_sb_init_with_capacity,
+    );
     // StringBuilder.<init>(String)V
     registry.natives_mut().register(
         "java/lang/StringBuilder",
@@ -5919,6 +5942,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "append",
         "(Ljava/lang/String;)Ljava/lang/StringBuilder;",
         native_sb_append_string,
+    );
+    // StringBuilder.append(CharSequence, int, int)
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "append",
+        "(Ljava/lang/CharSequence;II)Ljava/lang/StringBuilder;",
+        native_sb_append_charsequence_range,
     );
     // StringBuilder.append(int)
     registry.natives_mut().register(
@@ -6299,6 +6329,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "<init>",
         "()V",
         native_arraylist_init,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayList",
+        "<init>",
+        "(I)V",
+        native_arraylist_init_with_capacity,
     );
     registry.natives_mut().register(
         "java/util/ArrayList",
