@@ -137,6 +137,14 @@ fn oss_classpath() -> Vec<PathBuf> {
     ]
 }
 
+fn gson_classpath() -> Vec<PathBuf> {
+    vec![fixtures_dir(), oss_jars_dir().join("gson-2.11.0.jar")]
+}
+
+fn commons_lang3_classpath() -> Vec<PathBuf> {
+    vec![fixtures_dir(), oss_jars_dir().join("commons-lang3-3.17.0.jar")]
+}
+
 fn jdk_modules_path() -> Option<PathBuf> {
     let from_java_home = std::env::var_os("JAVA_HOME")
         .map(PathBuf::from)
@@ -163,8 +171,7 @@ fn classpath_entry(path: &Path) -> ClasspathEntry {
     }
 }
 
-fn oss_smoke_loader() -> OssSmokeLoader {
-    let classpath = oss_classpath();
+fn oss_smoke_loader_for(classpath: Vec<PathBuf>) -> OssSmokeLoader {
     if let Some(modules_path) = jdk_modules_path()
         && let Ok(loader) = BootstrapLoader::new(&modules_path, classpath.clone())
     {
@@ -176,6 +183,10 @@ fn oss_smoke_loader() -> OssSmokeLoader {
         .map(|path| classpath_entry(path))
         .collect::<Vec<_>>();
     OssSmokeLoader::Chain(ChainLoader(entries))
+}
+
+fn oss_smoke_loader() -> OssSmokeLoader {
+    oss_smoke_loader_for(oss_classpath())
 }
 
 struct SmokeRun {
@@ -243,6 +254,48 @@ fn run_slf4j_simple_smoke() -> SmokeRun {
     run_slf4j_simple_method("main", "([Ljava/lang/String;)V")
 }
 
+fn run_driver_main(classpath: Vec<PathBuf>, driver: &str) -> SmokeRun {
+    let loader = oss_smoke_loader_for(classpath);
+    let mut registry = ClassRegistry::new();
+    let mut heap = Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+
+    assert!(
+        registry
+            .ensure_loaded(driver, &loader)
+            .unwrap_or_else(|err| panic!("load {driver}: {err:?}")),
+        "{driver} should load from the fixture classpath"
+    );
+
+    let args_ref = heap.allocate("[Ljava/lang/String;".to_string(), 0);
+    let main_args = [Slot::Reference(Some(args_ref))];
+    let mut output = Vec::new();
+    let result = execute_class_to_completion(
+        &mut registry,
+        loader,
+        &mut heap,
+        &mut output,
+        driver,
+        "main",
+        "([Ljava/lang/String;)V",
+        &main_args,
+    );
+
+    SmokeRun {
+        result,
+        output: String::from_utf8(output).expect("captured output is utf8"),
+        registry,
+    }
+}
+
+fn run_gson_smoke() -> SmokeRun {
+    run_driver_main(gson_classpath(), "GsonSmoke")
+}
+
+fn run_commons_lang3_smoke() -> SmokeRun {
+    run_driver_main(commons_lang3_classpath(), "CommonsLang3Smoke")
+}
+
 #[test]
 fn explicit_missing_capability_accepts_map_of_native() {
     let rendered = concat!(
@@ -308,4 +361,110 @@ fn slf4j_simple_properties_lookup_returns_null_cleanly() {
     );
 
     assert_eq!(probe.result.expect("probe result"), Some(Slot::Int(1)));
+}
+
+// Unlike the slf4j trio (which blocks on a clean MethodNotFound "Unsupported
+// native"), gson's happy path blocks *inside* com/google/gson/stream/JsonWriter's
+// static initializer: the java/lang/String.format("\\u%04x", Integer.valueOf(i))
+// call that fills REPLACEMENT_CHARS surfaces an internal heap InvalidRef instead
+// of an explicit missing-native. We still deterministically pin that exact first
+// blocker so any forward progress (or regression) trips this test and forces the
+// pin to be re-observed.
+#[test]
+fn gson_smoke_surfaces_next_missing_capability_explicitly() {
+    let smoke = run_gson_smoke();
+    let err = smoke
+        .result
+        .expect_err("gson smoke should still hit the next unsupported capability");
+    let rendered = render_smoke_error(&err);
+
+    assert!(
+        !is_explicit_missing_slf4j_capability(&rendered),
+        "gson's first blocker is currently a runtime heap error, not a missing \
+         native; if it turned explicit, re-observe and update this pin: {rendered}"
+    );
+    // Pin the stable `InvalidRef` signal (String.format %04x returning a bad heap
+    // ref) rather than `assert_eq!`-ing the whole `InvalidRef { address: N }`
+    // string: the raw heap address shifts if unrelated bootstrap/allocation order
+    // changes, which would spuriously fail CI for other contributors.
+    assert!(
+        rendered.contains("InvalidRef"),
+        "expected the next gson blocker to stay pinned at JsonWriter.<clinit> \
+         String.format InvalidRef, got: {rendered}"
+    );
+}
+
+#[test]
+#[ignore = "Blocked on InvalidRef in JsonWriter.<clinit> String.format(\\u%04x); keep ignored until gson happy path executes."]
+fn gson_smoke_runs_real_jar_bytecode() {
+    let smoke = run_gson_smoke();
+
+    assert!(
+        smoke.result.is_ok(),
+        "GsonSmoke.main should execute end-to-end, got {}\nCaptured output:\n{}",
+        smoke
+            .result
+            .as_ref()
+            .err()
+            .map_or_else(|| "no error".to_string(), render_smoke_error),
+        smoke.output
+    );
+
+    assert!(
+        smoke
+            .output
+            .contains("gson round-trip: {\"count\":7,\"name\":\"duke\"} -> count=7 name=duke"),
+        "expected gson round-trip line in captured output, got: {}",
+        smoke.output
+    );
+}
+
+// commons-lang3's happy path blocks *inside* org/apache/commons/lang3/StringUtils's
+// static initializer: STRIP_ACCENTS_PATTERN = Pattern.compile("\\p{InCombiningDiacriticalMarks}+").
+// Duke's regex engine rejects the \p{InCombiningDiacriticalMarks} Unicode block, so
+// the blocker surfaces as a thrown java/util/regex/PatternSyntaxException rather than
+// an explicit missing-native. We deterministically pin that exact first blocker.
+#[test]
+fn commons_lang3_smoke_surfaces_next_missing_capability_explicitly() {
+    let smoke = run_commons_lang3_smoke();
+    let err = smoke
+        .result
+        .expect_err("commons-lang3 smoke should still hit the next unsupported capability");
+    let rendered = render_smoke_error(&err);
+
+    assert!(
+        !is_explicit_missing_slf4j_capability(&rendered),
+        "commons-lang3's first blocker is currently a thrown Java exception, not a \
+         missing native; if it turned explicit, re-observe and update this pin: {rendered}"
+    );
+    assert_eq!(
+        rendered,
+        "JavaException { class_name: \"java/util/regex/PatternSyntaxException\" }",
+        "expected the next commons-lang3 blocker to stay pinned at StringUtils.<clinit> Pattern.compile"
+    );
+}
+
+#[test]
+#[ignore = "Blocked on PatternSyntaxException from StringUtils.<clinit> Pattern.compile(\\p{InCombiningDiacriticalMarks}+); keep ignored until commons-lang3 happy path executes."]
+fn commons_lang3_smoke_runs_real_jar_bytecode() {
+    let smoke = run_commons_lang3_smoke();
+
+    assert!(
+        smoke.result.is_ok(),
+        "CommonsLang3Smoke.main should execute end-to-end, got {}\nCaptured output:\n{}",
+        smoke
+            .result
+            .as_ref()
+            .err()
+            .map_or_else(|| "no error".to_string(), render_smoke_error),
+        smoke.output
+    );
+
+    assert!(
+        smoke.output.contains(
+            "commons-lang3: join=duke-jvm-smoke capitalize=Hello added=1,2,3,4 contains4=true"
+        ),
+        "expected commons-lang3 line in captured output, got: {}",
+        smoke.output
+    );
 }
