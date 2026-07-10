@@ -9,6 +9,7 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 
+use duke_classfile::FieldAccessFlags;
 use duke_loader::{ClassLoader, LocatedResource};
 use duke_runtime::{Error, Result, Slot};
 
@@ -790,6 +791,112 @@ impl ClassRegistry {
     #[must_use]
     pub fn load_source_of(&self, class: &str) -> Option<ClassLoadSource> {
         self.get(class).ok().map(|c| c.load_source)
+    }
+
+    /// Count a real jimage classfile's own (per-class, declared) instance fields, i.e.
+    /// non-`static` fields, by fetching and parsing its bytecode via the shadow loader.
+    /// Returns `None` if there is no shadow loader, the class isn't resolvable, or the
+    /// bytecode doesn't parse. Used only by [`Self::run_layout_audit`].
+    fn real_instance_field_count(&self, class: &str) -> Option<usize> {
+        let loader = self.shadow_loader.as_ref()?;
+        let bytes = loader.find_class(class).ok()?;
+        let cf = duke_classfile::parse(&bytes).ok()?;
+        Some(
+            cf.fields
+                .iter()
+                .filter(|f| !f.access_flags.contains(FieldAccessFlags::STATIC))
+                .count(),
+        )
+    }
+
+    /// Static layout audit (gated by `DUKE_LAYOUT_AUDIT=1` at the call site): for each
+    /// `KEEP_SYNTHETIC` class and a sample of shadowed classes, compare the hand-written
+    /// synthetic per-class instance-field count against the real jimage classfile's
+    /// per-class instance-field count. Prints a table and a count of zero-layout-risk
+    /// migration candidates — classes whose synthetic layout already matches the real
+    /// layout (or which have zero instance fields), so they could safely leave the
+    /// `KEEP_SYNTHETIC` allowlist. This is a diagnostic tool, never on any hot path.
+    ///
+    /// A hard no-op unless real-JDK shadow mode is enabled (no shadow loader → nothing to
+    /// compare against).
+    pub fn run_layout_audit(&self) {
+        const SHADOW_SAMPLE: usize = 20;
+        if !self.real_jdk_shadow {
+            eprintln!("[layout-audit] real-jdk shadow mode is not enabled; audit skipped");
+            return;
+        }
+        if self.shadow_loader.is_none() {
+            eprintln!("[layout-audit] no shadow loader available; audit skipped");
+            return;
+        }
+        eprintln!(
+            "[layout-audit] real-jdk layout audit: synthetic vs real (jimage) per-class \
+             instance-field counts"
+        );
+        eprintln!(
+            "[layout-audit] {:<40} {:>6} {:>6}  verdict",
+            "class", "synth", "real"
+        );
+
+        let mut candidates: Vec<&str> = Vec::new();
+
+        // KEEP_SYNTHETIC classes: synthetic ClassContext is still registered, so we can
+        // compare both sides. These are the migration-candidate decisions.
+        for &name in KEEP_SYNTHETIC {
+            let synth = self.get(name).ok().map(|c| c.instance_field_count);
+            let real = self.real_instance_field_count(name);
+            let (synth_s, real_s, verdict) = match (synth, real) {
+                (Some(s), Some(r)) => {
+                    let zero_risk = s == r || r == 0;
+                    if zero_risk {
+                        candidates.push(name);
+                    }
+                    let v = if s == r {
+                        "MATCH (candidate)"
+                    } else if r == 0 {
+                        "real has 0 instance fields (candidate)"
+                    } else {
+                        "MISMATCH"
+                    };
+                    (s.to_string(), r.to_string(), v)
+                }
+                (Some(s), None) => (s.to_string(), "-".to_string(), "no real classfile"),
+                (None, Some(r)) => ("-".to_string(), r.to_string(), "not synthetic-registered"),
+                (None, None) => ("-".to_string(), "-".to_string(), "unavailable"),
+            };
+            eprintln!("[layout-audit] {name:<40} {synth_s:>6} {real_s:>6}  {verdict}");
+        }
+
+        // Sample of shadowed classes: their synthetic ClassContext was dropped at
+        // registration (they now use real bytecode+layout), so only the real count is
+        // available — shown as informational confirmation of the migrated layout.
+        let sample_total = self.shadowed_classes.len();
+        if sample_total > 0 {
+            eprintln!(
+                "[layout-audit] --- shadowed sample ({} of {} shadowed classes) ---",
+                sample_total.min(SHADOW_SAMPLE),
+                sample_total
+            );
+            for name in self.shadowed_classes.iter().take(SHADOW_SAMPLE) {
+                let real_s = self
+                    .real_instance_field_count(name)
+                    .map_or_else(|| "-".to_string(), |r| r.to_string());
+                eprintln!(
+                    "[layout-audit] {name:<40} {:>6} {real_s:>6}  shadowed (real layout)",
+                    "dropped"
+                );
+            }
+        }
+
+        eprintln!(
+            "[layout-audit] SUMMARY: {} of {} KEEP_SYNTHETIC classes are zero-layout-risk \
+             migration candidates",
+            candidates.len(),
+            KEEP_SYNTHETIC.len()
+        );
+        if !candidates.is_empty() {
+            eprintln!("[layout-audit] candidates: {}", candidates.join(", "));
+        }
     }
 
     /// Internal names of synthetic classes that were shadowed (skipped) by real JDK

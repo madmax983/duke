@@ -167,6 +167,15 @@ fn apply_real_jdk_shadow(registry: &mut ClassRegistry, real_jdk: bool, jdk_home:
     }
 }
 
+/// Run the static layout audit when `DUKE_LAYOUT_AUDIT=1` is set. Must run *after*
+/// `bootstrap_stdlib` (so synthetic classes are registered) and only does anything when
+/// real-JDK shadow mode is enabled. A hard no-op otherwise.
+fn maybe_run_layout_audit(registry: &ClassRegistry) {
+    if matches!(std::env::var("DUKE_LAYOUT_AUDIT").as_deref(), Ok("1")) {
+        registry.run_layout_audit();
+    }
+}
+
 /// Build a class loader: `BootstrapLoader` (JDK jimage + app dir) when JDK path
 /// is known, or plain `DirectoryLoader` otherwise.
 struct CliLoader(Box<dyn ClassLoader + Send + Sync>);
@@ -782,6 +791,7 @@ fn exec_method(
     let mut heap = Heap::new();
     apply_real_jdk_shadow(&mut registry, real_jdk, jdk_home);
     bootstrap_stdlib(&mut registry, &mut heap);
+    maybe_run_layout_audit(&registry);
 
     let mut stdout = std::io::stdout();
     let exit_code = match execute_class_to_completion(
@@ -859,6 +869,7 @@ fn run_main(
     let mut heap = Heap::new();
     apply_real_jdk_shadow(&mut registry, real_jdk, jdk_home);
     bootstrap_stdlib(&mut registry, &mut heap);
+    maybe_run_layout_audit(&registry);
 
     // Build String[] args array on the heap.
     let mut arg_refs: Vec<Slot> = Vec::new();
@@ -972,6 +983,7 @@ fn run_jar(
     let mut heap = Heap::new();
     apply_real_jdk_shadow(&mut registry, real_jdk, jdk_home);
     bootstrap_stdlib(&mut registry, &mut heap);
+    maybe_run_layout_audit(&registry);
     let jar_code_source = std::fs::canonicalize(jar).unwrap_or_else(|_| jar.to_path_buf());
     registry.set_default_code_source(jar_code_source.to_string_lossy().to_string());
 
