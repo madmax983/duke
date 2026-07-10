@@ -58,6 +58,7 @@ use duke_runtime::{Error, Frame, Result, Slot};
 include!("native/common.rs");
 include!("native/java_lang.rs");
 include!("native/java_util.rs");
+include!("native/duke_util.rs");
 
 // Tests
 // ---------------------------------------------------------------------------
