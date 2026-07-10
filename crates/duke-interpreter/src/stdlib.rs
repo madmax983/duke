@@ -2487,6 +2487,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/Runtime",
+        "availableProcessors",
+        "()I",
+        native_runtime_available_processors,
+    );
+    registry.natives_mut().register(
+        "java/lang/Runtime",
         "exec",
         "([Ljava/lang/String;)Ljava/lang/Process;",
         native_runtime_exec_array,

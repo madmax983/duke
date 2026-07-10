@@ -31557,6 +31557,22 @@ pub(crate) fn native_runtime_get_runtime(
     Ok(Some(Slot::Reference(Some(runtime_ref))))
 }
 
+/// Native: `Runtime.availableProcessors()` — number of processors available to
+/// the JVM. The `this` receiver is ignored.
+#[allow(clippy::cast_possible_wrap)]
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn native_runtime_available_processors(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let n = std::thread::available_parallelism()
+        .map(std::num::NonZeroUsize::get)
+        .unwrap_or(1) as i32;
+    Ok(Some(Slot::Int(n)))
+}
+
 pub(crate) fn native_runtime_exec_array(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
