@@ -8897,6 +8897,49 @@ fn gc_generational_stress_test() {
 }
 
 #[test]
+fn nested_clinit_gc_preserves_caller_locals() {
+    // Regression: a GC fired inside a NESTED `run_execution` (a class `<clinit>`
+    // re-entered from the caller) must treat the suspended caller's frame as a
+    // GC root. Otherwise the caller's live locals are reclaimed while still young
+    // and their young-gen indices reused, silently corrupting the caller's state.
+    //
+    // `NestedClinitGcOuter.run` keeps the ONLY reference to an int[]{1234567} in
+    // a local, then reads `NestedClinitGcInner.VALUE`, triggering that class's
+    // `<clinit>`. That `<clinit>` allocates 1000 short-lived arrays, forcing a
+    // collection while `run`'s frame is suspended on the Rust stack, then keeps
+    // allocating (reusing the freed young-gen indices). With the frame correctly
+    // rooted, `guarded[0]` (1234567) plus `VALUE` (0+..+999 = 499500) is 1734067.
+    // Before the fix the guarded array was collected and its young slot reused,
+    // yielding a wrong value (or a type error).
+    let outer = load_class_context("NestedClinitGcOuter.class");
+    let inner = load_class_context("NestedClinitGcInner.class");
+    let entry_class = outer.class_name.clone();
+    let mut registry = ClassRegistry::new();
+    registry.register(outer);
+    registry.register(inner);
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+
+    let loader = fixtures_loader();
+    let mut out: Vec<u8> = Vec::new();
+    let result = execute_class(
+        &mut registry,
+        &loader,
+        &mut heap,
+        &mut out,
+        &entry_class,
+        "run",
+        "()I",
+        &[],
+    );
+    assert_eq!(
+        result.expect("nested-clinit GC run must not error"),
+        Some(Slot::Int(1_734_067)),
+        "caller's live local was corrupted by a GC during the nested <clinit>"
+    );
+}
+
+#[test]
 fn callback_handler_is_dispatched_with_invoke_fn() {
     use std::sync::atomic::AtomicBool;
     static CALLED: AtomicBool = AtomicBool::new(false);

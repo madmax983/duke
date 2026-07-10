@@ -15112,6 +15112,73 @@ fn allocate_process_stream(
 // GC root gathering
 // ---------------------------------------------------------------------------
 
+thread_local! {
+    /// Shadow stack of pointers to every [`ExecutionState`] whose `run_execution`
+    /// is currently active on the Rust call stack, ordered outermost-first with
+    /// the innermost/current state last. Entries are pushed on entry to
+    /// `run_execution` (via [`RootProviderGuard`]) and popped on return.
+    ///
+    /// This exists because class initialization re-enters the interpreter with a
+    /// FRESH `ExecutionState` (`prepare_execution_state` → nested `run_execution`)
+    /// that shares the heap but has no link to the caller's frame. Without this,
+    /// a GC fired inside a nested `<clinit>` would only see the innermost state's
+    /// frame and reclaim objects the suspended caller still holds in its locals.
+    static GC_ROOT_PROVIDERS: std::cell::RefCell<Vec<*mut ExecutionState>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// RAII guard that registers the currently-executing [`ExecutionState`] as a GC
+/// root provider for the duration of a `run_execution` call, so that a GC fired
+/// inside a NESTED `run_execution` also scans this (now suspended) state's frame
+/// + call stack + interned constants.
+struct RootProviderGuard;
+
+impl RootProviderGuard {
+    /// Register `state` as an active root provider until the returned guard is
+    /// dropped.
+    ///
+    /// # Invariant / soundness
+    /// `state` must point to an `ExecutionState` that stays live and unmoved for
+    /// the whole lifetime of the returned guard. This holds by construction: the
+    /// only caller passes the `&mut ExecutionState` argument of the enclosing
+    /// `run_execution`, which owns the state for strictly longer than the guard.
+    /// While a nested `run_execution` runs, this state is suspended on the Rust
+    /// stack and its `&mut` borrows are inactive, so a GC in the nested call may
+    /// read it in [`gather_roots`] and patch it in [`patch_forwarded_slots`]
+    /// through the pointer without aliasing a live borrow.
+    fn push(state: *mut ExecutionState) -> Self {
+        GC_ROOT_PROVIDERS.with(|s| s.borrow_mut().push(state));
+        Self
+    }
+}
+
+impl Drop for RootProviderGuard {
+    fn drop(&mut self) {
+        GC_ROOT_PROVIDERS.with(|s| {
+            s.borrow_mut().pop();
+        });
+    }
+}
+
+/// Invoke `f` for every PARENT active `ExecutionState` — that is, every entry on
+/// the shadow stack below the innermost/current one.
+///
+/// The current (topmost) state is deliberately skipped: [`gather_roots`] and
+/// [`patch_forwarded_slots`] already scan it directly through their `frame` /
+/// `call_stack` arguments. Walking it again here would double-count roots and,
+/// worse, apply forwarding to the same slots twice. When the shadow stack is
+/// empty (e.g. a direct unit-test call to `gather_roots`) this is a no-op.
+fn for_each_parent_root_provider(mut f: impl FnMut(*mut ExecutionState)) {
+    GC_ROOT_PROVIDERS.with(|s| {
+        let providers = s.borrow();
+        if let Some((_current, parents)) = providers.split_last() {
+            for &p in parents {
+                f(p);
+            }
+        }
+    });
+}
+
 /// Collect all live Slot values from the interpreter's current execution state.
 /// The GC uses these as the root set for reachability analysis.
 fn gather_roots(
@@ -15125,6 +15192,24 @@ fn gather_roots(
     for cf in call_stack {
         roots.extend(cf.frame.slots());
     }
+    // Outer/parent execution states suspended on the Rust call stack (e.g. the
+    // caller of a class `<clinit>` that re-entered the interpreter via a nested
+    // `run_execution`). Their frames live on the Rust stack and are otherwise
+    // invisible to the collector, so a GC fired inside the nested execution
+    // would reclaim objects the caller still holds in its locals. Treat every
+    // parent's frame + call stack + interned constants as live roots.
+    for_each_parent_root_provider(|state_ptr| {
+        // SAFETY: see `RootProviderGuard::push`. Parent states are suspended on
+        // the Rust stack and not concurrently mutated while we read them.
+        let state: &ExecutionState = unsafe { &*state_ptr };
+        roots.extend(state.frame.slots());
+        for cf in &state.call_stack {
+            roots.extend(cf.frame.slots());
+        }
+        for &r in state.string_intern.values() {
+            roots.push(duke_runtime::Slot::Reference(Some(r)));
+        }
+    });
     for ctx in registry.all_classes() {
         roots.extend(ctx.static_fields.iter().copied());
     }
@@ -15157,6 +15242,30 @@ fn patch_forwarded_slots(
             heap.apply_forward(slot);
         }
     }
+    // Parent execution states suspended on the Rust stack — mirror of the
+    // parent-walk in `gather_roots`. Their live references were part of the root
+    // set, so the collector relocated them and their slots must have forwarding
+    // applied or they would dangle into stale young-gen indices.
+    for_each_parent_root_provider(|state_ptr| {
+        // SAFETY: see `RootProviderGuard::push`. Parent states are suspended on
+        // the Rust stack and not concurrently mutated while we patch them.
+        let state: &mut ExecutionState = unsafe { &mut *state_ptr };
+        for slot in state.frame.slots_mut() {
+            heap.apply_forward(slot);
+        }
+        for cf in &mut state.call_stack {
+            for slot in cf.frame.slots_mut() {
+                heap.apply_forward(slot);
+            }
+        }
+        for r in state.string_intern.values_mut() {
+            let mut slot = duke_runtime::Slot::Reference(Some(*r));
+            heap.apply_forward(&mut slot);
+            if let Some(new_r) = slot.as_reference() {
+                *r = new_r;
+            }
+        }
+    });
     for ctx in registry.all_classes_mut() {
         for slot in &mut ctx.static_fields {
             heap.apply_forward(slot);
