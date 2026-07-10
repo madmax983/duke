@@ -513,6 +513,19 @@ impl AtomicPayload {
         patch_forwarded_slot(&mut slot, forward_map);
         slot.as_reference().is_some_and(|r| r & OLD_BIT == 0)
     }
+
+    /// Rewrite an OLD-gen reference payload through the old-gen compaction map
+    /// `old_forward` (old ref → new old ref). Used by [`Heap::compact_old`] so
+    /// an `AtomicReference` pointing at a relocated old-gen object stays valid.
+    fn patch_old_forwarded_reference(&self, old_forward: &HashMap<u64, u64>) {
+        let Self::Reference(cell) = self else {
+            return;
+        };
+        let mut slot = cell
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        patch_old_forwarded_slot(&mut slot, old_forward);
+    }
 }
 
 /// A single heap-allocated Java object.
@@ -1272,11 +1285,12 @@ impl Heap {
     /// Panics if the young-gen reference value cannot be converted to `usize`,
     /// which cannot happen on 64-bit targets since heap indices are always small.
     pub fn apply_forward(&self, slot: &mut Slot) {
-        if let Some(r) = slot.as_reference()
-            && r & OLD_BIT == 0
-        {
-            // Try forward_map first (valid at any phase); fall back to young[].forward
-            // if forward_map hasn't been populated yet for this ref.
+        let Some(r) = slot.as_reference() else {
+            return;
+        };
+        if r & OLD_BIT == 0 {
+            // Young ref. Try forward_map first (valid at any phase); fall back to
+            // young[].forward if forward_map hasn't been populated yet for this ref.
             let new_r = self.forward_map.get(&r).copied().or_else(|| {
                 self.young
                     .get(usize::try_from(r).unwrap())
@@ -1286,6 +1300,11 @@ impl Heap {
             if let Some(nr) = new_r {
                 *slot = Slot::Reference(Some(nr));
             }
+        } else if let Some(&nr) = self.forward_map.get(&r) {
+            // Old ref. `forward_map` only holds OLD_BIT-tagged keys after an
+            // old-gen compaction (`compact_old`); without compaction this branch
+            // never fires, preserving the minor-only fast path exactly.
+            *slot = Slot::Reference(Some(nr));
         }
     }
 
@@ -1396,8 +1415,224 @@ impl Heap {
 
         self.minor_collect_finish();
 
-        // Step 2: mark-sweep old gen.
+        // Step 2: mark-sweep old gen (cheap, non-moving).
         self.major_collect(&patched);
+
+        // Step 3: if the old-gen free list has fragmented past the threshold,
+        // slide-compact it. Compaction seeds `forward_map` with OLD_BIT-tagged
+        // old→old forwards (composed with any young→old forwards from step 1),
+        // so the caller's existing `apply_forward` sweep patches every root that
+        // points into the old gen — no separate old-gen root walk is needed.
+        if self.should_compact_old() {
+            self.compact_old(&patched);
+        }
+    }
+
+    // ── Major GC (old-gen mark-compact / Lisp-2 slide) ───────────────────────
+
+    /// Fraction of the old-gen backing store that is currently dead (free-list
+    /// holes). Ranges `0.0..=1.0`.
+    ///
+    /// **Metric:** `old_free_slots / old_total_slots`. Every `None` hole in the
+    /// `old` Vec corresponds to exactly one `old_free_list` entry (holes are
+    /// produced by `sweep_old` and consumed by `promote_to_old`), so the free
+    /// list length is the dead-slot count. This slot-granular ratio is the
+    /// natural fragmentation signal for Duke's per-object free list: a high
+    /// value means live objects are sparsely scattered among reusable holes,
+    /// which is exactly what mark-compact defeats. Returns `0.0` for an empty
+    /// old gen.
+    #[must_use]
+    pub fn fragmentation_ratio(&self) -> f64 {
+        let total = self.old.len();
+        if total == 0 {
+            return 0.0;
+        }
+        // total is a live-object count bounded well under 2^52, so the casts are
+        // exact on all supported targets.
+        #[allow(clippy::cast_precision_loss)]
+        let ratio = self.old_free_list.len() as f64 / total as f64;
+        ratio
+    }
+
+    /// Returns `true` when the old gen is fragmented enough to justify a
+    /// (relatively expensive) compacting collection: at least
+    /// [`Self::OLD_COMPACT_MIN_SLOTS`] slots and a
+    /// [`fragmentation_ratio`](Self::fragmentation_ratio) at or above
+    /// [`Self::OLD_COMPACT_FRAGMENTATION_THRESHOLD`].
+    #[must_use]
+    pub fn should_compact_old(&self) -> bool {
+        self.old.len() >= Self::OLD_COMPACT_MIN_SLOTS
+            && self.fragmentation_ratio() >= Self::OLD_COMPACT_FRAGMENTATION_THRESHOLD
+    }
+
+    /// Fragmentation ratio (dead old slots / total old slots) at or above which
+    /// a major collection upgrades from cheap mark-sweep to sliding compaction.
+    /// Tuned so compaction only fires once roughly half the old gen is holes.
+    pub const OLD_COMPACT_FRAGMENTATION_THRESHOLD: f64 = 0.5;
+
+    /// Minimum old-gen slot count before compaction is considered, so tiny heaps
+    /// never pay the compaction walk over a handful of objects.
+    pub const OLD_COMPACT_MIN_SLOTS: usize = 64;
+
+    /// Run a major collection that always finishes with a sliding compaction of
+    /// the old gen, regardless of the fragmentation threshold. Mirrors
+    /// [`collect`](Self::collect) (minor promote → mark-sweep → compact) and is
+    /// primarily a deterministic entry point for tests and observability.
+    ///
+    /// Like `collect`, the caller must apply forwarding to its own roots after
+    /// this returns (via [`apply_forward`](Self::apply_forward)); the `Slot`
+    /// roots passed here are only used internally.
+    pub fn major_collect_compacting(&mut self, roots: &[Slot]) {
+        self.minor_collect_prepare(roots);
+        let mut patched: Vec<Slot> = roots.to_vec();
+        for slot in &mut patched {
+            self.apply_forward(slot);
+        }
+        self.minor_collect_finish();
+        self.compact_old(&patched);
+    }
+
+    /// Lisp-2 sliding mark-compact of the old generation.
+    ///
+    /// 1. **Mark** live old objects reachable from `roots` (reuses [`mark_old`]).
+    /// 2. **Forward** — assign each live object a new, densely-packed old index
+    ///    in ascending (stable, sliding) order; record old→new in an
+    ///    `old_forward` map (only for objects that actually move).
+    /// 3. **Update pointers** everywhere an OLD-gen ref can hide: every live old
+    ///    object's fields + atomic payload, every young object's fields + atomic
+    ///    payload (young→old edges), the remembered set (index remap), and the
+    ///    executor task-queue snapshot. The map is also folded into
+    ///    `forward_map` — existing young→old values are re-pointed and direct
+    ///    old→old entries added — so the interpreter's post-collection
+    ///    `apply_forward` sweep rewrites external roots with no extra machinery.
+    /// 4. **Move** survivors into their compacted slots, truncate `old` to the
+    ///    live count, and clear the free list (fragmentation → 0).
+    ///
+    /// `identity_hash` and `atomic_payload` ride along with each moved object,
+    /// preserving the [`HeapObject`] invariant across relocation.
+    ///
+    /// [`mark_old`]: Self::mark_old
+    pub fn compact_old(&mut self, roots: &[Slot]) {
+        // Snapshot executor shared state up front: their task queues hold bare
+        // OLD refs the mutator never sees, so we both (a) treat them as extra
+        // roots below — otherwise a queued-but-unrun task's target could be
+        // dropped and its forwarded queue ref would dangle — and (b) rewrite
+        // them after forwarding.
+        let executors = self.collect_executor_shared();
+
+        // ── 1. Mark live old objects (roots + executor-queue OLD refs). ──────
+        let mut mark_roots: Vec<Slot> = roots.to_vec();
+        for shared in &executors {
+            let guard = shared
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for task in &guard.queue {
+                for r in [task.future_ref, task.task_ref] {
+                    if r & OLD_BIT != 0 {
+                        mark_roots.push(Slot::Reference(Some(r)));
+                    }
+                }
+            }
+        }
+        self.mark_old(&mark_roots);
+
+        // ── 2. Assign new compacted indices in stable ascending order. ───────
+        // new_index[old_idx] = Some(new_idx) for live objects, None otherwise.
+        let mut new_index: Vec<Option<usize>> = vec![None; self.old.len()];
+        let mut next: usize = 0;
+        for (idx, slot) in self.old.iter().enumerate() {
+            if slot.as_ref().is_some_and(|obj| obj.marked) {
+                new_index[idx] = Some(next);
+                next += 1;
+            }
+        }
+
+        // old_forward: OLD_BIT-tagged old ref → new old ref, only where moved.
+        let mut old_forward: HashMap<u64, u64> = HashMap::new();
+        for (idx, entry) in new_index.iter().enumerate() {
+            if let Some(new_idx) = *entry {
+                let old_ref = idx as u64 | OLD_BIT;
+                let new_ref = new_idx as u64 | OLD_BIT;
+                if old_ref != new_ref {
+                    old_forward.insert(old_ref, new_ref);
+                }
+            }
+        }
+
+        // ── 3. Update pointers (in place; ref values are position-independent).
+        // (a) live old objects' fields + atomic payload.
+        for obj in self.old.iter_mut().flatten() {
+            if !obj.marked {
+                continue;
+            }
+            patch_old_forwarded_fields(&mut obj.fields, &old_forward);
+            if let Some(payload) = &obj.atomic_payload {
+                payload.patch_old_forwarded_reference(&old_forward);
+            }
+        }
+        // (b) young objects' fields + atomic payload (young→old edges).
+        for obj in self.young.iter_mut().flatten() {
+            patch_old_forwarded_fields(&mut obj.fields, &old_forward);
+            if let Some(payload) = &obj.atomic_payload {
+                payload.patch_old_forwarded_reference(&old_forward);
+            }
+        }
+        // (c) remembered set — remap surviving old indices to their new slots.
+        self.remembered_set = self
+            .remembered_set
+            .iter()
+            .filter_map(|&old_idx| new_index.get(old_idx).copied().flatten())
+            .collect();
+        // (d) executor task-queue snapshot (bare u64 refs the mutator never sees).
+        for shared in &executors {
+            let mut guard = shared
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for task in &mut guard.queue {
+                if let Some(&nr) = old_forward.get(&task.future_ref) {
+                    task.future_ref = nr;
+                }
+                if let Some(&nr) = old_forward.get(&task.task_ref) {
+                    task.task_ref = nr;
+                }
+            }
+        }
+        // (e) fold into forward_map so the interpreter's apply_forward patches
+        // external roots. First re-point existing (young→old) values that moved,
+        // then add the direct old→old forwards. Old keys never collide with the
+        // young keys already present.
+        for value in self.forward_map.values_mut() {
+            if let Some(&nv) = old_forward.get(value) {
+                *value = nv;
+            }
+        }
+        for (old_ref, new_ref) in &old_forward {
+            self.forward_map.insert(*old_ref, *new_ref);
+        }
+
+        // ── 4. Move survivors into a dense store and rebuild bookkeeping. ─────
+        let mut compacted: Vec<Option<HeapObject>> = Vec::with_capacity(next);
+        compacted.resize_with(next, || None);
+        for (idx, slot) in self.old.iter_mut().enumerate() {
+            let Some(new_idx) = new_index[idx] else {
+                continue; // dead (unmarked) or empty hole — dropped.
+            };
+            if let Some(mut obj) = slot.take() {
+                obj.marked = false; // clear mark; live outside a GC is unmarked.
+                compacted[new_idx] = Some(obj);
+            }
+        }
+        self.old = compacted;
+        // Compaction eliminates fragmentation: the store is now a dense prefix,
+        // so the free list is empty and future promotions bump the tail.
+        self.old_free_list.clear();
+
+        // Refresh live accounting (young survivors + compacted old live).
+        let young_live = self.young.iter().filter(|s| s.is_some()).count();
+        self.live_after_last_gc = next;
+        self.live_count = young_live + next;
     }
 
     // ── Test helpers ─────────────────────────────────────────────────────────
@@ -1409,6 +1644,13 @@ impl Heap {
     #[must_use]
     pub const fn free_list_len(&self) -> usize {
         self.old_free_list.len() + self.young_dropped
+    }
+
+    /// Total number of old-gen backing slots (live objects + free-list holes).
+    /// Exposed for observability: compaction shrinks this to the live count.
+    #[must_use]
+    pub const fn old_slot_count(&self) -> usize {
+        self.old.len()
     }
 
     /// Generates a Mermaid JS graph of the heap.
@@ -1424,6 +1666,25 @@ fn patch_forwarded_slot(slot: &mut Slot, forward_map: &HashMap<u64, u64>) {
         && let Some(new_r) = forward_map.get(&r).copied()
     {
         *slot = Slot::Reference(Some(new_r));
+    }
+}
+
+/// Rewrite a single OLD-gen reference slot through an old-gen compaction map
+/// (`old_forward`: OLD_BIT-tagged old ref → new old ref). No-op for young refs,
+/// null, non-refs, or old refs that did not move.
+fn patch_old_forwarded_slot(slot: &mut Slot, old_forward: &HashMap<u64, u64>) {
+    if let Some(r) = slot.as_reference()
+        && r & OLD_BIT != 0
+        && let Some(new_r) = old_forward.get(&r).copied()
+    {
+        *slot = Slot::Reference(Some(new_r));
+    }
+}
+
+/// Rewrite every OLD-gen reference in `fields` through the compaction map.
+fn patch_old_forwarded_fields(fields: &mut [Slot], old_forward: &HashMap<u64, u64>) {
+    for slot in fields {
+        patch_old_forwarded_slot(slot, old_forward);
     }
 }
 
