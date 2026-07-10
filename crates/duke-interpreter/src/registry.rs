@@ -20,35 +20,23 @@ use crate::context::{ClassContext, ClassLoadSource};
 /// a specific field/heap layout (special `HeapObject` slots, dense hand-registered natives),
 /// so loading their real JDK bytecode would break those natives.
 const KEEP_SYNTHETIC: &[&str] = &[
-    "java/lang/Object",
     "java/lang/String",
     "java/lang/Class",
     "java/lang/Thread",
     "java/lang/ThreadGroup",
     "java/lang/Throwable",
     "java/lang/System",
-    "java/lang/Integer",
-    "java/lang/Long",
-    "java/lang/Short",
-    "java/lang/Byte",
-    "java/lang/Boolean",
-    "java/lang/Character",
-    "java/lang/Float",
-    "java/lang/Double",
-    "java/lang/Number",
     // Print/IO stack: `System.out`/`System.err` are allocated synthetically by
     // `bootstrap_stdlib` (System is KEEP_SYNTHETIC) with the synthetic PrintStream layout.
     // Keeping the whole stream/writer stack synthetic prevents real JDK bytecode from
     // running against those synthetically-allocated instances (layout-coherence boundary).
     "java/io/PrintStream",
-    "java/io/OutputStream",
     "java/io/FilterOutputStream",
     "java/io/BufferedOutputStream",
     "java/io/Writer",
     "java/io/OutputStreamWriter",
     "java/io/BufferedWriter",
     "java/io/PrintWriter",
-    "java/io/InputStream",
     "java/io/FileOutputStream",
     "java/io/FileInputStream",
     "java/io/FileDescriptor",

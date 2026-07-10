@@ -38,11 +38,28 @@ fn jimage_loader() -> Option<Arc<dyn ClassLoader + Send + Sync>> {
 /// Allowlisted roots that MUST stay synthetic regardless of the flag.
 const KEEP_SYNTHETIC_SAMPLE: &[&str] = &[
     "java/lang/String",
-    "java/lang/Object",
     "java/lang/System",
-    "java/lang/Integer",
     "java/lang/Class",
     "java/lang/Thread",
+];
+
+/// Classes that were empirically migrated OUT of `KEEP_SYNTHETIC` (zero-layout-risk: their
+/// synthetic instance-field count matched the real jimage layout, and removing them from the
+/// allowlist regressed no previously-passing fixture). Under the flag they MUST now be
+/// shadowed by real JDK bytecode. This locks in the migration delta.
+const MIGRATED_TO_REAL_SAMPLE: &[&str] = &[
+    "java/lang/Object",
+    "java/lang/Integer",
+    "java/lang/Long",
+    "java/lang/Short",
+    "java/lang/Byte",
+    "java/lang/Boolean",
+    "java/lang/Character",
+    "java/lang/Float",
+    "java/lang/Double",
+    "java/lang/Number",
+    "java/io/OutputStream",
+    "java/io/InputStream",
 ];
 
 /// Flag OFF (default): full synthetic stdlib registered, nothing shadowed.
@@ -99,6 +116,24 @@ fn flag_on_shadows_non_allowlisted_synthetics_but_protects_allowlist() {
         assert!(
             !registry.shadowed_classes().iter().any(|c| c == keep),
             "{keep} must not be shadowed"
+        );
+    }
+
+    // Classes migrated out of KEEP_SYNTHETIC MUST now be shadowed by real bytecode:
+    // recorded as shadowed and absent from the synthetic registry (so ensure_loaded
+    // fetches the real classfile). This locks in the migration delta.
+    for migrated in MIGRATED_TO_REAL_SAMPLE {
+        assert!(
+            registry.is_shadowed(migrated),
+            "{migrated} was migrated out of KEEP_SYNTHETIC and must be shadowed under the flag"
+        );
+        assert!(
+            registry.shadowed_classes().iter().any(|c| c == migrated),
+            "{migrated} must be recorded among the shadowed classes"
+        );
+        assert!(
+            registry.get(migrated).is_err(),
+            "migrated class {migrated} should not be pre-registered synthetically"
         );
     }
 

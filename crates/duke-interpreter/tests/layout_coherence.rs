@@ -203,10 +203,12 @@ fn audit_reports_nonempty_candidates() {
         !candidates.is_empty(),
         "expected a non-empty zero-layout-risk candidate list from the audit"
     );
-    // java/lang/Integer models its single `value` field the same way the real class does,
-    // so it should be a zero-layout-risk candidate.
+    // java/lang/System is a fieldless synthetic root whose layout trivially matches the real
+    // class, so it remains a zero-layout-risk candidate. (The boxed number types were migrated
+    // out of KEEP_SYNTHETIC — see `real_jdk_shadow.rs` — so they are now shadowed, not
+    // candidates.)
     assert!(
-        candidates.iter().any(|c| c == "java/lang/Integer"),
-        "expected java/lang/Integer among zero-layout-risk candidates, got: {candidates:?}"
+        candidates.iter().any(|c| c == "java/lang/System"),
+        "expected java/lang/System among zero-layout-risk candidates, got: {candidates:?}"
     );
 }
