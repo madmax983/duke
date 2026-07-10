@@ -2972,12 +2972,12 @@ fn stack_ops_dup2_x1_category2_long_over_int() {
     let instrs = vec![
         (0, Instruction::Bipush(3)), // int 3 (value2)
         (1, Instruction::Bipush(7)),
-        (2, Instruction::I2l),     // 7L (value1); stack: [3, 7L]
-        (3, Instruction::Dup2X1),  // → [7L, 3, 7L]
-        (4, Instruction::L2i),     // top 7L → 7; [7L, 3, 7]
-        (5, Instruction::Iadd),    // 3+7 = 10; [7L, 10]
-        (6, Instruction::I2l),     // [7L, 10L]
-        (7, Instruction::Ladd),    // 7+10 = 17L
+        (2, Instruction::I2l),    // 7L (value1); stack: [3, 7L]
+        (3, Instruction::Dup2X1), // → [7L, 3, 7L]
+        (4, Instruction::L2i),    // top 7L → 7; [7L, 3, 7]
+        (5, Instruction::Iadd),   // 3+7 = 10; [7L, 10]
+        (6, Instruction::I2l),    // [7L, 10L]
+        (7, Instruction::Ladd),   // 7+10 = 17L
         (8, Instruction::Lreturn),
     ];
     let r = execute(&instrs, &[], vec![], 10, 2).unwrap();

@@ -166,7 +166,9 @@ fn combining_diacritical_marks_block_matches_marks() {
     let re = compile("\\p{InCombiningDiacriticalMarks}+");
     // 'e' + combining acute (U+0301) + combining grave (U+0300) + 'x'.
     let input = "e\u{0301}\u{0300}x";
-    let m = re.find(input).expect("should match the run of combining marks");
+    let m = re
+        .find(input)
+        .expect("should match the run of combining marks");
     assert_eq!(m.as_str(), "\u{0301}\u{0300}");
     // Negative: plain ASCII has no combining marks.
     assert!(!re.is_match("abc"));
@@ -201,7 +203,10 @@ fn unknown_block_name_is_rejected() {
         err.contains("Unknown character block name"),
         "expected a Java-style block error, got: {err}"
     );
-    assert!(err.contains("NotARealBlockName"), "error should name the bad block: {err}");
+    assert!(
+        err.contains("NotARealBlockName"),
+        "error should name the bad block: {err}"
+    );
 }
 
 #[test]
@@ -222,8 +227,14 @@ fn block_name_normalization_is_lenient() {
 
 #[test]
 fn script_is_prefix_is_stripped() {
-    assert_eq!(translate_property_classes("\\p{IsLatin}+").unwrap(), "\\p{Latin}+");
-    assert_eq!(translate_property_classes("\\P{IsGreek}").unwrap(), "\\P{Greek}");
+    assert_eq!(
+        translate_property_classes("\\p{IsLatin}+").unwrap(),
+        "\\p{Latin}+"
+    );
+    assert_eq!(
+        translate_property_classes("\\P{IsGreek}").unwrap(),
+        "\\P{Greek}"
+    );
     let re = compile("\\p{IsLatin}+");
     assert!(re.is_match("abc"));
     assert!(!re.is_match("\u{0391}")); // Greek capital alpha
