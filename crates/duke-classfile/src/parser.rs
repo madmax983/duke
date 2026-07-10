@@ -413,10 +413,10 @@ fn parse_attribute(c: &mut Cursor<'_>, _cp_len: usize) -> Result<AttributeInfo> 
 pub fn resolve_attributes(attrs: &mut [AttributeInfo], pool: &[Option<CpEntry>]) -> Result<()> {
     for attr in attrs.iter_mut() {
         let name = cp_utf8(pool, attr.name_index)?;
-        let raw = match &mut attr.data {
-            AttributeData::Raw(b) => std::mem::take(b),
-            _ => continue, // already resolved
+        let AttributeData::Raw(b) = &mut attr.data else {
+            continue; // already resolved
         };
+        let raw = std::mem::take(b);
         attr.data = decode_known_attribute(name, &raw)?;
     }
     Ok(())
