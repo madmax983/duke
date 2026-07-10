@@ -28489,6 +28489,36 @@ fn last_match_bounds(heap: &duke_gc::Heap, m_ref: u64) -> Result<(usize, usize)>
     ))
 }
 
+/// Convert a UTF-8 byte offset within `input` to a UTF-16 code-unit offset.
+/// The `regex` crate yields byte offsets, but every match index Java's `Matcher`
+/// exposes (`start()`/`end()`) is a UTF-16 code-unit offset. They coincide for
+/// ASCII but diverge for multi-byte characters (e.g. combining marks matched by
+/// `\p{InCombiningDiacriticalMarks}`), so the Java-visible getters must convert.
+fn byte_to_utf16_index(input: &str, byte_idx: usize) -> usize {
+    let clamped = byte_idx.min(input.len());
+    input[..clamped].chars().map(char::len_utf16).sum()
+}
+
+/// Like `matcher_group_bounds`, but returns bounds as UTF-16 code-unit offsets so
+/// they match Java's `Matcher.start()`/`end()` semantics. Used only by the
+/// Java-visible index getters; internal consumers keep byte offsets.
+fn matcher_group_bounds_java(
+    heap: &duke_gc::Heap,
+    m_ref: u64,
+    group: MatcherGroup<'_>,
+) -> Result<Option<(usize, usize)>> {
+    let Some((start, end)) = matcher_group_bounds(heap, m_ref, group)? else {
+        return Ok(None);
+    };
+    let Some((_, _, input)) = matcher_pattern_input_text(heap, m_ref)? else {
+        return Ok(Some((start, end)));
+    };
+    Ok(Some((
+        byte_to_utf16_index(&input, start),
+        byte_to_utf16_index(&input, end),
+    )))
+}
+
 fn matcher_group_bounds(
     heap: &duke_gc::Heap,
     m_ref: u64,
@@ -28693,7 +28723,7 @@ pub(crate) fn native_matcher_start(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
-    let start = matcher_group_bounds(heap, m_ref, MatcherGroup::Index(0))?
+    let start = matcher_group_bounds_java(heap, m_ref, MatcherGroup::Index(0))?
         .map_or(-1, |(start, _)| i32::try_from(start).unwrap_or(i32::MAX));
     Ok(Some(Slot::Int(start)))
 }
@@ -28712,7 +28742,7 @@ pub(crate) fn native_matcher_start_name(
         .string_value
         .clone()
         .unwrap_or_default();
-    let start = matcher_group_bounds(heap, m_ref, MatcherGroup::Name(&name))?
+    let start = matcher_group_bounds_java(heap, m_ref, MatcherGroup::Name(&name))?
         .map_or(-1, |(start, _)| i32::try_from(start).unwrap_or(i32::MAX));
     Ok(Some(Slot::Int(start)))
 }
@@ -28725,7 +28755,7 @@ pub(crate) fn native_matcher_end(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
-    let end = matcher_group_bounds(heap, m_ref, MatcherGroup::Index(0))?
+    let end = matcher_group_bounds_java(heap, m_ref, MatcherGroup::Index(0))?
         .map_or(-1, |(_, end)| i32::try_from(end).unwrap_or(i32::MAX));
     Ok(Some(Slot::Int(end)))
 }
@@ -28744,7 +28774,7 @@ pub(crate) fn native_matcher_end_name(
         .string_value
         .clone()
         .unwrap_or_default();
-    let end = matcher_group_bounds(heap, m_ref, MatcherGroup::Name(&name))?
+    let end = matcher_group_bounds_java(heap, m_ref, MatcherGroup::Name(&name))?
         .map_or(-1, |(_, end)| i32::try_from(end).unwrap_or(i32::MAX));
     Ok(Some(Slot::Int(end)))
 }

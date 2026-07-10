@@ -268,10 +268,10 @@ fn non_property_pattern_is_unchanged() {
 // ---------------------------------------------------------------------------
 // End-to-end canary through the real Pattern.compile native path.
 //
-// Ignored until the native.rs `translate_property_classes` wiring described in
-// docs/findings/2026-07-09-regex-unicode-blocks.md lands. Once it does, run:
-//   cargo test -p duke-interpreter --test regex_unicode_blocks -- --ignored
-// and un-ignore.
+// The native.rs `translate_property_classes` wiring (plus the Matcher UTF-16
+// match-index conversion) described in
+// docs/findings/2026-07-09-regex-unicode-blocks.md has landed, so this runs by
+// default now.
 // ---------------------------------------------------------------------------
 
 fn repo_root() -> PathBuf {
@@ -296,9 +296,6 @@ fn jdk_modules_path() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "Blocked on native.rs translate_property_classes wiring (see \
-            docs/findings/2026-07-09-regex-unicode-blocks.md); un-ignore once the \
-            regex engine supports \\p{InBlockName}."]
 fn regex_unicode_block_pattern_executes_end_to_end() {
     let Some(modules_path) = jdk_modules_path() else {
         eprintln!("skipping: no JDK lib/modules found");

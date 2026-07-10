@@ -428,11 +428,15 @@ fn gson_smoke_runs_real_jar_bytecode() {
     );
 }
 
-// commons-lang3's happy path blocks *inside* org/apache/commons/lang3/StringUtils's
-// static initializer: STRIP_ACCENTS_PATTERN = Pattern.compile("\\p{InCombiningDiacriticalMarks}+").
-// Duke's regex engine rejects the \p{InCombiningDiacriticalMarks} Unicode block, so
-// the blocker surfaces as a thrown java/util/regex/PatternSyntaxException rather than
-// an explicit missing-native. We deterministically pin that exact first blocker.
+// commons-lang3 now clears the former StringUtils.<clinit> regex blocker
+// (STRIP_ACCENTS_PATTERN = Pattern.compile("\\p{InCombiningDiacriticalMarks}+"),
+// now supported by native.rs translate_property_classes) and advances into
+// StringUtils.join. The next blocker is a thrown java/lang/ClassCastException:
+// a `checkcast (String)` inside org/apache/commons/lang3/StringUtils sees a
+// java/util/ArrayList where a java/lang/String is expected — a collections
+// modeling gap distinct from the regex work. We deterministically pin that exact
+// first blocker; if it turns into an explicit missing-native or moves again,
+// re-observe and update this pin.
 #[test]
 fn commons_lang3_smoke_surfaces_next_missing_capability_explicitly() {
     let smoke = run_commons_lang3_smoke();
@@ -443,17 +447,18 @@ fn commons_lang3_smoke_surfaces_next_missing_capability_explicitly() {
 
     assert!(
         !is_explicit_missing_slf4j_capability(&rendered),
-        "commons-lang3's first blocker is currently a thrown Java exception, not a \
+        "commons-lang3's next blocker is currently a thrown Java exception, not a \
          missing native; if it turned explicit, re-observe and update this pin: {rendered}"
     );
     assert_eq!(
-        rendered, "JavaException { class_name: \"java/util/regex/PatternSyntaxException\" }",
-        "expected the next commons-lang3 blocker to stay pinned at StringUtils.<clinit> Pattern.compile"
+        rendered, "JavaException { class_name: \"java/lang/ClassCastException\" }",
+        "expected the next commons-lang3 blocker to stay pinned at the StringUtils.join \
+         checkcast (ArrayList vs String) now that the regex blocker is cleared"
     );
 }
 
 #[test]
-#[ignore = "Blocked on PatternSyntaxException from StringUtils.<clinit> Pattern.compile(\\p{InCombiningDiacriticalMarks}+); keep ignored until commons-lang3 happy path executes."]
+#[ignore = "Regex blocker cleared; now blocked on a ClassCastException at a StringUtils.join checkcast (ArrayList vs String); keep ignored until commons-lang3 happy path executes."]
 fn commons_lang3_smoke_runs_real_jar_bytecode() {
     let smoke = run_commons_lang3_smoke();
 
