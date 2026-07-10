@@ -367,45 +367,21 @@ fn slf4j_simple_properties_lookup_returns_null_cleanly() {
     assert_eq!(probe.result.expect("probe result"), Some(Slot::Int(1)));
 }
 
-// Unlike the slf4j trio (which blocks on a clean MethodNotFound "Unsupported
-// native"), gson's happy path previously blocked *inside*
-// com/google/gson/stream/JsonWriter's static initializer: the
-// java/lang/String.format("\\u%04x", Integer.valueOf(i)) call that fills
-// REPLACEMENT_CHARS surfaced an internal heap InvalidRef. That blocker is now
-// fixed (the collector patches the interpreter's interned-constant cache, so the
-// relocated "\\u%04x" literal is no longer served stale on the next loop turn).
+// gson now executes its `toJson`/`fromJson` happy path end-to-end against the real
+// 2.11.0 jar. Getting here required a chain of reflection/Unsafe capability fixes:
+// java/lang/reflect/Type marker interface, a synthetic ThreadLocal, Class reflection
+// predicates (isAssignableFrom/getModifiers/isRecord/isInterface/isPrimitive/
+// getGenericSuperclass/cast), Field.getModifiers/isSynthetic/getGenericType,
+// Integer extending Number, StringBuffer/String char-copy natives,
+// Objects.checkFromIndexSize, HashMap(Map)/Map.of(9), and — the final gate — a
+// synthetic sun/misc/Unsafe whose reflectively-read `theUnsafe` field and
+// native-backed `allocateInstance` let gson construct the no-arg-less Pojo.
 //
-// gson now advances past JsonWriter.<clinit> and blocks further along, inside
-// Gson.toJson: constructing the streaming JsonWriter around the output
-// StringWriter surfaces a java/lang/ClassCastException (an Integer reaches the
-// java/io/Writer slot on the way through Streams.writerForAppendable →
-// JsonWriter.<init>). We deterministically pin that new frontier so any forward
-// progress (or regression) trips this test and forces the pin to be re-observed.
+// Because the round trip fully succeeds, there is no "next missing capability" to
+// pin; the former `gson_smoke_surfaces_next_missing_capability_explicitly` guard
+// (which asserted gson still threw a ClassCastException) has been retired and its
+// intent folded into the end-to-end success assertion below.
 #[test]
-fn gson_smoke_surfaces_next_missing_capability_explicitly() {
-    let smoke = run_gson_smoke();
-    let err = smoke
-        .result
-        .expect_err("gson smoke should still hit the next unsupported capability");
-    let rendered = render_smoke_error(&err);
-
-    assert!(
-        !is_explicit_missing_slf4j_capability(&rendered),
-        "gson's next blocker is currently a thrown runtime exception, not a missing \
-         native; if it turned explicit, re-observe and update this pin: {rendered}"
-    );
-    // Pin the stable `ClassCastException` signal (Integer flowing into the
-    // java/io/Writer slot while gson builds its streaming writer) now that the
-    // earlier String.format %04x `InvalidRef` is resolved.
-    assert!(
-        rendered.contains("ClassCastException"),
-        "expected the next gson blocker to stay pinned at Gson.toJson's \
-         JsonWriter/Writer construction ClassCastException, got: {rendered}"
-    );
-}
-
-#[test]
-#[ignore = "Blocked on ClassCastException in Gson.toJson JsonWriter/Writer construction (Integer reaches the java/io/Writer slot); keep ignored until gson happy path executes."]
 fn gson_smoke_runs_real_jar_bytecode() {
     let smoke = run_gson_smoke();
 

@@ -157,3 +157,22 @@ pub(crate) fn native_unsafe_get_and_add_int(
     heap.write_field(obj_ref, idx, Slot::Int(old.wrapping_add(delta)))?;
     Ok(Some(Slot::Int(old)))
 }
+/// Native: `sun/misc/Unsafe.allocateInstance(Ljava/lang/Class;)Ljava/lang/Object;`
+/// — allocates a zero-initialised instance of the given class WITHOUT running any
+/// constructor. gson uses this (reflectively, via `UnsafeAllocator`) to build POJOs
+/// that lack a no-arg constructor. `args[0]` is the `Unsafe` receiver (ignored);
+/// `args[1]` is the target `Class`.
+pub(crate) fn native_unsafe_allocate_instance(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 1)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let internal_name = class_internal_name_from_key(&class_key).to_string();
+    ops.ensure_loaded(&internal_name)?;
+    let instance_ref = ops.allocate_instance(heap, out, &class_key)?;
+    Ok(Some(Slot::Reference(Some(instance_ref))))
+}

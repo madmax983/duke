@@ -3325,7 +3325,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         fields: Vec::new(),
         static_fields: Vec::new(),
         instance_field_count: 0,
-        interfaces: Vec::new(),
+        interfaces: vec!["java/lang/reflect/Type".to_string()],
         bootstrap_methods: Vec::new(),
         load_source: ClassLoadSource::Synthetic,
     };
@@ -4966,10 +4966,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_enum_valueof,
     );
 
-    // java/lang/Integer — boxed int with value field + numeric constants
+    // java/lang/Integer — boxed int with value field + numeric constants.
+    // Extends java/lang/Number (not Object) so `checkcast`/`instanceof Number`
+    // succeeds on boxed ints, e.g. gson's Number TypeAdapter bridge method.
     let integer_ctx = ClassContext {
         class_name: "java/lang/Integer".to_string(),
-        super_class: Some("java/lang/Object".to_string()),
+        super_class: Some("java/lang/Number".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
         fields: vec![
@@ -13263,6 +13265,240 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             native_unmodifiable_list_mutation,
         );
     }
+
+    // ---- gson canary: synthetic marker interfaces / reflection support ----
+    // java/lang/reflect/Type — marker interface implemented by java/lang/Class.
+    // gson's TypeToken.<init> does `checkcast java/lang/reflect/Type` on a
+    // Class literal; register the interface so the cast succeeds.
+    let type_iface_ctx = ClassContext {
+        class_name: "java/lang/reflect/Type".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(type_iface_ctx);
+
+    // java/lang/ThreadLocal — synthetic single-slot holder (field 0 = value).
+    // The real JDK ThreadLocal reads Thread.threadLocals, absent from Duke's
+    // synthetic Thread stub; gson's Gson.getAdapter uses a plain ThreadLocal as
+    // a per-call recursion guard, which single-slot storage models faithfully.
+    let thread_local_ctx = ClassContext {
+        class_name: "java/lang/ThreadLocal".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "value".to_string(),
+            descriptor: "Ljava/lang/Object;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(thread_local_ctx);
+    for (method, descriptor, handler) in [
+        ("<init>", "()V", native_thread_local_init as NativeHandler),
+        ("get", "()Ljava/lang/Object;", native_thread_local_get),
+        ("set", "(Ljava/lang/Object;)V", native_thread_local_set),
+        ("remove", "()V", native_thread_local_remove),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/lang/ThreadLocal", method, descriptor, handler);
+    }
+
+    // java/lang/Class.isAssignableFrom — hierarchy-walking reflection predicate
+    // (gson uses it while resolving type adapters).
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "isAssignableFrom",
+        "(Ljava/lang/Class;)Z",
+        native_class_is_assignable_from,
+    );
+
+    // java/lang/Class reflection predicates used by gson's ReflectionHelper to
+    // classify the raw type before choosing an instantiation strategy.
+    registry.natives_mut().register(
+        "java/lang/Class",
+        "getModifiers",
+        "()I",
+        native_class_get_modifiers,
+    );
+    registry.natives_mut().register(
+        "java/lang/Class",
+        "isAnonymousClass",
+        "()Z",
+        native_class_is_anonymous_class,
+    );
+    registry.natives_mut().register(
+        "java/lang/Class",
+        "isLocalClass",
+        "()Z",
+        native_class_is_local_class,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/Class", "isRecord", "()Z", native_class_is_record);
+    registry.natives_mut().register(
+        "java/lang/Class",
+        "isInterface",
+        "()Z",
+        native_class_is_interface,
+    );
+    registry.natives_mut().register(
+        "java/lang/Class",
+        "isPrimitive",
+        "()Z",
+        native_class_is_primitive,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getGenericSuperclass",
+        "()Ljava/lang/reflect/Type;",
+        native_class_get_generic_superclass,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "cast",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        native_class_cast,
+    );
+
+    // java/lang/reflect/Field.getModifiers — gson reads these to skip
+    // static/transient fields when building reflective adapters.
+    registry.natives_mut().register(
+        "java/lang/reflect/Field",
+        "getModifiers",
+        "()I",
+        native_reflect_field_get_modifiers,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Field",
+        "isSynthetic",
+        "()Z",
+        native_reflect_field_is_synthetic,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/reflect/Field",
+        "getGenericType",
+        "()Ljava/lang/reflect/Type;",
+        native_reflect_field_get_generic_type,
+    );
+
+    // java/lang/StringBuffer.append(char) — the char-aware append variant was
+    // missing (the int variant would render the code point as a decimal string).
+    // Shares StringBuilder's char handler; both back onto `string_value`.
+    registry.natives_mut().register(
+        "java/lang/StringBuffer",
+        "append",
+        "(C)Ljava/lang/StringBuffer;",
+        native_sb_append_char,
+    );
+    // StringBuffer.append(CharSequence, int, int) — subrange append used by
+    // gson's JsonWriter string escaping. Shares StringBuilder's range handler.
+    registry.natives_mut().register(
+        "java/lang/StringBuffer",
+        "append",
+        "(Ljava/lang/CharSequence;II)Ljava/lang/StringBuffer;",
+        native_sb_append_charsequence_range,
+    );
+
+    // java/util/Objects.checkFromIndexSize — subrange bounds check used by gson's
+    // string escaping paths.
+    registry.natives_mut().register(
+        "java/util/Objects",
+        "checkFromIndexSize",
+        "(III)I",
+        native_objects_check_from_index_size,
+    );
+
+    // java/lang/String.getChars — bulk char copy used by gson's JsonWriter.
+    registry.natives_mut().register(
+        "java/lang/String",
+        "getChars",
+        "(II[CI)V",
+        native_string_get_chars,
+    );
+    // java/lang/String.<init>(char[], int, int) — subrange constructor used by
+    // gson's JsonReader.
+    registry.natives_mut().register(
+        "java/lang/String",
+        "<init>",
+        "([CII)V",
+        native_string_init_from_chars_range,
+    );
+
+    // java/util/Map.of 9-pair overload — gson's Primitives maps the 9 primitive
+    // types to their wrappers. native_map_of already handles arbitrary pair counts.
+    {
+        let obj = "Ljava/lang/Object;";
+        let map_of_9 = format!("({})Ljava/util/Map;", obj.repeat(18));
+        registry
+            .natives_mut()
+            .register("java/util/Map", "of", &map_of_9, native_map_of);
+    }
+
+    // java/util/HashMap.<init>(Map) — copy constructor used by gson.
+    registry.natives_mut().register(
+        "java/util/HashMap",
+        "<init>",
+        "(Ljava/util/Map;)V",
+        native_hashmap_init_map,
+    );
+
+    // sun/misc/Unsafe — synthetic shadow so the real JDK Unsafe.<clinit> (which
+    // reaches for fields Duke cannot resolve) never runs. gson's UnsafeAllocator
+    // reflectively reads the static `theUnsafe` field and invokes
+    // `allocateInstance(Class)` to construct POJOs lacking a no-arg constructor, so
+    // both members must be reflectively visible: `theUnsafe` is a populated static
+    // field, and `allocateInstance` is a native-backed MethodEntry.
+    let unsafe_instance_ref = heap.allocate("sun/misc/Unsafe".to_string(), 0);
+    let unsafe_ctx = ClassContext {
+        class_name: "sun/misc/Unsafe".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: vec![crate::context::MethodEntry {
+            name: "allocateInstance".to_string(),
+            descriptor: "(Ljava/lang/Class;)Ljava/lang/Object;".to_string(),
+            is_public: true,
+            is_static: false,
+            is_native: true,
+            is_abstract: false,
+            instructions: std::sync::Arc::new([]),
+            max_stack: 0,
+            max_locals: 0,
+            exception_table: Vec::new(),
+            pc_to_idx: std::sync::Arc::new(std::collections::HashMap::new()),
+            line_number_table: Vec::new(),
+            source_file: None,
+        }],
+        fields: vec![FieldEntry {
+            name: "theUnsafe".to_string(),
+            descriptor: "Lsun/misc/Unsafe;".to_string(),
+            is_static: true,
+        }],
+        static_fields: vec![Slot::Reference(Some(unsafe_instance_ref))],
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(unsafe_ctx);
+    registry.natives_mut().register_callback(
+        "sun/misc/Unsafe",
+        "allocateInstance",
+        "(Ljava/lang/Class;)Ljava/lang/Object;",
+        native_unsafe_allocate_instance,
+    );
 }
 
 // ─── Phase 88 natives ────────────────────────────────────────────────────────
