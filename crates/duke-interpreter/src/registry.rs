@@ -1046,10 +1046,7 @@ impl ClassRegistry {
                 // Abstract override — keep walking supers for a concrete body.
             }
             let super_class = self.classes.get(&current)?.super_class.clone();
-            match super_class {
-                Some(s) => current = s,
-                None => return None,
-            }
+            current = super_class?;
         }
     }
 
