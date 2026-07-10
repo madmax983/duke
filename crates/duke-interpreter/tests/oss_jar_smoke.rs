@@ -418,9 +418,14 @@ fn gson_smoke_surfaces_next_missing_capability_explicitly() {
         "gson's first blocker is currently a runtime heap error, not a missing \
          native; if it turned explicit, re-observe and update this pin: {rendered}"
     );
-    assert_eq!(
-        rendered, "InvalidRef { address: 240 }",
-        "expected the next gson blocker to stay pinned at JsonWriter.<clinit> String.format"
+    // Pin the stable `InvalidRef` signal (String.format %04x returning a bad heap
+    // ref) rather than `assert_eq!`-ing the whole `InvalidRef { address: N }`
+    // string: the raw heap address shifts if unrelated bootstrap/allocation order
+    // changes, which would spuriously fail CI for other contributors.
+    assert!(
+        rendered.contains("InvalidRef"),
+        "expected the next gson blocker to stay pinned at JsonWriter.<clinit> \
+         String.format InvalidRef, got: {rendered}"
     );
 }
 
