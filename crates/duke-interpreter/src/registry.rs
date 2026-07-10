@@ -793,6 +793,31 @@ impl ClassRegistry {
         self.get(class).ok().map(|c| c.load_source)
     }
 
+    /// Core layout-coherence predicate used by the `getfield`/`putfield` runtime guard.
+    ///
+    /// A field access is **incoherent** when either:
+    /// * the resolved `slot` is out of bounds for the target object
+    ///   (`slot >= object_slot_count`) — the concrete "silent corruption" case; or
+    /// * the field-resolving class and the object's runtime class disagree on which
+    ///   shadow (layout) regime they were built under
+    ///   (`is_shadowed(resolving) != is_shadowed(object)`) — a half-migrated object graph
+    ///   where real bytecode and a synthetically-allocated object compute different slots.
+    ///
+    /// Pure and deterministic (no env, no mode); the mode (`warn`/`fail`) only governs what
+    /// the guard *does* with an incoherent verdict. Exposed so the guard and its tests share
+    /// one decision point.
+    #[must_use]
+    pub fn is_layout_incoherent(
+        &self,
+        resolving_class: &str,
+        object_class: &str,
+        slot: usize,
+        object_slot_count: usize,
+    ) -> bool {
+        slot >= object_slot_count
+            || self.is_shadowed(resolving_class) != self.is_shadowed(object_class)
+    }
+
     /// Count a real jimage classfile's own (per-class, declared) instance fields, i.e.
     /// non-`static` fields, by fetching and parsing its bytecode via the shadow loader.
     /// Returns `None` if there is no shadow loader, the class isn't resolvable, or the
@@ -807,6 +832,26 @@ impl ClassRegistry {
                 .filter(|f| !f.access_flags.contains(FieldAccessFlags::STATIC))
                 .count(),
         )
+    }
+
+    /// The zero-layout-risk migration candidates identified by the layout audit: the
+    /// `KEEP_SYNTHETIC` classes whose synthetic per-class instance-field count already
+    /// matches the real jimage layout (or whose real layout has zero instance fields), so
+    /// they could safely leave the allowlist. Empty when real-JDK shadow mode is off (no
+    /// real layout to compare against). Shares its rule with [`Self::run_layout_audit`].
+    #[must_use]
+    pub fn layout_audit_candidates(&self) -> Vec<String> {
+        if !self.real_jdk_shadow {
+            return Vec::new();
+        }
+        KEEP_SYNTHETIC
+            .iter()
+            .filter_map(|&name| {
+                let synth = self.get(name).ok().map(|c| c.instance_field_count)?;
+                let real = self.real_instance_field_count(name)?;
+                (synth == real || real == 0).then(|| name.to_string())
+            })
+            .collect()
     }
 
     /// Static layout audit (gated by `DUKE_LAYOUT_AUDIT=1` at the call site): for each
@@ -838,8 +883,6 @@ impl ClassRegistry {
             "class", "synth", "real"
         );
 
-        let mut candidates: Vec<&str> = Vec::new();
-
         // KEEP_SYNTHETIC classes: synthetic ClassContext is still registered, so we can
         // compare both sides. These are the migration-candidate decisions.
         for &name in KEEP_SYNTHETIC {
@@ -847,10 +890,6 @@ impl ClassRegistry {
             let real = self.real_instance_field_count(name);
             let (synth_s, real_s, verdict) = match (synth, real) {
                 (Some(s), Some(r)) => {
-                    let zero_risk = s == r || r == 0;
-                    if zero_risk {
-                        candidates.push(name);
-                    }
                     let v = if s == r {
                         "MATCH (candidate)"
                     } else if r == 0 {
@@ -888,6 +927,7 @@ impl ClassRegistry {
             }
         }
 
+        let candidates = self.layout_audit_candidates();
         eprintln!(
             "[layout-audit] SUMMARY: {} of {} KEEP_SYNTHETIC classes are zero-layout-risk \
              migration candidates",

@@ -83,16 +83,15 @@ fn layout_coherence_check(
     let object_class = obj.class_name.as_str();
     let actual_slots = obj.fields.len();
 
-    let resolving_shadowed = registry.is_shadowed(resolving_class_key);
-    let object_shadowed = registry.is_shadowed(object_class);
-
-    let hard_oob = slot >= actual_slots;
-    let regime_mismatch = resolving_shadowed != object_shadowed;
-
-    // Common path: coherent access. Cheap early return, no string formatting.
-    if !hard_oob && !regime_mismatch {
+    // Single decision point, shared with the unit tests (see `is_layout_incoherent`).
+    // Common path: coherent access → cheap early return, no string formatting.
+    if !registry.is_layout_incoherent(resolving_class_key, object_class, slot, actual_slots) {
         return Ok(());
     }
+
+    let resolving_shadowed = registry.is_shadowed(resolving_class_key);
+    let object_shadowed = registry.is_shadowed(object_class);
+    let hard_oob = slot >= actual_slots;
 
     let label = |shadowed: bool, source: Option<ClassLoadSource>| -> &'static str {
         match (shadowed, source) {
