@@ -8553,6 +8553,44 @@ pub(crate) fn native_class_is_array(
     Ok(Some(Slot::Int(i32::from(internal_name.starts_with('[')))))
 }
 
+/// Native: `Class.getPrimitiveClass(String)Class` — static factory returning the
+/// `Class` mirror for a primitive type name ("int", "long", ...).
+///
+/// Returns the same string-keyed mirror that
+/// [`initialize_primitive_wrapper_type_field`] uses for `Integer.TYPE` etc.,
+/// so `int.class` and `Integer.TYPE` share object identity across the runtime.
+pub(crate) fn native_class_get_primitive_class(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let name_ref = extract_ref_arg(args, 0)?;
+    let name = heap
+        .get(name_ref)?
+        .string_value
+        .clone()
+        .ok_or(Error::NullPointerException)?;
+    let descriptor = match name.as_str() {
+        "int" => "I",
+        "long" => "J",
+        "float" => "F",
+        "double" => "D",
+        "boolean" => "Z",
+        "byte" => "B",
+        "char" => "C",
+        "short" => "S",
+        "void" => "V",
+        _ => {
+            return Err(Error::JavaException {
+                class_name: "java/lang/ClassNotFoundException".to_string(),
+            });
+        }
+    };
+    let class_ref = allocate_class_object(heap, descriptor)?;
+    Ok(Some(Slot::Reference(Some(class_ref))))
+}
+
 /// Native: `Class.desiredAssertionStatus()` - Duke currently runs with assertions disabled.
 pub(crate) fn native_class_desired_assertion_status(
     args: &[Slot],
