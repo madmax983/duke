@@ -513,6 +513,19 @@ impl AtomicPayload {
         patch_forwarded_slot(&mut slot, forward_map);
         slot.as_reference().is_some_and(|r| r & OLD_BIT == 0)
     }
+
+    /// Rewrite an OLD-gen reference payload through the old-gen compaction map
+    /// `old_forward` (old ref → new old ref). Used by [`Heap::compact_old`] so
+    /// an `AtomicReference` pointing at a relocated old-gen object stays valid.
+    fn patch_old_forwarded_reference(&self, old_forward: &HashMap<u64, u64>) {
+        let Self::Reference(cell) = self else {
+            return;
+        };
+        let mut slot = cell
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        patch_old_forwarded_slot(&mut slot, old_forward);
+    }
 }
 
 /// A single heap-allocated Java object.
@@ -552,6 +565,11 @@ pub struct HeapObject {
     /// `Some(new_ref)` means this object was already copied; `None` means not yet copied.
     #[allow(dead_code)] // used by minor_collect_prepare / apply_forward
     pub(crate) forward: Option<u64>,
+    /// Lazily-assigned identity hash (`Object.hashCode` / `System.identityHashCode`).
+    /// Assigned from `Heap::next_identity_hash` on first request and carried over
+    /// verbatim when the object is copied or promoted, so identity hashes are
+    /// STABLE across relocation (unlike the reference index they used to derive from).
+    pub(crate) identity_hash: Option<i32>,
 }
 
 /// The generational object heap.
@@ -622,6 +640,14 @@ pub struct Heap {
     /// `minor_collect_finish` so callers can patch their own slots after
     /// `collect()` returns via [`Heap::apply_forward`].
     forward_map: HashMap<u64, u64>,
+
+    // ── Identity hashing ─────────────────────────────────────────────────────
+    /// Monotonic source for lazily-assigned object identity hashes. Independent
+    /// of the reference index, so a hash assigned before relocation survives the
+    /// object being copied/promoted. Starts at 1 (0 is reserved so identity
+    /// hashes never collide with a "null" sentinel).
+    next_identity_hash: i32,
+
     /// Host OS file handles keyed by small integer ids stored in Java objects.
     pub(crate) host_files: HashMap<i32, host::HostFileHandle>,
     pub(crate) next_host_file_id: i32,
@@ -657,6 +683,7 @@ impl Heap {
             live_count: 0,
             young_dropped: 0,
             forward_map: HashMap::new(),
+            next_identity_hash: 1,
             host_files: HashMap::new(),
             next_host_file_id: 1,
         }
@@ -677,6 +704,7 @@ impl Heap {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         }
     }
 
@@ -777,6 +805,31 @@ impl Heap {
         dest.string_value = string_value;
         dest.atomic_payload = atomic_payload;
         Ok(new_ref)
+    }
+
+    /// Returns the stable identity hash for the object at `r`, assigning one on
+    /// first request from a monotonic counter.
+    ///
+    /// The hash is stored on the object and carried over verbatim when the object
+    /// is copied to `to_space` or promoted to old gen, so it is **stable across
+    /// relocation** — unlike a hash derived from the (mutable) reference index.
+    /// This is the accessor `Object.hashCode` / `System.identityHashCode` /
+    /// `Objects.hashCode` must use once the collector can move objects.
+    ///
+    /// # Errors
+    /// Returns [`Error::InvalidRef`] if `r` does not name a live object.
+    pub fn identity_hash(&mut self, r: u64) -> Result<i32> {
+        if let Some(h) = self.get(r)?.identity_hash {
+            return Ok(h);
+        }
+        let h = self.next_identity_hash;
+        // Advance, skipping 0 on wrap so the counter never yields the sentinel.
+        self.next_identity_hash = match self.next_identity_hash.wrapping_add(1) {
+            0 => 1,
+            n => n,
+        };
+        self.get_mut(r)?.identity_hash = Some(h);
+        Ok(h)
     }
 
     /// Promote a young-gen object to old gen. Returns `raw_old_idx | OLD_BIT`.
@@ -1009,6 +1062,66 @@ impl Heap {
 
     // ── Minor GC (copy collector) ────────────────────────────────────────────
 
+    /// Clone an `Arc` to every synthetic executor's shared state currently
+    /// reachable through a heap object's atomic payload.
+    ///
+    /// The clones are held for the duration of a minor GC so the executor task
+    /// queues can be treated as an extra root set (their `future_ref`/`task_ref`
+    /// entries are bare `u64`s the mutator never sees) and patched after
+    /// forwarding — even if the owning executor object is itself collected this
+    /// cycle (worker threads keep the `Arc` alive regardless).
+    fn collect_executor_shared(&self) -> Vec<Arc<ExecutorShared>> {
+        self.young
+            .iter()
+            .chain(self.old.iter())
+            .flatten()
+            .filter_map(|obj| match &obj.atomic_payload {
+                Some(AtomicPayload::Executor(shared)) => Some(Arc::clone(shared)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Seed `worklist` with the young-gen refs held in each executor's task queue.
+    fn seed_executor_queue_roots(executors: &[Arc<ExecutorShared>], worklist: &mut Vec<usize>) {
+        for shared in executors {
+            let guard = shared
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for task in &guard.queue {
+                for r in [task.future_ref, task.task_ref] {
+                    if r & OLD_BIT == 0 {
+                        worklist.push(usize::try_from(r).unwrap());
+                    }
+                }
+            }
+        }
+    }
+
+    /// Rewrite executor task-queue refs through the forwarding map so queued
+    /// tasks whose objects were copied or promoted this cycle stay valid.
+    /// Idempotent: already-forwarded refs are absent from `forward_map`.
+    fn patch_executor_queue_refs(&self, executors: &[Arc<ExecutorShared>]) {
+        if self.forward_map.is_empty() {
+            return;
+        }
+        for shared in executors {
+            let mut guard = shared
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for task in &mut guard.queue {
+                if let Some(&nr) = self.forward_map.get(&task.future_ref) {
+                    task.future_ref = nr;
+                }
+                if let Some(&nr) = self.forward_map.get(&task.task_ref) {
+                    task.task_ref = nr;
+                }
+            }
+        }
+    }
+
     /// **Phase 1 of minor GC**: trace live young objects from `roots` and the
     /// remembered set, copy them to `to_space`, and install forwarding pointers.
     ///
@@ -1022,6 +1135,11 @@ impl Heap {
         // ⚡ Bolt: Pre-allocate `to_space` based on maximum possible survivors to eliminate dynamic resizing overhead.
         self.to_space = Vec::with_capacity(self.young.len());
         self.forward_map.clear();
+
+        // Host-side executor task queues hold bare `u64` refs that are not part
+        // of the mutator root set. Snapshot the shared states up-front so we can
+        // both seed them as roots below and patch them after forwarding.
+        let executors = self.collect_executor_shared();
 
         // Seed worklist with young refs from roots and remembered-set fields.
         // ⚡ Bolt: Pre-allocate `worklist` based on root set size to eliminate initial dynamic resizing overhead.
@@ -1055,6 +1173,10 @@ impl Heap {
                 }
             }
         }
+
+        // Seed young refs held in executor task queues so queued-but-unrun tasks
+        // (and the futures they report into) survive this collection.
+        Self::seed_executor_queue_roots(&executors, &mut worklist);
 
         // Copy phase — BFS worklist.
         while let Some(y_idx) = worklist.pop() {
@@ -1106,16 +1228,28 @@ impl Heap {
                 marked: false,
                 age: 0,
                 forward: Some(new_ref),
+                identity_hash: None,
             });
             self.forward_map.insert(y_idx as u64, new_ref);
         }
 
+        // Patch survivors and old-gen objects, and rebuild the remembered set.
+        self.patch_survivors_and_old_gen();
+
+        // Rewrite executor task-queue refs to their forwarded locations.
+        self.patch_executor_queue_refs(&executors);
+    }
+
+    /// Post-copy patch pass: rewrite intra-young references in the copied
+    /// survivors, then patch every old-gen object and rebuild the remembered set
+    /// so old→young edges (including those from newly promoted objects) survive
+    /// the next minor GC.
+    fn patch_survivors_and_old_gen(&mut self) {
         let forward_map = &self.forward_map;
 
         // Patch copied young survivors so their intra-young references point at
         // the forwarded children instead of stale from-space indices.
-        let to_space = &mut self.to_space;
-        for obj in to_space.iter_mut().flatten() {
+        for obj in self.to_space.iter_mut().flatten() {
             patch_forwarded_fields(&mut obj.fields, forward_map);
             if let Some(payload) = &obj.atomic_payload {
                 payload.patch_forwarded_reference(forward_map);
@@ -1124,9 +1258,8 @@ impl Heap {
 
         // Patch all old-gen objects and rebuild the remembered set so existing
         // old->young edges, including newly promoted objects, survive the next minor GC.
-        let old = &mut self.old;
         let mut rebuilt_remembered_set = HashSet::new();
-        for (old_idx, obj) in old.iter_mut().enumerate() {
+        for (old_idx, obj) in self.old.iter_mut().enumerate() {
             let Some(obj) = obj.as_mut() else {
                 continue;
             };
@@ -1152,11 +1285,12 @@ impl Heap {
     /// Panics if the young-gen reference value cannot be converted to `usize`,
     /// which cannot happen on 64-bit targets since heap indices are always small.
     pub fn apply_forward(&self, slot: &mut Slot) {
-        if let Some(r) = slot.as_reference()
-            && r & OLD_BIT == 0
-        {
-            // Try forward_map first (valid at any phase); fall back to young[].forward
-            // if forward_map hasn't been populated yet for this ref.
+        let Some(r) = slot.as_reference() else {
+            return;
+        };
+        if r & OLD_BIT == 0 {
+            // Young ref. Try forward_map first (valid at any phase); fall back to
+            // young[].forward if forward_map hasn't been populated yet for this ref.
             let new_r = self.forward_map.get(&r).copied().or_else(|| {
                 self.young
                     .get(usize::try_from(r).unwrap())
@@ -1166,6 +1300,11 @@ impl Heap {
             if let Some(nr) = new_r {
                 *slot = Slot::Reference(Some(nr));
             }
+        } else if let Some(&nr) = self.forward_map.get(&r) {
+            // Old ref. `forward_map` only holds OLD_BIT-tagged keys after an
+            // old-gen compaction (`compact_old`); without compaction this branch
+            // never fires, preserving the minor-only fast path exactly.
+            *slot = Slot::Reference(Some(nr));
         }
     }
 
@@ -1276,8 +1415,224 @@ impl Heap {
 
         self.minor_collect_finish();
 
-        // Step 2: mark-sweep old gen.
+        // Step 2: mark-sweep old gen (cheap, non-moving).
         self.major_collect(&patched);
+
+        // Step 3: if the old-gen free list has fragmented past the threshold,
+        // slide-compact it. Compaction seeds `forward_map` with OLD_BIT-tagged
+        // old→old forwards (composed with any young→old forwards from step 1),
+        // so the caller's existing `apply_forward` sweep patches every root that
+        // points into the old gen — no separate old-gen root walk is needed.
+        if self.should_compact_old() {
+            self.compact_old(&patched);
+        }
+    }
+
+    // ── Major GC (old-gen mark-compact / Lisp-2 slide) ───────────────────────
+
+    /// Fraction of the old-gen backing store that is currently dead (free-list
+    /// holes). Ranges `0.0..=1.0`.
+    ///
+    /// **Metric:** `old_free_slots / old_total_slots`. Every `None` hole in the
+    /// `old` Vec corresponds to exactly one `old_free_list` entry (holes are
+    /// produced by `sweep_old` and consumed by `promote_to_old`), so the free
+    /// list length is the dead-slot count. This slot-granular ratio is the
+    /// natural fragmentation signal for Duke's per-object free list: a high
+    /// value means live objects are sparsely scattered among reusable holes,
+    /// which is exactly what mark-compact defeats. Returns `0.0` for an empty
+    /// old gen.
+    #[must_use]
+    pub fn fragmentation_ratio(&self) -> f64 {
+        let total = self.old.len();
+        if total == 0 {
+            return 0.0;
+        }
+        // total is a live-object count bounded well under 2^52, so the casts are
+        // exact on all supported targets.
+        #[allow(clippy::cast_precision_loss)]
+        let ratio = self.old_free_list.len() as f64 / total as f64;
+        ratio
+    }
+
+    /// Returns `true` when the old gen is fragmented enough to justify a
+    /// (relatively expensive) compacting collection: at least
+    /// [`Self::OLD_COMPACT_MIN_SLOTS`] slots and a
+    /// [`fragmentation_ratio`](Self::fragmentation_ratio) at or above
+    /// [`Self::OLD_COMPACT_FRAGMENTATION_THRESHOLD`].
+    #[must_use]
+    pub fn should_compact_old(&self) -> bool {
+        self.old.len() >= Self::OLD_COMPACT_MIN_SLOTS
+            && self.fragmentation_ratio() >= Self::OLD_COMPACT_FRAGMENTATION_THRESHOLD
+    }
+
+    /// Fragmentation ratio (dead old slots / total old slots) at or above which
+    /// a major collection upgrades from cheap mark-sweep to sliding compaction.
+    /// Tuned so compaction only fires once roughly half the old gen is holes.
+    pub const OLD_COMPACT_FRAGMENTATION_THRESHOLD: f64 = 0.5;
+
+    /// Minimum old-gen slot count before compaction is considered, so tiny heaps
+    /// never pay the compaction walk over a handful of objects.
+    pub const OLD_COMPACT_MIN_SLOTS: usize = 64;
+
+    /// Run a major collection that always finishes with a sliding compaction of
+    /// the old gen, regardless of the fragmentation threshold. Mirrors
+    /// [`collect`](Self::collect) (minor promote → mark-sweep → compact) and is
+    /// primarily a deterministic entry point for tests and observability.
+    ///
+    /// Like `collect`, the caller must apply forwarding to its own roots after
+    /// this returns (via [`apply_forward`](Self::apply_forward)); the `Slot`
+    /// roots passed here are only used internally.
+    pub fn major_collect_compacting(&mut self, roots: &[Slot]) {
+        self.minor_collect_prepare(roots);
+        let mut patched: Vec<Slot> = roots.to_vec();
+        for slot in &mut patched {
+            self.apply_forward(slot);
+        }
+        self.minor_collect_finish();
+        self.compact_old(&patched);
+    }
+
+    /// Lisp-2 sliding mark-compact of the old generation.
+    ///
+    /// 1. **Mark** live old objects reachable from `roots` (reuses [`mark_old`]).
+    /// 2. **Forward** — assign each live object a new, densely-packed old index
+    ///    in ascending (stable, sliding) order; record old→new in an
+    ///    `old_forward` map (only for objects that actually move).
+    /// 3. **Update pointers** everywhere an OLD-gen ref can hide: every live old
+    ///    object's fields + atomic payload, every young object's fields + atomic
+    ///    payload (young→old edges), the remembered set (index remap), and the
+    ///    executor task-queue snapshot. The map is also folded into
+    ///    `forward_map` — existing young→old values are re-pointed and direct
+    ///    old→old entries added — so the interpreter's post-collection
+    ///    `apply_forward` sweep rewrites external roots with no extra machinery.
+    /// 4. **Move** survivors into their compacted slots, truncate `old` to the
+    ///    live count, and clear the free list (fragmentation → 0).
+    ///
+    /// `identity_hash` and `atomic_payload` ride along with each moved object,
+    /// preserving the [`HeapObject`] invariant across relocation.
+    ///
+    /// [`mark_old`]: Self::mark_old
+    pub fn compact_old(&mut self, roots: &[Slot]) {
+        // Snapshot executor shared state up front: their task queues hold bare
+        // OLD refs the mutator never sees, so we both (a) treat them as extra
+        // roots below — otherwise a queued-but-unrun task's target could be
+        // dropped and its forwarded queue ref would dangle — and (b) rewrite
+        // them after forwarding.
+        let executors = self.collect_executor_shared();
+
+        // ── 1. Mark live old objects (roots + executor-queue OLD refs). ──────
+        let mut mark_roots: Vec<Slot> = roots.to_vec();
+        for shared in &executors {
+            let guard = shared
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for task in &guard.queue {
+                for r in [task.future_ref, task.task_ref] {
+                    if r & OLD_BIT != 0 {
+                        mark_roots.push(Slot::Reference(Some(r)));
+                    }
+                }
+            }
+        }
+        self.mark_old(&mark_roots);
+
+        // ── 2. Assign new compacted indices in stable ascending order. ───────
+        // new_index[old_idx] = Some(new_idx) for live objects, None otherwise.
+        let mut new_index: Vec<Option<usize>> = vec![None; self.old.len()];
+        let mut next: usize = 0;
+        for (idx, slot) in self.old.iter().enumerate() {
+            if slot.as_ref().is_some_and(|obj| obj.marked) {
+                new_index[idx] = Some(next);
+                next += 1;
+            }
+        }
+
+        // old_forward: OLD_BIT-tagged old ref → new old ref, only where moved.
+        let mut old_forward: HashMap<u64, u64> = HashMap::new();
+        for (idx, entry) in new_index.iter().enumerate() {
+            if let Some(new_idx) = *entry {
+                let old_ref = idx as u64 | OLD_BIT;
+                let new_ref = new_idx as u64 | OLD_BIT;
+                if old_ref != new_ref {
+                    old_forward.insert(old_ref, new_ref);
+                }
+            }
+        }
+
+        // ── 3. Update pointers (in place; ref values are position-independent).
+        // (a) live old objects' fields + atomic payload.
+        for obj in self.old.iter_mut().flatten() {
+            if !obj.marked {
+                continue;
+            }
+            patch_old_forwarded_fields(&mut obj.fields, &old_forward);
+            if let Some(payload) = &obj.atomic_payload {
+                payload.patch_old_forwarded_reference(&old_forward);
+            }
+        }
+        // (b) young objects' fields + atomic payload (young→old edges).
+        for obj in self.young.iter_mut().flatten() {
+            patch_old_forwarded_fields(&mut obj.fields, &old_forward);
+            if let Some(payload) = &obj.atomic_payload {
+                payload.patch_old_forwarded_reference(&old_forward);
+            }
+        }
+        // (c) remembered set — remap surviving old indices to their new slots.
+        self.remembered_set = self
+            .remembered_set
+            .iter()
+            .filter_map(|&old_idx| new_index.get(old_idx).copied().flatten())
+            .collect();
+        // (d) executor task-queue snapshot (bare u64 refs the mutator never sees).
+        for shared in &executors {
+            let mut guard = shared
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            for task in &mut guard.queue {
+                if let Some(&nr) = old_forward.get(&task.future_ref) {
+                    task.future_ref = nr;
+                }
+                if let Some(&nr) = old_forward.get(&task.task_ref) {
+                    task.task_ref = nr;
+                }
+            }
+        }
+        // (e) fold into forward_map so the interpreter's apply_forward patches
+        // external roots. First re-point existing (young→old) values that moved,
+        // then add the direct old→old forwards. Old keys never collide with the
+        // young keys already present.
+        for value in self.forward_map.values_mut() {
+            if let Some(&nv) = old_forward.get(value) {
+                *value = nv;
+            }
+        }
+        for (old_ref, new_ref) in &old_forward {
+            self.forward_map.insert(*old_ref, *new_ref);
+        }
+
+        // ── 4. Move survivors into a dense store and rebuild bookkeeping. ─────
+        let mut compacted: Vec<Option<HeapObject>> = Vec::with_capacity(next);
+        compacted.resize_with(next, || None);
+        for (idx, slot) in self.old.iter_mut().enumerate() {
+            let Some(new_idx) = new_index[idx] else {
+                continue; // dead (unmarked) or empty hole — dropped.
+            };
+            if let Some(mut obj) = slot.take() {
+                obj.marked = false; // clear mark; live outside a GC is unmarked.
+                compacted[new_idx] = Some(obj);
+            }
+        }
+        self.old = compacted;
+        // Compaction eliminates fragmentation: the store is now a dense prefix,
+        // so the free list is empty and future promotions bump the tail.
+        self.old_free_list.clear();
+
+        // Refresh live accounting (young survivors + compacted old live).
+        let young_live = self.young.iter().filter(|s| s.is_some()).count();
+        self.live_after_last_gc = next;
+        self.live_count = young_live + next;
     }
 
     // ── Test helpers ─────────────────────────────────────────────────────────
@@ -1289,6 +1644,13 @@ impl Heap {
     #[must_use]
     pub const fn free_list_len(&self) -> usize {
         self.old_free_list.len() + self.young_dropped
+    }
+
+    /// Total number of old-gen backing slots (live objects + free-list holes).
+    /// Exposed for observability: compaction shrinks this to the live count.
+    #[must_use]
+    pub const fn old_slot_count(&self) -> usize {
+        self.old.len()
     }
 
     /// Generates a Mermaid JS graph of the heap.
@@ -1304,6 +1666,25 @@ fn patch_forwarded_slot(slot: &mut Slot, forward_map: &HashMap<u64, u64>) {
         && let Some(new_r) = forward_map.get(&r).copied()
     {
         *slot = Slot::Reference(Some(new_r));
+    }
+}
+
+/// Rewrite a single OLD-gen reference slot through an old-gen compaction map
+/// (`old_forward`: OLD_BIT-tagged old ref → new old ref). No-op for young refs,
+/// null, non-refs, or old refs that did not move.
+fn patch_old_forwarded_slot(slot: &mut Slot, old_forward: &HashMap<u64, u64>) {
+    if let Some(r) = slot.as_reference()
+        && r & OLD_BIT != 0
+        && let Some(new_r) = old_forward.get(&r).copied()
+    {
+        *slot = Slot::Reference(Some(new_r));
+    }
+}
+
+/// Rewrite every OLD-gen reference in `fields` through the compaction map.
+fn patch_old_forwarded_fields(fields: &mut [Slot], old_forward: &HashMap<u64, u64>) {
+    for slot in fields {
+        patch_old_forwarded_slot(slot, old_forward);
     }
 }
 
@@ -1612,6 +1993,7 @@ mod tests {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         };
         heap.old.push(Some(obj));
         (heap.old.len() as u64 - 1) | OLD_BIT
@@ -1699,6 +2081,7 @@ mod tests {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         }));
         heap.old.push(Some(HeapObject {
             class_name: "B".to_string(),
@@ -1708,6 +2091,7 @@ mod tests {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         }));
         let a_ref = OLD_BIT;
         let b_ref = 1u64 | OLD_BIT;
@@ -1891,6 +2275,7 @@ mod tests {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         }));
         let old_ref = OLD_BIT;
         let young_ref = heap.allocate("Young".to_string(), 0);
@@ -1958,6 +2343,7 @@ mod tests {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         }));
         let old_ref = OLD_BIT;
         assert_ne!(old_ref & OLD_BIT, 0, "old ref must have OLD_BIT set");
@@ -1975,6 +2361,7 @@ mod tests {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         }));
         heap.old.push(Some(HeapObject {
             class_name: "Drop".to_string(),
@@ -1984,6 +2371,7 @@ mod tests {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         }));
         let keep_ref = OLD_BIT;
         let drop_ref = 1u64 | OLD_BIT;
@@ -2011,6 +2399,7 @@ mod tests {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         }));
         heap.old.push(Some(HeapObject {
             class_name: "B".to_string(),
@@ -2020,6 +2409,7 @@ mod tests {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         }));
         heap.old.push(Some(HeapObject {
             class_name: "A".to_string(),
@@ -2029,6 +2419,7 @@ mod tests {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         }));
         let a_ref = 2u64 | OLD_BIT;
         let roots = vec![Slot::Reference(Some(a_ref))];
@@ -2048,6 +2439,7 @@ mod tests {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         }));
         heap.old.push(Some(HeapObject {
             class_name: "Drop".to_string(),
@@ -2057,6 +2449,7 @@ mod tests {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         }));
         let keep_ref = OLD_BIT;
         heap.major_collect(&[Slot::Reference(Some(keep_ref))]);
@@ -2364,6 +2757,7 @@ mod tests {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         }));
         heap.old.push(Some(HeapObject {
             class_name: "ShouldLive".to_string(),
@@ -2373,6 +2767,7 @@ mod tests {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         }));
         let die_ref = OLD_BIT;
         let live_ref = 1u64 | OLD_BIT;
@@ -2406,6 +2801,7 @@ mod tests {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         }));
         // Allocate young[0] so raw idx 0 exists in young gen too.
         let young_r = heap.allocate("Young".to_string(), 0);
@@ -2419,6 +2815,7 @@ mod tests {
             marked: false,
             age: 0,
             forward: None,
+            identity_hash: None,
         }));
         let die_ref = OLD_BIT;
         let parent_ref = 1u64 | OLD_BIT;
@@ -2563,6 +2960,574 @@ mod tests {
             duke_runtime::Error::JavaException { ref class_name }
             if class_name == "java/io/IOException"
         ));
+    }
+
+    // ── Phase 1: promotion / stable identity hash / executor-queue rooting ─────
+
+    /// Drive a complete minor GC cycle (prepare → forward roots → finish) and
+    /// return the forwarded copy of `roots`.
+    fn run_minor_gc(heap: &mut Heap, roots: &[Slot]) -> Vec<Slot> {
+        heap.minor_collect_prepare(roots);
+        let mut patched: Vec<Slot> = roots.to_vec();
+        for slot in &mut patched {
+            heap.apply_forward(slot);
+        }
+        heap.minor_collect_finish();
+        patched
+    }
+
+    /// Allocation churn: a flood of unreachable young objects is fully reclaimed
+    /// by successive minor GCs, so the young generation stays bounded.
+    #[test]
+    fn allocation_churn_keeps_young_bounded() {
+        let mut heap = test_heap_with_capacity(16);
+        // One long-lived survivor we keep rooted throughout.
+        let survivor = heap.allocate("Survivor".to_string(), 0);
+        let mut survivor_slot = Slot::Reference(Some(survivor));
+
+        for _ in 0..50 {
+            // Churn: 100 short-lived objects nobody roots.
+            for _ in 0..100 {
+                let _garbage = heap.allocate("Garbage".to_string(), 1);
+            }
+            let patched = run_minor_gc(&mut heap, &[survivor_slot]);
+            survivor_slot = patched[0];
+            // After each collection only the single rooted survivor may remain young.
+            assert!(
+                heap.young.len() <= 1,
+                "young gen must stay bounded, was {}",
+                heap.young.len()
+            );
+        }
+        // The survivor is still reachable and intact.
+        assert_eq!(heap.get(survivor_slot.as_reference().unwrap()).unwrap().class_name, "Survivor");
+    }
+
+    /// A survivor kept rooted across enough minor GCs is evacuated into the old
+    /// gen with its field and string contents intact and its root ref rewritten.
+    #[test]
+    fn survivor_promotion_preserves_contents_and_rewrites_root() {
+        let mut heap = test_heap_with_capacity(32);
+        // Default promotion age (4): promoted on the 5th survival.
+        let payload = heap.allocate("Payload".to_string(), 2);
+        let text = heap.allocate_string("hello gc".to_string());
+        heap.write_field(payload, 0, Slot::Int(0x1234_5678)).unwrap();
+        heap.write_field(payload, 1, Slot::Reference(Some(text))).unwrap();
+
+        let mut root = Slot::Reference(Some(payload));
+        for _ in 0..=DEFAULT_PROMOTION_AGE {
+            root = run_minor_gc(&mut heap, &[root])[0];
+        }
+
+        let promoted = root.as_reference().unwrap();
+        assert_ne!(promoted & OLD_BIT, 0, "survivor should be promoted to old gen");
+
+        let obj = heap.get(promoted).unwrap();
+        assert_eq!(obj.class_name, "Payload");
+        assert_eq!(obj.fields[0], Slot::Int(0x1234_5678));
+        // The child string ref must have been rewritten to its new location too.
+        let text_ref = obj.fields[1].as_reference().unwrap();
+        assert_eq!(
+            heap.get(text_ref).unwrap().string_value.as_deref(),
+            Some("hello gc")
+        );
+    }
+
+    /// Root remapping: a held root ref ends up pointing at the old-gen copy after
+    /// promotion and reads back the same data written before the move.
+    #[test]
+    fn root_ref_remaps_to_old_copy_after_promotion() {
+        let mut heap = test_heap_with_capacity(16);
+        heap.promotion_age = 0; // promote on first survival
+        let r = heap.allocate("Box".to_string(), 1);
+        heap.write_field(r, 0, Slot::Int(99)).unwrap();
+
+        let patched = run_minor_gc(&mut heap, &[Slot::Reference(Some(r))]);
+        let new_ref = patched[0].as_reference().unwrap();
+
+        assert_ne!(new_ref & OLD_BIT, 0, "root should now name the old-gen copy");
+        assert_ne!(new_ref, r, "root ref must have been remapped");
+        assert_eq!(heap.get(new_ref).unwrap().fields[0], Slot::Int(99));
+    }
+
+    /// Identity hash is stable across a minor GC that promotes the object.
+    #[test]
+    fn identity_hash_is_stable_across_promotion() {
+        let mut heap = test_heap_with_capacity(16);
+        heap.promotion_age = 0; // promote on first survival
+        let r = heap.allocate("Ident".to_string(), 0);
+
+        let before = heap.identity_hash(r).unwrap();
+
+        let patched = run_minor_gc(&mut heap, &[Slot::Reference(Some(r))]);
+        let new_ref = patched[0].as_reference().unwrap();
+        assert_ne!(new_ref & OLD_BIT, 0, "object should have been promoted");
+        assert_ne!(new_ref, r, "reference index changed across relocation");
+
+        let after = heap.identity_hash(new_ref).unwrap();
+        assert_eq!(before, after, "identity hash must survive relocation unchanged");
+    }
+
+    /// Distinct objects get distinct identity hashes, and repeated queries are
+    /// idempotent (lazily assigned once).
+    #[test]
+    fn identity_hash_is_distinct_and_idempotent() {
+        let mut heap = Heap::new();
+        let a = heap.allocate("A".to_string(), 0);
+        let b = heap.allocate("B".to_string(), 0);
+        let ha1 = heap.identity_hash(a).unwrap();
+        let ha2 = heap.identity_hash(a).unwrap();
+        let hb = heap.identity_hash(b).unwrap();
+        assert_eq!(ha1, ha2, "repeated identity_hash must be stable");
+        assert_ne!(ha1, hb, "distinct objects must get distinct identity hashes");
+    }
+
+    /// After a promoted object gains an old→young edge, the remembered set keeps
+    /// the young referent alive through the following minor GC.
+    #[test]
+    fn old_to_young_remembered_set_after_promotion() {
+        let mut heap = test_heap_with_capacity(16);
+        heap.promotion_age = 0; // promote on first survival
+
+        // Promote the parent first (no children yet, so it lands in old gen).
+        let parent = heap.allocate("Parent".to_string(), 1);
+        let promoted_parent = run_minor_gc(&mut heap, &[Slot::Reference(Some(parent))])[0]
+            .as_reference()
+            .unwrap();
+        assert_ne!(promoted_parent & OLD_BIT, 0, "parent should be in old gen");
+
+        // Now create a fresh young child and store it into the old parent. This
+        // is the old→young store the write barrier must remember.
+        let child = heap.allocate("Child".to_string(), 0);
+        heap.write_field(promoted_parent, 0, Slot::Reference(Some(child)))
+            .unwrap();
+        assert!(
+            heap.remembered_set
+                .contains(&old_raw_index(promoted_parent)),
+            "old parent with a young child must be in the remembered set"
+        );
+
+        // Second GC roots nothing directly: child survives only via the parent's
+        // remembered-set entry, and the parent's field is rewritten to the copy.
+        run_minor_gc(&mut heap, &[]);
+        let child_final = heap.get(promoted_parent).unwrap().fields[0]
+            .as_reference()
+            .unwrap();
+        assert_eq!(heap.get(child_final).unwrap().class_name, "Child");
+    }
+
+    /// Helper: raw old-gen index for a remembered-set membership check.
+    fn old_raw_index(r: u64) -> usize {
+        usize::try_from(r & !OLD_BIT).unwrap()
+    }
+
+    /// Build an executor heap object whose queue holds a single task pointing at
+    /// `future_ref`/`task_ref`. Returns the executor object ref.
+    fn make_executor_with_task(heap: &mut Heap, future_ref: u64, task_ref: u64) -> u64 {
+        let exec_ref = heap.allocate("Executor".to_string(), 0);
+        heap.get_mut(exec_ref).unwrap().atomic_payload = Some(AtomicPayload::executor(1));
+        let Some(AtomicPayload::Executor(shared)) =
+            &heap.get(exec_ref).unwrap().atomic_payload
+        else {
+            panic!("expected executor payload");
+        };
+        shared
+            .state
+            .lock()
+            .unwrap()
+            .queue
+            .push_back(ExecutorTask {
+                future_ref,
+                task_ref,
+                kind: ExecutorTaskKind::Runnable,
+            });
+        exec_ref
+    }
+
+    /// Reads the single queued task from an executor object.
+    fn executor_task(heap: &Heap, exec_ref: u64) -> ExecutorTask {
+        let Some(AtomicPayload::Executor(shared)) =
+            &heap.get(exec_ref).unwrap().atomic_payload
+        else {
+            panic!("expected executor payload");
+        };
+        *shared.state.lock().unwrap().queue.front().unwrap()
+    }
+
+    /// A queued task keeps its referents alive through a minor GC even when they
+    /// are not otherwise reachable, and the bare queue refs are forwarded.
+    #[test]
+    fn executor_queue_roots_and_forwards_task_refs() {
+        let mut heap = test_heap_with_capacity(16);
+        heap.promotion_age = 0; // force promotion so the refs actually move
+
+        let future = heap.allocate("Future".to_string(), 0);
+        let task = heap.allocate("Runnable".to_string(), 0);
+        // Only the executor object is rooted; the task/future survive solely via
+        // the executor's queue.
+        let exec = make_executor_with_task(&mut heap, future, task);
+
+        let exec_after = run_minor_gc(&mut heap, &[Slot::Reference(Some(exec))])[0]
+            .as_reference()
+            .unwrap();
+
+        let queued = executor_task(&heap, exec_after);
+        // The bare queue refs were rewritten to the survivors' new locations…
+        assert_ne!(queued.future_ref, future, "future_ref must be forwarded");
+        assert_ne!(queued.task_ref, task, "task_ref must be forwarded");
+        // …and still resolve to live objects of the right class.
+        assert_eq!(heap.get(queued.future_ref).unwrap().class_name, "Future");
+        assert_eq!(heap.get(queued.task_ref).unwrap().class_name, "Runnable");
+    }
+
+    /// The queue is rooted even when the executor object itself is unreachable:
+    /// worker threads hold the shared state independently, so queued tasks must
+    /// not be collected.
+    #[test]
+    fn executor_queue_survives_unreachable_executor_object() {
+        let mut heap = test_heap_with_capacity(16);
+        let future = heap.allocate("Future".to_string(), 0);
+        let task = heap.allocate("Runnable".to_string(), 0);
+        let exec = make_executor_with_task(&mut heap, future, task);
+
+        // Keep an independent Arc to the shared state, mirroring a worker thread.
+        let shared_arc = match &heap.get(exec).unwrap().atomic_payload {
+            Some(AtomicPayload::Executor(shared)) => Arc::clone(shared),
+            _ => panic!("expected executor payload"),
+        };
+
+        // Nothing is rooted — the executor object is unreachable this cycle.
+        run_minor_gc(&mut heap, &[]);
+
+        // The queued task refs were still forwarded to live survivors.
+        let queued = *shared_arc.state.lock().unwrap().queue.front().unwrap();
+        assert_eq!(heap.get(queued.future_ref).unwrap().class_name, "Future");
+        assert_eq!(heap.get(queued.task_ref).unwrap().class_name, "Runnable");
+    }
+
+    // ── Old-gen mark-compact (Phase 2) ────────────────────────────────────────
+
+    /// Push an object straight into the old gen for compaction tests, returning
+    /// its OLD_BIT-tagged reference.
+    fn push_old(heap: &mut Heap, class: &str, fields: Vec<Slot>) -> u64 {
+        heap.old.push(Some(HeapObject {
+            class_name: class.to_string(),
+            fields,
+            string_value: None,
+            atomic_payload: None,
+            marked: false,
+            age: 0,
+            forward: None,
+            identity_hash: None,
+        }));
+        (heap.old.len() as u64 - 1) | OLD_BIT
+    }
+
+    /// Remap a single ref through the heap's forwarding map (what the interpreter
+    /// does to every root after a collection).
+    fn remap(heap: &Heap, r: u64) -> u64 {
+        let mut slot = Slot::Reference(Some(r));
+        heap.apply_forward(&mut slot);
+        slot.as_reference().unwrap()
+    }
+
+    /// Fragmenting workload: 100 old objects, keep every 4th, compact. Asserts
+    /// the free list fragments past threshold, then compaction preserves every
+    /// survivor's data, shrinks the backing store to the live count, drops
+    /// fragmentation to zero, and leaves a single dense trailing region that
+    /// fresh promotions bump into.
+    #[test]
+    fn old_gen_compaction_reclaims_and_preserves_survivors() {
+        let mut heap = Heap::new();
+        let refs: Vec<u64> = (0..100)
+            .map(|i| push_old(&mut heap, "Old", vec![Slot::Int(i)]))
+            .collect();
+
+        // Keep every 4th object (25 survivors); the rest become free-list holes.
+        let keep_roots: Vec<Slot> = refs
+            .iter()
+            .step_by(4)
+            .map(|&r| Slot::Reference(Some(r)))
+            .collect();
+        heap.major_collect(&keep_roots);
+
+        assert_eq!(heap.old_slot_count(), 100);
+        assert!(
+            heap.fragmentation_ratio() > Heap::OLD_COMPACT_FRAGMENTATION_THRESHOLD,
+            "free list should be fragmented past threshold, was {}",
+            heap.fragmentation_ratio()
+        );
+        assert!(heap.should_compact_old());
+
+        let before = heap.old_slot_count();
+        heap.compact_old(&keep_roots);
+        let after = heap.old_slot_count();
+        // Observation for the PR writeup: old-gen backing store before vs after.
+        eprintln!("old-gen compaction: {before} slots -> {after} slots (25 live)");
+
+        assert_eq!(after, 25, "store shrinks to the live count");
+        assert_eq!(heap.old_live_count(), 25);
+        assert!(
+            (heap.fragmentation_ratio() - 0.0).abs() < f64::EPSILON,
+            "fragmentation must drop to zero after compaction"
+        );
+
+        // Every survivor's data is intact and its held root remaps correctly.
+        for (k, slot) in keep_roots.iter().enumerate() {
+            let old_ref = slot.as_reference().unwrap();
+            let new_ref = remap(&heap, old_ref);
+            assert_ne!(new_ref & OLD_BIT, 0, "survivor stays in old gen");
+            assert_eq!(
+                heap.get(new_ref).unwrap().fields[0],
+                Slot::Int(i32::try_from(k * 4).unwrap()),
+                "survivor #{k} lost its field data"
+            );
+        }
+
+        // The reclaimed space is one dense trailing region: 10 fresh promotions
+        // land contiguously at [25..35) with no scattered holes reused.
+        for i in 0..10u64 {
+            let obj = Heap::make_obj("New".to_string(), vec![Slot::Int(1000)], None);
+            let r = heap.promote_to_old(obj);
+            assert_eq!(r & !OLD_BIT, 25 + i, "promotion must bump the dense tail");
+        }
+        assert_eq!(heap.old_slot_count(), 35);
+    }
+
+    /// Compaction publishes OLD→OLD forwards through `forward_map` /
+    /// `has_pending_forwards`, exactly the channel the interpreter already drains
+    /// to patch external roots — so simulated roots remap and read identical data.
+    #[test]
+    fn old_gen_compaction_exposes_forwards_for_root_patching() {
+        let mut heap = Heap::new();
+        let refs: Vec<u64> = (0..90)
+            .map(|i| push_old(&mut heap, "Node", vec![Slot::Int(i * 7)]))
+            .collect();
+        // Keep every 3rd (30 survivors).
+        let keep_roots: Vec<Slot> = refs
+            .iter()
+            .step_by(3)
+            .map(|&r| Slot::Reference(Some(r)))
+            .collect();
+        heap.major_collect(&keep_roots);
+
+        assert!(
+            !heap.has_pending_forwards(),
+            "plain mark-sweep forwards nothing"
+        );
+
+        heap.compact_old(&keep_roots);
+
+        assert!(
+            heap.has_pending_forwards(),
+            "compaction must publish forwards for the interpreter to apply"
+        );
+        // Every published forward is an OLD→OLD mapping (no young keys leaked in).
+        for (k, v) in &heap.forward_map {
+            assert_ne!(k & OLD_BIT, 0, "forward key must be an old ref");
+            assert_ne!(v & OLD_BIT, 0, "forward value must be an old ref");
+        }
+
+        // A held root to a moved object (refs[3] = 2nd survivor) remaps and reads
+        // back the same data it carried before the move.
+        let moved = refs[3];
+        let remapped = remap(&heap, moved);
+        assert_ne!(remapped, moved, "2nd survivor must have moved");
+        assert_eq!(heap.get(remapped).unwrap().fields[0], Slot::Int(3 * 7));
+    }
+
+    /// A young object's field that points at an old object is rewritten when that
+    /// old object is relocated by compaction (young→old edge).
+    #[test]
+    fn old_gen_compaction_rewrites_young_to_old_edges() {
+        let mut heap = Heap::new();
+        // Two old survivors + one garbage object between them so the second
+        // survivor actually moves.
+        let keep0 = push_old(&mut heap, "Old0", vec![Slot::Int(1)]);
+        let garbage = push_old(&mut heap, "Garbage", vec![]);
+        let keep1 = push_old(&mut heap, "Old1", vec![Slot::Int(2)]);
+        let _ = garbage;
+
+        // A young object referencing the second (moving) old survivor.
+        let young = heap.allocate("Young".to_string(), 1);
+        heap.write_field(young, 0, Slot::Reference(Some(keep1))).unwrap();
+
+        let keep_roots = [Slot::Reference(Some(keep0)), Slot::Reference(Some(keep1))];
+        heap.compact_old(&keep_roots);
+
+        let new_keep1 = remap(&heap, keep1);
+        assert_ne!(new_keep1, keep1, "referenced old object must have moved");
+        // The young object's field now points at the relocated old object.
+        let field = heap.get(young).unwrap().fields[0].as_reference().unwrap();
+        assert_eq!(field, new_keep1, "young→old field must be rewritten");
+        assert_eq!(heap.get(field).unwrap().fields[0], Slot::Int(2));
+    }
+
+    /// An object's identity hash is preserved verbatim across an old-gen move.
+    #[test]
+    fn old_gen_compaction_preserves_identity_hash() {
+        let mut heap = Heap::new();
+        let garbage = push_old(&mut heap, "Garbage", vec![]);
+        let obj = push_old(&mut heap, "Keep", vec![Slot::Int(42)]);
+        let _ = garbage;
+
+        let hash_before = heap.identity_hash(obj).unwrap();
+
+        heap.compact_old(&[Slot::Reference(Some(obj))]);
+
+        let moved = remap(&heap, obj);
+        assert_ne!(moved, obj, "object must have moved");
+        assert_eq!(
+            heap.identity_hash(moved).unwrap(),
+            hash_before,
+            "identity hash must ride along with the moved object"
+        );
+    }
+
+    /// The remembered set is re-indexed across compaction, so an old→young edge
+    /// held by a relocated old object still keeps its young referent alive on the
+    /// next minor GC.
+    #[test]
+    fn old_gen_compaction_remaps_remembered_set() {
+        let mut heap = test_heap_with_capacity(64);
+        let garbage = push_old(&mut heap, "Garbage", vec![]);
+        let holder = push_old(&mut heap, "Holder", vec![Slot::Int(0)]);
+        let _ = garbage;
+
+        // A young object referenced only by the old `holder` (old→young edge).
+        let young = heap.allocate("Payload".to_string(), 0);
+        heap.write_field(holder, 0, Slot::Reference(Some(young))).unwrap();
+        let holder_idx = (holder & !OLD_BIT) as usize;
+        assert!(heap.remembered_set.contains(&holder_idx));
+
+        heap.compact_old(&[Slot::Reference(Some(holder))]);
+
+        let new_holder = remap(&heap, holder);
+        let new_idx = (new_holder & !OLD_BIT) as usize;
+        assert_ne!(new_idx, holder_idx, "holder must have moved");
+        assert!(
+            heap.remembered_set.contains(&new_idx),
+            "remembered set must track the holder's new index"
+        );
+        assert!(
+            !heap.remembered_set.contains(&holder_idx),
+            "stale remembered-set index must be dropped"
+        );
+
+        // The old→young edge still protects the young object on a minor GC even
+        // though `young` is not directly rooted.
+        run_minor_gc(&mut heap, &[Slot::Reference(Some(new_holder))]);
+        let edge = heap.get(new_holder).unwrap().fields[0].as_reference().unwrap();
+        assert_eq!(heap.get(edge).unwrap().class_name, "Payload");
+    }
+
+    /// Executor task-queue refs (bare OLD u64s) are treated as roots and
+    /// rewritten across compaction, so queued-but-unrun tasks stay valid.
+    #[test]
+    fn old_gen_compaction_rewrites_executor_queue_refs() {
+        let mut heap = Heap::new();
+        // Interleave garbage so future/task both slide down.
+        let _g0 = push_old(&mut heap, "Garbage", vec![]);
+        let future = push_old(&mut heap, "Future", vec![]);
+        let _g1 = push_old(&mut heap, "Garbage", vec![]);
+        let task = push_old(&mut heap, "Runnable", vec![]);
+
+        // The future/task survive solely via the executor's queue.
+        let exec = make_executor_with_task(&mut heap, future, task);
+
+        heap.compact_old(&[]);
+
+        let queued = executor_task(&heap, exec);
+        assert_ne!(queued.future_ref, future, "future_ref must be forwarded");
+        assert_ne!(queued.task_ref, task, "task_ref must be forwarded");
+        assert_eq!(heap.get(queued.future_ref).unwrap().class_name, "Future");
+        assert_eq!(heap.get(queued.task_ref).unwrap().class_name, "Runnable");
+    }
+
+    /// End-to-end: minor GC promotes survivors to old, then a compacting major GC
+    /// drops one and slides the rest, with every held root remapping to intact
+    /// data.
+    #[test]
+    fn minor_promotion_then_compacting_major_preserves_integrity() {
+        let mut heap = test_heap_with_capacity(8);
+        heap.promotion_age = 0; // promote on first survival
+
+        let a = heap.allocate("A".to_string(), 1);
+        let b = heap.allocate("B".to_string(), 1);
+        let c = heap.allocate("C".to_string(), 1);
+        heap.write_field(a, 0, Slot::Int(10)).unwrap();
+        heap.write_field(b, 0, Slot::Int(20)).unwrap();
+        heap.write_field(c, 0, Slot::Int(30)).unwrap();
+
+        // Minor GC: all three promote to old gen.
+        let promoted = run_minor_gc(
+            &mut heap,
+            &[
+                Slot::Reference(Some(a)),
+                Slot::Reference(Some(b)),
+                Slot::Reference(Some(c)),
+            ],
+        );
+        let (pa, pc) = (promoted[0], promoted[2]);
+        assert_ne!(pa.as_reference().unwrap() & OLD_BIT, 0);
+
+        // Compacting major GC keeping only A and C — B is reclaimed, C slides.
+        heap.major_collect_compacting(&[pa, pc]);
+
+        let na = remap(&heap, pa.as_reference().unwrap());
+        let nc = remap(&heap, pc.as_reference().unwrap());
+        assert_eq!(heap.get(na).unwrap().fields[0], Slot::Int(10));
+        assert_eq!(heap.get(nc).unwrap().fields[0], Slot::Int(30));
+        assert_eq!(heap.old_slot_count(), 2, "store holds exactly A and C");
+        assert_eq!(heap.old_live_count(), 2);
+    }
+
+    /// The normal `collect()` path upgrades to compaction once the old gen is
+    /// fragmented past threshold, driven only through the public API the
+    /// interpreter uses.
+    #[test]
+    fn collect_auto_compacts_when_old_gen_fragmented() {
+        let mut heap = Heap::new();
+        let refs: Vec<u64> = (0..100)
+            .map(|i| push_old(&mut heap, "Old", vec![Slot::Int(i)]))
+            .collect();
+        // Root only 20 objects; collect() sweeps 80 → 0.8 fragmentation → compacts.
+        let roots: Vec<Slot> = refs
+            .iter()
+            .step_by(5)
+            .map(|&r| Slot::Reference(Some(r)))
+            .collect();
+
+        heap.collect(&roots);
+
+        assert_eq!(
+            heap.old_slot_count(),
+            20,
+            "collect() must compact a heavily fragmented old gen"
+        );
+        assert!((heap.fragmentation_ratio() - 0.0).abs() < f64::EPSILON);
+        for (k, slot) in roots.iter().enumerate() {
+            let new_ref = remap(&heap, slot.as_reference().unwrap());
+            assert_eq!(
+                heap.get(new_ref).unwrap().fields[0],
+                Slot::Int(i32::try_from(k * 5).unwrap())
+            );
+        }
+    }
+
+    /// The minor-only fast path is unaffected: a `collect()` that stays below the
+    /// fragmentation threshold never publishes an OLD forward key.
+    #[test]
+    fn collect_below_threshold_leaves_old_refs_untouched() {
+        let mut heap = test_heap_with_capacity(8);
+        heap.promotion_age = 0;
+        let r = heap.allocate("Keep".to_string(), 0);
+        heap.collect(&[Slot::Reference(Some(r))]);
+
+        assert!(!heap.should_compact_old(), "tiny heap must not compact");
+        for k in heap.forward_map.keys() {
+            assert_eq!(k & OLD_BIT, 0, "no OLD forward keys without compaction");
+        }
     }
 }
 #[cfg(test)]
