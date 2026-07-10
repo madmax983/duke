@@ -6668,6 +6668,96 @@ pub(crate) fn native_stream_collect(
         heap.get_mut(list_ref)?.fields[0] = Slot::Int(size);
         heap.get_mut(list_ref)?.fields.extend(elems);
         Ok(Some(Slot::Reference(Some(list_ref))))
+    } else if !collector_class.starts_with("duke/util/") {
+        // A real `java.util.stream.Collector` implementation (not one of Duke's
+        // synthetic `duke/util/*` markers) — e.g. a third-party collector such as
+        // commons-lang3 `LangCollectors.joining`. Drive the standard Collector
+        // protocol so the finisher actually runs, instead of returning the raw
+        // element container:
+        //   container = supplier().get();
+        //   for elem in elems { accumulator().accept(container, elem); }
+        //   result = finisher().apply(container);
+        let collector_ref = extract_ref_arg(args, 1)?;
+        let collector_slot = Slot::Reference(Some(collector_ref));
+
+        // container = collector.supplier().get()
+        let supplier = ops
+            .invoke(
+                heap,
+                out,
+                &collector_class,
+                "supplier",
+                "()Ljava/util/function/Supplier;",
+                vec![collector_slot],
+            )?
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(supplier_ref)) = supplier else {
+            return Err(Error::NullPointerException);
+        };
+        let supplier_class = heap.get(supplier_ref)?.class_name.clone();
+        let container = ops
+            .invoke(
+                heap,
+                out,
+                &supplier_class,
+                "get",
+                "()Ljava/lang/Object;",
+                vec![supplier],
+            )?
+            .unwrap_or(Slot::Reference(None));
+
+        // accumulator = collector.accumulator()
+        let accumulator = ops
+            .invoke(
+                heap,
+                out,
+                &collector_class,
+                "accumulator",
+                "()Ljava/util/function/BiConsumer;",
+                vec![collector_slot],
+            )?
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(acc_ref)) = accumulator else {
+            return Err(Error::NullPointerException);
+        };
+        let acc_class = heap.get(acc_ref)?.class_name.clone();
+        for elem in elems {
+            ops.invoke(
+                heap,
+                out,
+                &acc_class,
+                "accept",
+                "(Ljava/lang/Object;Ljava/lang/Object;)V",
+                vec![accumulator, container, elem],
+            )?;
+        }
+
+        // result = collector.finisher().apply(container)
+        let finisher = ops
+            .invoke(
+                heap,
+                out,
+                &collector_class,
+                "finisher",
+                "()Ljava/util/function/Function;",
+                vec![collector_slot],
+            )?
+            .unwrap_or(Slot::Reference(None));
+        let Slot::Reference(Some(fin_ref)) = finisher else {
+            // No finisher (should not happen for a well-formed Collector) — the
+            // container itself is the result (IDENTITY_FINISH semantics).
+            return Ok(Some(container));
+        };
+        let fin_class = heap.get(fin_ref)?.class_name.clone();
+        let result = ops.invoke(
+            heap,
+            out,
+            &fin_class,
+            "apply",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![finisher, container],
+        )?;
+        Ok(result.or(Some(Slot::Reference(None))))
     } else {
         // ToListCollector (default): collect into ArrayList.
         let list_ref = heap.allocate("java/util/ArrayList".to_string(), 1);

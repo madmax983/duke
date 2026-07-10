@@ -428,15 +428,14 @@ fn gson_smoke_runs_real_jar_bytecode() {
     );
 }
 
-// commons-lang3 now clears the former StringUtils.<clinit> regex blocker
-// (STRIP_ACCENTS_PATTERN = Pattern.compile("\\p{InCombiningDiacriticalMarks}+"),
-// now supported by native.rs translate_property_classes) and advances into
-// StringUtils.join. The next blocker is a thrown java/lang/ClassCastException:
-// a `checkcast (String)` inside org/apache/commons/lang3/StringUtils sees a
-// java/util/ArrayList where a java/lang/String is expected — a collections
-// modeling gap distinct from the regex work. We deterministically pin that exact
-// first blocker; if it turns into an explicit missing-native or moves again,
-// re-observe and update this pin.
+// commons-lang3 has now cleared both the former StringUtils.<clinit> regex
+// blocker and the subsequent StringUtils.join ClassCastException (a real
+// java.util.stream.Collector — LangCollectors.joining — is now driven through
+// its supplier/accumulator/finisher protocol by native_stream_collect instead
+// of returning the raw ArrayList container). StringUtils.join executes; the
+// next blocker is StringUtils.capitalize reaching an unimplemented native,
+// java/lang/Character.toTitleCase(I)I. We deterministically pin that exact
+// first blocker; if it moves again, re-observe and update this pin.
 #[test]
 fn commons_lang3_smoke_surfaces_next_missing_capability_explicitly() {
     let smoke = run_commons_lang3_smoke();
@@ -446,19 +445,19 @@ fn commons_lang3_smoke_surfaces_next_missing_capability_explicitly() {
     let rendered = render_smoke_error(&err);
 
     assert!(
-        !is_explicit_missing_slf4j_capability(&rendered),
-        "commons-lang3's next blocker is currently a thrown Java exception, not a \
-         missing native; if it turned explicit, re-observe and update this pin: {rendered}"
+        is_explicit_missing_slf4j_capability(&rendered),
+        "commons-lang3's next blocker is now an explicit missing native; if it \
+         changed shape, re-observe and update this pin: {rendered}"
     );
     assert_eq!(
-        rendered, "JavaException { class_name: \"java/lang/ClassCastException\" }",
-        "expected the next commons-lang3 blocker to stay pinned at the StringUtils.join \
-         checkcast (ArrayList vs String) now that the regex blocker is cleared"
+        rendered, "Unsupported native: java/lang/Character.toTitleCase(I)I",
+        "expected the next commons-lang3 blocker to stay pinned at StringUtils.capitalize's \
+         Character.toTitleCase now that the StringUtils.join ClassCastException is cleared"
     );
 }
 
 #[test]
-#[ignore = "Regex blocker cleared; now blocked on a ClassCastException at a StringUtils.join checkcast (ArrayList vs String); keep ignored until commons-lang3 happy path executes."]
+#[ignore = "Regex blocker and StringUtils.join ClassCastException cleared; now blocked on missing native java/lang/Character.toTitleCase(I)I in StringUtils.capitalize; keep ignored until commons-lang3 happy path executes."]
 fn commons_lang3_smoke_runs_real_jar_bytecode() {
     let smoke = run_commons_lang3_smoke();
 
