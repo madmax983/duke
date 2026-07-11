@@ -2166,7 +2166,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     let ps_out_ref = heap.allocate("java/io/PrintStream".to_string(), 1);
     let ps_err_ref = heap.allocate("java/io/PrintStream".to_string(), 1);
 
-    // Create java/lang/System ClassContext with static fields `out`, `err`, `lineSeparator`.
+    // Create java/lang/System ClassContext with stream static fields `out`, `err`, `in`.
+    //
+    // The stream slots start null and are seeded immediately below through the
+    // shared `set_system_stream` helper — the SAME store path the setOut0/setErr0
+    // natives use — so the System-init seeding code runs live on every startup
+    // rather than being a dead future-only code path. `System` itself stays on
+    // `KEEP_SYNTHETIC` this wave; see the setOut0/setErr0/setIn0 block below.
     let system_ctx = ClassContext {
         class_name: "java/lang/System".to_string(),
         super_class: Some("java/lang/Object".to_string()),
@@ -2183,10 +2189,16 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 descriptor: "Ljava/io/PrintStream;".to_string(),
                 is_static: true,
             },
+            FieldEntry {
+                name: "in".to_string(),
+                descriptor: "Ljava/io/InputStream;".to_string(),
+                is_static: true,
+            },
         ],
         static_fields: vec![
-            Slot::Reference(Some(ps_out_ref)),
-            Slot::Reference(Some(ps_err_ref)),
+            Slot::Reference(None),
+            Slot::Reference(None),
+            Slot::Reference(None),
         ],
         instance_field_count: 0,
         interfaces: Vec::new(),
@@ -2194,6 +2206,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(system_ctx);
+
+    // Seed System.out/err through the shared setOut0/setErr0 store path so the two
+    // heap-allocated PrintStreams land in the same `out`/`err` static slots as
+    // before (byte-identical). `in` intentionally stays null: nothing reads it
+    // today, and `setIn0` exists for the future real-layout migration wave.
+    seed_system_streams(registry, ps_out_ref, ps_err_ref);
+    register_system_stream_natives(registry);
 
     // Create java/io/PrintStream ClassContext (empty — all methods are native).
     let ps_ctx = ClassContext {
@@ -13800,4 +13819,286 @@ pub fn native_int_summary_stats_get_average(
         sum as f64 / count as f64
     };
     Ok(Some(Slot::Double(avg)))
+}
+
+// ---------------------------------------------------------------------------
+// System.out / System.err / System.in construction infrastructure.
+//
+// Scaffolding for the documented multi-wave migration of `java/lang/System` off
+// `KEEP_SYNTHETIC`. Real `java/lang/System.initPhase1()` installs the standard
+// streams by calling the native methods `setOut0(PrintStream)`,
+// `setErr0(PrintStream)` and `setIn0(InputStream)`, which store their argument
+// into the `out`/`err`/`in` static fields (bypassing `final`).
+//
+// Statics live in `ClassContext::static_fields` inside the `ClassRegistry`; a
+// native handler cannot reach the registry directly, but a *callback* native
+// receives `&mut dyn CallbackOps`, whose `write_static_field` resolves the slot
+// by name and stores into `registry.get_mut(class).static_fields[idx]` (the same
+// store `putstatic` performs). All three natives and the bootstrap seeder route
+// through the single `set_system_stream` helper below, so the store path is
+// genuine, live, and exercised on every VM startup. `System` STAYS synthetic
+// this wave — these natives are only invoked once `initPhase1` runs a future
+// wave, but the shared helper is proven live via bootstrap seeding + unit tests.
+// ---------------------------------------------------------------------------
+
+/// Store `stream_ref` into the named `java/lang/System` stream static field
+/// (`out`, `err`, or `in`), resolving the slot by name through the registry's
+/// static-field store. This is the ONE code path shared by the bootstrap seeder
+/// and the `setOut0`/`setErr0`/`setIn0` natives.
+///
+/// # Errors
+/// Returns an error if `java/lang/System` or the named field is not registered.
+fn set_system_stream(ops: &mut dyn CallbackOps, field_name: &str, stream_ref: Slot) -> Result<()> {
+    ops.write_static_field("java/lang/System", field_name, stream_ref)
+}
+
+/// Minimal [`CallbackOps`] adapter exposing only the registry-backed static
+/// store, so `bootstrap_stdlib` can seed `System.out`/`err` through the exact
+/// same [`set_system_stream`] path the natives use (instead of an inline
+/// `static_fields` assignment). Every other callback surface is unused at seed
+/// time.
+struct SystemSeedOps<'a> {
+    registry: &'a mut ClassRegistry,
+}
+
+impl CallbackOps for SystemSeedOps<'_> {
+    fn invoke(
+        &mut self,
+        _heap: &mut duke_gc::Heap,
+        _output: &mut dyn Write,
+        _class: &str,
+        _method: &str,
+        _descriptor: &str,
+        _args: Vec<Slot>,
+    ) -> Result<Option<Slot>> {
+        // Stream seeding never calls back into Java bytecode.
+        Ok(None)
+    }
+
+    fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+        Ok(())
+    }
+
+    fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+        Err(Error::Unimplemented {
+            mnemonic: "SystemSeedOps::inspect_class",
+        })
+    }
+
+    fn write_static_field(&mut self, class: &str, field_name: &str, value: Slot) -> Result<()> {
+        let slot = static_field_idx(self.registry.get(class)?, field_name)?;
+        self.registry.get_mut(class)?.static_fields[slot] = value;
+        Ok(())
+    }
+}
+
+/// Seed `System.out` and `System.err` with the pre-allocated `PrintStream` refs by
+/// driving the shared [`set_system_stream`] helper through [`SystemSeedOps`].
+///
+/// # Panics
+/// Panics only if `java/lang/System` was not registered with `out`/`err` static
+/// fields immediately before this call — a bootstrap invariant.
+fn seed_system_streams(registry: &mut ClassRegistry, out_ref: u64, err_ref: u64) {
+    let mut ops = SystemSeedOps { registry };
+    set_system_stream(&mut ops, "out", Slot::Reference(Some(out_ref)))
+        .expect("System.out static field must exist for bootstrap seeding");
+    set_system_stream(&mut ops, "err", Slot::Reference(Some(err_ref)))
+        .expect("System.err static field must exist for bootstrap seeding");
+}
+
+/// Register the `setOut0`/`setErr0`/`setIn0` static natives on `java/lang/System`.
+fn register_system_stream_natives(registry: &mut ClassRegistry) {
+    registry.natives_mut().register_callback(
+        "java/lang/System",
+        "setOut0",
+        "(Ljava/io/PrintStream;)V",
+        native_system_set_out0,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/System",
+        "setErr0",
+        "(Ljava/io/PrintStream;)V",
+        native_system_set_err0,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/System",
+        "setIn0",
+        "(Ljava/io/InputStream;)V",
+        native_system_set_in0,
+    );
+}
+
+/// Shared body for the `setOut0`/`setErr0`/`setIn0` static natives: store the
+/// single stream argument into the named `java/lang/System` static field.
+fn system_set_stream_native(
+    field_name: &str,
+    args: &[Slot],
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let stream_ref = args.first().copied().ok_or(Error::TypeMismatch {
+        expected: "Reference",
+        got: "missing argument",
+    })?;
+    set_system_stream(ops, field_name, stream_ref)?;
+    Ok(None)
+}
+
+/// `java/lang/System.setOut0(Ljava/io/PrintStream;)V` — install `System.out`.
+fn native_system_set_out0(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    system_set_stream_native("out", args, ops)
+}
+
+/// `java/lang/System.setErr0(Ljava/io/PrintStream;)V` — install `System.err`.
+fn native_system_set_err0(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    system_set_stream_native("err", args, ops)
+}
+
+/// `java/lang/System.setIn0(Ljava/io/InputStream;)V` — install `System.in`.
+fn native_system_set_in0(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    system_set_stream_native("in", args, ops)
+}
+
+#[cfg(test)]
+mod system_stream_seed_tests {
+    use super::*;
+    use duke_gc::Heap;
+
+    /// Read a `java/lang/System` stream static field by name.
+    fn system_stream(registry: &ClassRegistry, field: &str) -> Slot {
+        let ctx = registry.get("java/lang/System").expect("System registered");
+        let idx = static_field_idx(ctx, field).expect("stream field exists");
+        ctx.static_fields[idx]
+    }
+
+    #[test]
+    fn bootstrap_seeds_out_and_err_via_shared_helper() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        // out/err are seeded with live PrintStream refs through set_system_stream;
+        // in starts null (reserved for the future real-layout migration wave).
+        assert!(matches!(
+            system_stream(&registry, "out"),
+            Slot::Reference(Some(_))
+        ));
+        assert!(matches!(
+            system_stream(&registry, "err"),
+            Slot::Reference(Some(_))
+        ));
+        assert_eq!(system_stream(&registry, "in"), Slot::Reference(None));
+
+        // out and err are distinct PrintStream instances (byte-identical layout).
+        assert_ne!(
+            system_stream(&registry, "out"),
+            system_stream(&registry, "err")
+        );
+    }
+
+    #[test]
+    fn set_out0_native_updates_system_out_static() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let original_err = system_stream(&registry, "err");
+        let new_ps = heap.allocate("java/io/PrintStream".to_string(), 1);
+        let args = [Slot::Reference(Some(new_ps))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        {
+            let mut ops = SystemSeedOps {
+                registry: &mut registry,
+            };
+            native_system_set_out0(&args, &mut heap, &mut out, &mut control, &mut ops)
+                .expect("setOut0 stores the new stream");
+        }
+
+        assert_eq!(
+            system_stream(&registry, "out"),
+            Slot::Reference(Some(new_ps))
+        );
+        // err is untouched by setOut0.
+        assert_eq!(system_stream(&registry, "err"), original_err);
+    }
+
+    #[test]
+    fn set_err0_native_updates_system_err_static() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let new_ps = heap.allocate("java/io/PrintStream".to_string(), 1);
+        let args = [Slot::Reference(Some(new_ps))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        {
+            let mut ops = SystemSeedOps {
+                registry: &mut registry,
+            };
+            native_system_set_err0(&args, &mut heap, &mut out, &mut control, &mut ops)
+                .expect("setErr0 stores the new stream");
+        }
+
+        assert_eq!(
+            system_stream(&registry, "err"),
+            Slot::Reference(Some(new_ps))
+        );
+    }
+
+    #[test]
+    fn set_in0_native_updates_system_in_static() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        assert_eq!(system_stream(&registry, "in"), Slot::Reference(None));
+        let stdin_obj = heap.allocate("java/io/InputStream".to_string(), 0);
+        let args = [Slot::Reference(Some(stdin_obj))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        {
+            let mut ops = SystemSeedOps {
+                registry: &mut registry,
+            };
+            native_system_set_in0(&args, &mut heap, &mut out, &mut control, &mut ops)
+                .expect("setIn0 stores the new stream");
+        }
+
+        assert_eq!(
+            system_stream(&registry, "in"),
+            Slot::Reference(Some(stdin_obj))
+        );
+    }
+
+    #[test]
+    fn set_system_stream_helper_errors_on_unknown_field() {
+        let mut registry = ClassRegistry::new();
+        let mut heap = Heap::new();
+        bootstrap_stdlib(&mut registry, &mut heap);
+
+        let mut ops = SystemSeedOps {
+            registry: &mut registry,
+        };
+        let err = set_system_stream(&mut ops, "nonexistent", Slot::Reference(None)).unwrap_err();
+        assert!(matches!(err, Error::InvalidFieldref { .. }));
+    }
 }
