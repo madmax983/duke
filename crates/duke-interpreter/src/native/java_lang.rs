@@ -711,15 +711,16 @@ pub(crate) fn native_class_for_name_with_loader(
         .clone()
         .ok_or(Error::NullPointerException)?;
     let internal_name = binary_name_to_internal_name(&binary_name);
-    let (load_result, class_key) = match args.get(2) {
-        Some(Slot::Reference(Some(loader_ref))) => (
-            ops.ensure_loaded_with_runtime_loader(heap, *loader_ref, &internal_name),
-            ops.class_key_for_runtime_loader(heap, *loader_ref, &internal_name)?,
-        ),
-        Some(Slot::Reference(None)) | None => (
-            ops.ensure_loaded(&internal_name),
-            ops.class_key_for_loaded_class(&internal_name)?,
-        ),
+    // Determine the loader argument and attempt to load the class. The class key
+    // must be computed lazily (only after a successful load): computing it eagerly
+    // can itself raise `ClassNotFound` for an unloaded class, and that error would
+    // bypass the conversion below and surface as a fatal runtime error instead of a
+    // catchable `ClassNotFoundException`. Real code (e.g. commons-logging's backend
+    // probing) relies on `Class.forName` throwing a catchable exception for absent
+    // classes, so the not-found case must always resolve to a Java exception.
+    let loader_arg = match args.get(2) {
+        Some(Slot::Reference(loader)) => *loader,
+        None => None,
         _ => {
             return Err(Error::TypeMismatch {
                 expected: "Reference",
@@ -727,8 +728,18 @@ pub(crate) fn native_class_for_name_with_loader(
             });
         }
     };
+    let load_result = match loader_arg {
+        Some(loader_ref) => ops.ensure_loaded_with_runtime_loader(heap, loader_ref, &internal_name),
+        None => ops.ensure_loaded(&internal_name),
+    };
     match load_result {
         Ok(()) => {
+            let class_key = match loader_arg {
+                Some(loader_ref) => {
+                    ops.class_key_for_runtime_loader(heap, loader_ref, &internal_name)?
+                }
+                None => ops.class_key_for_loaded_class(&internal_name)?,
+            };
             let class_ref = allocate_class_object(heap, &class_key)?;
             Ok(Some(Slot::Reference(Some(class_ref))))
         }

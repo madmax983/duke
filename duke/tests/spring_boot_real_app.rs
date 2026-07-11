@@ -51,16 +51,23 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //   * APP now lands on `class not found: java/time/ZoneId` deep in logback's
 //     configuration path — a missing synthetic `java.time` class (stdlib
 //     date/time lane, not the interpreter method-dispatch lane).
-//   * LADDER cleared commons-logging `LogFactory.getFactory` once the minimal
-//     synthetic `java/lang/ref/WeakReference` landed (java.lang.ref
-//     reference-object native lane); it now lands on
-//     `class not found: org/apache/logging/slf4j/SLF4JProvider` — a missing
-//     log4j-to-slf4j binding provider class (logging-backend / service-provider
-//     lane, not the java.lang.ref lane).
+//   * LADDER cleared the commons-logging `LogFactory.newStandardFactory`
+//     `Class.forName("...SLF4JProvider", false, cl)` availability probe: the
+//     3-arg `Class.forName` native was eagerly computing the class key (which
+//     itself raises `ClassNotFound`) before the not-found result could be turned
+//     into a catchable `ClassNotFoundException`, so the probe crashed instead of
+//     returning "class absent". It now lands on
+//     `class not found: org/apache/logging/log4j/MarkerManager` — reached while
+//     initializing `Log4jApiLogFactory` (whose `<clinit>` calls
+//     `MarkerManager.getMarker`); a real JVM would raise a catchable
+//     `NoClassDefFoundError` (a `LinkageError`) that commons-logging catches and
+//     falls through on. Duke has no synthetic `NoClassDefFoundError`/`LinkageError`
+//     and surfaces class-resolution failures during bytecode execution as fatal
+//     errors (interpreter class-resolution / linkage-error lane).
 // If either boot advances past its pin, re-observe and update.
 // See docs/findings/2026-07-10-spring-boot-real-app.md.
 const APP_BLOCKER: &str = "class not found: java/time/ZoneId";
-const LADDER_BLOCKER: &str = "class not found: org/apache/logging/slf4j/SLF4JProvider";
+const LADDER_BLOCKER: &str = "class not found: org/apache/logging/log4j/MarkerManager";
 
 fn run_fixture(jar: &str) -> Output {
     let jar_path = spring_boot_fixture(jar);
@@ -137,10 +144,11 @@ fn spring_boot_app_surfaces_next_missing_capability_explicitly() {
 /// End-to-end CANARY for the commons-logging ladder fixture. Ignored until boot
 /// completes all rungs. Un-ignore when the happy path clears.
 #[test]
-#[ignore = "Blocked on missing class org/apache/logging/slf4j/SLF4JProvider (log4j-to-slf4j \
-            binding / service-provider lane; the java/lang/ref/WeakReference rung in \
-            commons-logging LogFactory.getFactory is now cleared); keep ignored until \
-            the ladder fixture completes. See docs/findings/2026-07-10-spring-boot-real-app.md"]
+#[ignore = "Blocked on missing class org/apache/logging/log4j/MarkerManager during \
+            Log4jApiLogFactory init (interpreter class-resolution / linkage-error lane; a real \
+            JVM raises a catchable NoClassDefFoundError here — the SLF4JProvider Class.forName \
+            probe rung is now cleared); keep ignored until the ladder fixture completes. \
+            See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_ladder_boots_end_to_end() {
     let output = run_fixture(LADDER_JAR);
     let combined = combined_output(&output);

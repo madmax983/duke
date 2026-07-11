@@ -22342,6 +22342,78 @@ fn native_class_for_name_with_loader_uses_binary_name() {
     );
 }
 
+/// Regression: a `Class.forName(name, false, cl)` availability probe for an absent
+/// class must surface a catchable `ClassNotFoundException`, even when computing the
+/// class identity key would itself raise `ClassNotFound`. The native previously
+/// computed the key eagerly (with `?`) alongside the load attempt, so a missing
+/// class made the key lookup fail first and propagate a fatal `ClassNotFound`
+/// instead of the mapped Java exception. Commons-logging's backend probing relies
+/// on the exception being catchable (e.g. the `SLF4JProvider`/`Log4jApiLogFactory`
+/// availability checks in `LogFactory.newStandardFactory`).
+#[test]
+fn native_class_for_name_missing_class_throws_even_when_key_lookup_fails() {
+    #[derive(Default)]
+    struct MissingKeyOps;
+
+    impl CallbackOps for MissingKeyOps {
+        fn invoke(
+            &mut self,
+            _heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            _args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            Ok(None)
+        }
+
+        fn ensure_loaded(&mut self, class: &str) -> Result<()> {
+            Err(Error::ClassNotFound {
+                name: class.to_string(),
+            })
+        }
+
+        // Mirrors the real registry: resolving the identity key for an unloaded
+        // class raises `ClassNotFound`. This must NOT escape as a fatal error.
+        fn class_key_for_loaded_class(&mut self, class: &str) -> Result<String> {
+            Err(Error::ClassNotFound {
+                name: class.to_string(),
+            })
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            unreachable!("inspect_class should not be used")
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let binary_name_ref = heap.allocate_string("org.apache.logging.slf4j.SLF4JProvider".to_string());
+    let mut ops = MissingKeyOps;
+
+    let result = native_class_for_name_with_loader(
+        &[
+            Slot::Reference(Some(binary_name_ref)),
+            Slot::Int(0),
+            Slot::Reference(None),
+        ],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+        &mut ops,
+    );
+
+    assert!(
+        matches!(
+            result,
+            Err(Error::JavaException { ref class_name })
+                if class_name == "java/lang/ClassNotFoundException"
+        ),
+        "missing class must throw catchable ClassNotFoundException, not a fatal error: {result:?}"
+    );
+}
+
 #[test]
 #[allow(clippy::too_many_lines)]
 fn native_class_for_name_with_loader_uses_loader_archive_not_global_default_code_source() {
