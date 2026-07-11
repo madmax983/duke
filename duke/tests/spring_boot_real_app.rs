@@ -48,11 +48,14 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // lane then cleared the inherited `java/lang/Object.getClass()` virtual dispatch
 // for interface-typed callsites, advancing the app fixture again. Current
 // frontiers:
-//   * APP cleared the logback timestamp `java/time/ZoneId` rung: a minimal
-//     synthetic `ZoneId` (UTC system default; `of`/`getId`/`toString`) landed
-//     without pulling in `ZoneRules`/tzdb. It now lands on
-//     `class not found: java/util/Locale` — a missing synthetic `java.util`
-//     class (java.util lane, not the java.time date/time lane).
+//   * APP cleared the logback timestamp `java/util/Locale` rung: a minimal
+//     synthetic `Locale` (fixed en-US default; `getDefault`/`getLanguage`/
+//     `getCountry`/`toString`) landed without pulling in CLDR/`ResourceBundle`.
+//     It now lands on
+//     `method not found: java/time/format/DateTimeFormatter.ofPattern(String)` —
+//     logback's `CachingDateFormatter` builds a pattern-based formatter, and the
+//     synthetic `DateTimeFormatter` only carries the ISO constant instances, not
+//     the `ofPattern` factory (java.time formatter lane).
 //   * LADDER cleared the commons-logging `LogFactory.newStandardFactory`
 //     `Class.forName("...SLF4JProvider", false, cl)` availability probe: the
 //     3-arg `Class.forName` native was eagerly computing the class key (which
@@ -68,7 +71,7 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //     errors (interpreter class-resolution / linkage-error lane).
 // If either boot advances past its pin, re-observe and update.
 // See docs/findings/2026-07-10-spring-boot-real-app.md.
-const APP_BLOCKER: &str = "class not found: java/util/Locale";
+const APP_BLOCKER: &str = "method not found: java/time/format/DateTimeFormatter.ofPattern(Ljava/lang/String;)Ljava/time/format/DateTimeFormatter;";
 const LADDER_BLOCKER: &str = "class not found: org/apache/logging/log4j/MarkerManager";
 
 fn run_fixture(jar: &str) -> Output {
@@ -98,9 +101,9 @@ fn combined_output(output: &Output) -> String {
 /// End-to-end CANARY for the real Spring Boot app fixture. Ignored until boot
 /// reaches the started-application line. Un-ignore when the happy path clears.
 #[test]
-#[ignore = "Blocked on missing synthetic java/util/Locale (java.util lane; the logback \
-            java/time/ZoneId date/time rung is now cleared); keep ignored until the \
-            Spring Boot app boot completes. \
+#[ignore = "Blocked on missing java/time/format/DateTimeFormatter.ofPattern(String) \
+            (java.time formatter lane; the logback java/util/Locale rung is now cleared); \
+            keep ignored until the Spring Boot app boot completes. \
             See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_app_boots_end_to_end() {
     let output = run_fixture(APP_JAR);

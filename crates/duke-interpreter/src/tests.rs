@@ -28373,12 +28373,18 @@ fn test_locale_get_default_is_en_us() {
     )
     .expect("toString should succeed")
     .expect("toString should return a String");
-    let (Slot::Reference(Some(lang_ref)), Slot::Reference(Some(country_ref)), Slot::Reference(Some(str_ref))) =
-        (language, country, to_string)
+    let (
+        Slot::Reference(Some(lang_ref)),
+        Slot::Reference(Some(country_ref)),
+        Slot::Reference(Some(str_ref)),
+    ) = (language, country, to_string)
     else {
         panic!("expected String references");
     };
-    assert_eq!(heap.get(lang_ref).unwrap().string_value.as_deref(), Some("en"));
+    assert_eq!(
+        heap.get(lang_ref).unwrap().string_value.as_deref(),
+        Some("en")
+    );
     assert_eq!(
         heap.get(country_ref).unwrap().string_value.as_deref(),
         Some("US")
