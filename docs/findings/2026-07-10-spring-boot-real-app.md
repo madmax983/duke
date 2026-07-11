@@ -62,22 +62,44 @@ synthetic system `ClassLoader` instance, cached in a static field), and base
 to the parent/default loader first). These advanced **both** fixtures several
 rungs. The frontier has now moved **out of the ClassLoader-native lane** on both:
 
+**Update 2026-07-11 (interpreter-dispatch + `java.lang.ref` rungs cleared):** two
+more rungs fell. (a) The `Object.getClass()` interface-dispatch bug is fixed —
+the invokeinterface native fallback now walks the receiver's super chain (mirroring
+invokevirtual), so an inherited `java/lang/Object` native resolves for an
+interface-typed callsite. (b) A minimal non-collecting synthetic
+`java/lang/ref/WeakReference` (strong-ref-backed) now round-trips its referent,
+clearing the commons-logging `LogFactory.getFactory` underflow. New frontiers:
+
 ```
 # app  (duke-spring-boot-app-3.5.12.jar) — new frontier:
-duke: runtime error: method not found: ch/qos/logback/classic/util/DefaultJoranConfigurator.getClass()Ljava/lang/Class;
+duke: runtime error: class not found: java/time/ZoneId
 
 # ladder (duke-spring-boot-ladder-3.5.12.jar) — new frontier:
+duke: runtime error: class not found: org/apache/logging/slf4j/SLF4JProvider
+```
+
+The **app** frontier is now a missing synthetic `java/time/ZoneId` (stdlib
+date/time lane) reached deeper in logback configuration. The **ladder** frontier is
+a missing `org/apache/logging/slf4j/SLF4JProvider` — the log4j-to-slf4j binding
+provider class (logging-backend / service-provider lane). Both are handoffs to
+other lanes.
+
+For history, the prior (2026-07-11) frontiers were:
+
+```
+# app  — inherited Object.getClass() interface dispatch (FIXED this branch):
+duke: runtime error: method not found: ch/qos/logback/classic/util/DefaultJoranConfigurator.getClass()Ljava/lang/Class;
+
+# ladder — WeakReference.get() underflow (FIXED this branch):
 duke: runtime error: operand stack underflow
 ```
 
-The **app** frontier is inherited `java/lang/Object.getClass()` virtual dispatch
-failing to resolve for a class loaded through the runtime `loadClass` path — an
-interpreter method-dispatch / class-identity issue (`execution.rs`), not a missing
-ClassLoader native. The **ladder** frontier is an `operand stack underflow` deep
-in real commons-logging `LogFactory.getFactory` at
+The app rung was inherited `java/lang/Object.getClass()` dispatch failing to
+resolve through an interface-typed callsite. The ladder rung was an
+`operand stack underflow` deep in real commons-logging `LogFactory.getFactory` at
 `java/lang/ref/WeakReference.get()Ljava/lang/Object;` (offset 188 → `checkcast` at
-191 underflows because `get()` returns no value) — a `java.lang.ref`
-reference-object native that is unimplemented. Both are handoffs to other lanes.
+191 underflows because `get()` returned no value) — an unimplemented
+`java.lang.ref` reference-object native.
 
 Previous divergence (**Update 2026-07-10, after #1320**), retained for history —
 the two fixtures diverged after #1320 advanced the app past `getSystemResources`:
@@ -109,8 +131,10 @@ under the default synthetic-stdlib path).
 | **1** | `method not found: java/lang/ClassLoader.getSystemResources(Ljava/lang/String;)Ljava/util/Enumeration;` — boot reaches classpath scanning, no banner. | `getSystemResources` is a **missing synthetic method** on the synthetic `java/lang/ClassLoader` in `stdlib.rs`. The resource-enumeration API surface (`getResource(s)`, `getSystemResource(s)`, `getResourceAsStream`) is incomplete. | **CLEARED for app by #1320; CLEARED for ladder here** — `native_class_loader_get_system_resources` added (mirrors `getResources` with `None` loader). | synthetic-stdlib / native — `java_lang` (`ClassLoader` resource API) |
 | **1a** | `method not found: java/lang/ClassLoader.getSystemClassLoader()Ljava/lang/ClassLoader;` — app fixture's first blocker after #1320. | `getSystemClassLoader` missing on synthetic `java/lang/ClassLoader`. | **CLEARED here** — `native_class_loader_get_system_class_loader` returns one stable synthetic `ClassLoader` cached in a new static field. | synthetic-stdlib / native — `java_lang` (`ClassLoader` static/system-loader API) |
 | **1b** | `method not found: java/lang/ClassLoader.loadClass(Ljava/lang/String;)Ljava/lang/Class;` — app, after 1a cleared. | Base `ClassLoader.loadClass` missing on synthetic `java/lang/ClassLoader`. | **CLEARED here** — registered `native_url_class_loader_load_class` (parent-first delegation) for base `ClassLoader.loadClass`. | synthetic-stdlib / native — `java_lang` (`ClassLoader`) |
-| **1c** | `method not found: ch/qos/logback/classic/util/DefaultJoranConfigurator.getClass()Ljava/lang/Class;` — app, after 1b cleared. No banner yet. | Inherited `java/lang/Object.getClass()` virtual/interface dispatch fails to resolve for a class loaded through the runtime `loadClass` path — the hierarchy walk does not reach the `java/lang/Object` native (class-identity / method-dispatch). | **OBSERVED — current app pin. HANDOFF** to interpreter method-dispatch / class-identity lane (`execution.rs`). | execution.rs virtual/interface dispatch + class-key identity |
-| **1d** | `operand stack underflow` — ladder, after `getSystemResources` cleared. Deep in real commons-logging `LogFactory.getFactory`. | `java/lang/ref/WeakReference.get()Ljava/lang/Object;` returns no value (offset 188), so the following `checkcast` (191) underflows. Reference-object native unimplemented. | **OBSERVED — current ladder pin. HANDOFF** to `java.lang.ref` reference-object native lane. | native / stdlib — `java.lang.ref` (`Reference`/`WeakReference`) |
+| **1c** | `method not found: ch/qos/logback/classic/util/DefaultJoranConfigurator.getClass()Ljava/lang/Class;` — app, after 1b cleared. | Inherited `java/lang/Object.getClass()` invoked through an **interface-typed** callsite (`Configurator.getClass()`): the invokeinterface native fallback probed only the receiver class and the interface directly — never the receiver's super chain — so the `java/lang/Object.getClass` native was never found. | **CLEARED here** — `lookup_native_kind_in_super_chain` added; invokeinterface native fallback now walks the super chain like invokevirtual. | execution.rs interface dispatch (native fallback) |
+| **1d** | `operand stack underflow` — ladder, after `getSystemResources` cleared. Deep in real commons-logging `LogFactory.getFactory`. | `java/lang/ref/WeakReference.get()Ljava/lang/Object;` returned no value (offset 188), so the following `checkcast` (191) underflowed. Reference-object native unimplemented. | **CLEARED here** — minimal non-collecting synthetic `java/lang/ref/Reference`/`WeakReference` (strong-ref-backed `referent` slot; `<init>`/`get`/`clear`). | native / stdlib — `java.lang.ref` (`Reference`/`WeakReference`) |
+| **1e** | `class not found: java/time/ZoneId` — app, after 1c cleared. Deeper in logback configuration. | Synthetic `java.time` surface incomplete — `java/time/ZoneId` is not registered. | **OBSERVED — current app pin. HANDOFF** to stdlib date/time lane. | native / stdlib — `java_time` (`ZoneId`) |
+| **1f** | `class not found: org/apache/logging/slf4j/SLF4JProvider` — ladder, after 1d cleared. | The log4j-to-slf4j binding's `SLF4JProvider` is not resolvable — a logging-backend provider class discovered via the SLF4J `ServiceLoader`/provider mechanism is missing from the classpath resolution path. | **OBSERVED — current ladder pin. HANDOFF** to logging-backend / service-provider lane. | logging-backend / service-provider (classpath resolution) |
 | **2** | `--real-jdk` probe: getfield slot 10 out of bounds on a `java/net/URL` allocated with 1 slot where real `URL` bytecode expects 13 (`crates/duke-interpreter/src/execution.rs:1600`). | Synthetic-vs-real **object-layout coherence** boundary: `java/net/URL` is allocated synthetically (1 slot) but real `URL` bytecode indexes its full 13-field layout. | **INFERRED** (seen only under `--real-jdk`, past blocker #1) | native / stdlib object-layout — `java_net` (`URL`) |
 | **3** | Resource enumeration + `META-INF/spring.factories` and `META-INF/spring/…AutoConfiguration.imports` discovery returning empty/failing. | Spring's `SpringFactoriesLoader` / `ImportCandidates` walk **every** classpath entry via `ClassLoader.getResources`; requires working nested-jar resource enumeration (depends on #1). | **INFERRED** | java_util + classloader/registry (resource enumeration) |
 | **4** | Heavy `java.lang.reflect` use during auto-configuration: `Constructor.newInstance`, `Method.invoke`, annotation reads, `Class.forName` fan-out. | `SpringApplication.run` instantiates and wires beans almost entirely reflectively; annotation metadata is read via reflection/ASM. | **INFERRED** | reflect (`java_lang_reflect`) + `java_lang` (`Class`) |
@@ -169,8 +193,10 @@ regression witnesses, but the fix is generic.
 | #1 `ClassLoader.getSystemResources` missing | synthetic-stdlib `java_lang` — `ClassLoader` resource API (`stdlib.rs`) | **CLEARED (app #1320, ladder this branch)** |
 | #1a `ClassLoader.getSystemClassLoader` missing | synthetic-stdlib `java_lang` — `ClassLoader` static/system-loader API (`stdlib.rs`) | **CLEARED (this branch)** |
 | #1b `ClassLoader.loadClass` missing | synthetic-stdlib `java_lang` — `ClassLoader` (`stdlib.rs`) | **CLEARED (this branch)** |
-| #1c `Object.getClass()` dispatch on loadClass-loaded class | execution.rs virtual/interface dispatch + class-identity | **HANDOFF — current app pin** |
-| #1d `WeakReference.get()` underflow in commons-logging | native — `java.lang.ref` reference-object | **HANDOFF — current ladder pin** |
+| #1c `Object.getClass()` interface-callsite dispatch | execution.rs interface dispatch (native fallback super-chain walk) | **CLEARED (this branch)** |
+| #1d `WeakReference.get()` underflow in commons-logging | native — `java.lang.ref` reference-object | **CLEARED (this branch)** |
+| #1e `class not found: java/time/ZoneId` | native / stdlib — `java_time` (`ZoneId`) | **HANDOFF — current app pin** |
+| #1f `class not found: org/apache/logging/slf4j/SLF4JProvider` | logging-backend / service-provider (classpath resolution) | **HANDOFF — current ladder pin** |
 | #2 `java/net/URL` layout coherence | native / stdlib object-layout — `java_net` (`URL`) | inferred |
 | #3 `spring.factories` / `AutoConfiguration.imports` resource enumeration | java_util + classloader/registry | inferred |
 | #4 reflective bean instantiation / annotations | reflect (`java_lang_reflect`) + `java_lang` (`Class`) | inferred |
@@ -193,11 +219,10 @@ fixture:
   `spring_boot_ladder_surfaces_next_missing_capability_explicitly`. Each asserts
   the process still fails at **exactly** the current blocker. As of #1320 the
   two fixtures diverge, so the pins assert per-fixture constants. As of this
-  branch (ClassLoader rungs cleared) they are:
-  `APP_BLOCKER = "method not found: ch/qos/logback/classic/util/DefaultJoranConfigurator.getClass()Ljava/lang/Class;"`
+  branch (getClass interface-dispatch + `WeakReference` rungs cleared) they are:
+  `APP_BLOCKER = "class not found: java/time/ZoneId"`
   and
-  `LADDER_BLOCKER = "operand stack underflow"` (the `WeakReference.get()` underflow
-  in commons-logging `LogFactory.getFactory`).
+  `LADDER_BLOCKER = "class not found: org/apache/logging/slf4j/SLF4JProvider"`.
   If boot advances (or regresses) past those strings, the pin **trips**, forcing a
   re-observe and an update to this doc.
 

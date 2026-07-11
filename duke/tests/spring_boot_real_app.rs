@@ -51,13 +51,16 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //   * APP now lands on `class not found: java/time/ZoneId` deep in logback's
 //     configuration path — a missing synthetic `java.time` class (stdlib
 //     date/time lane, not the interpreter method-dispatch lane).
-//   * LADDER now runs deep into real commons-logging `LogFactory.getFactory` and
-//     hits an `operand stack underflow` when `java/lang/ref/WeakReference.get()`
-//     returns no value (java.lang.ref reference-object native lane).
+//   * LADDER cleared commons-logging `LogFactory.getFactory` once the minimal
+//     synthetic `java/lang/ref/WeakReference` landed (java.lang.ref
+//     reference-object native lane); it now lands on
+//     `class not found: org/apache/logging/slf4j/SLF4JProvider` — a missing
+//     log4j-to-slf4j binding provider class (logging-backend / service-provider
+//     lane, not the java.lang.ref lane).
 // If either boot advances past its pin, re-observe and update.
 // See docs/findings/2026-07-10-spring-boot-real-app.md.
 const APP_BLOCKER: &str = "class not found: java/time/ZoneId";
-const LADDER_BLOCKER: &str = "operand stack underflow";
+const LADDER_BLOCKER: &str = "class not found: org/apache/logging/slf4j/SLF4JProvider";
 
 fn run_fixture(jar: &str) -> Output {
     let jar_path = spring_boot_fixture(jar);
@@ -134,11 +137,10 @@ fn spring_boot_app_surfaces_next_missing_capability_explicitly() {
 /// End-to-end CANARY for the commons-logging ladder fixture. Ignored until boot
 /// completes all rungs. Un-ignore when the happy path clears.
 #[test]
-#[ignore = "Blocked on operand stack underflow when java/lang/ref/WeakReference.get() \
-            returns no value deep in commons-logging LogFactory.getFactory \
-            (java.lang.ref reference-object native lane; the ClassLoader \
-            getSystemResources rung is now cleared); keep ignored until the ladder \
-            fixture completes. See docs/findings/2026-07-10-spring-boot-real-app.md"]
+#[ignore = "Blocked on missing class org/apache/logging/slf4j/SLF4JProvider (log4j-to-slf4j \
+            binding / service-provider lane; the java/lang/ref/WeakReference rung in \
+            commons-logging LogFactory.getFactory is now cleared); keep ignored until \
+            the ladder fixture completes. See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_ladder_boots_end_to_end() {
     let output = run_fixture(LADDER_JAR);
     let combined = combined_output(&output);

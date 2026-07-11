@@ -1186,6 +1186,7 @@ fn invokevirtual_missing_loaded_method_returns_method_not_found() {
 /// interface directly — never the super chain — so `Object.getClass` was never
 /// found and dispatch raised `MethodNotFound`.
 #[test]
+#[allow(clippy::too_many_lines)]
 fn invokeinterface_getclass_resolves_inherited_object_native_via_super_chain() {
     use duke_classfile::CpIndex;
     use std::collections::HashMap;
@@ -1320,6 +1321,116 @@ fn invokeinterface_getclass_resolves_inherited_object_native_via_super_chain() {
         class_internal_name_from_ref(&heap, class_ref).unwrap(),
         "CfgImpl",
         "getClass() must report the receiver's concrete runtime class"
+    );
+}
+
+/// The minimal synthetic `java/lang/ref/WeakReference` round-trips its referent:
+/// `new WeakReference(x)` then `.get()` returns `x`. Mirrors commons-logging's
+/// `thisClassLoaderRef` (a static `WeakReference<ClassLoader>` it constructs once
+/// and only ever reads back). `get()` resolves on the `Reference` base via the
+/// receiver's super chain. This is a NON-COLLECTING strong-ref-backed stub.
+#[test]
+fn weak_reference_get_round_trips_referent() {
+    use duke_classfile::CpIndex;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    // CP: new/init/get for java/lang/ref/WeakReference.
+    let cp = make_cp(vec![
+        Some(CpEntry::Class {
+            name_index: CpIndex(2),
+        }),
+        Some(CpEntry::Utf8("java/lang/ref/WeakReference".to_string())),
+        Some(CpEntry::Methodref {
+            class_index: CpIndex(1),
+            name_and_type_index: CpIndex(4),
+        }),
+        Some(CpEntry::NameAndType {
+            name_index: CpIndex(5),
+            descriptor_index: CpIndex(6),
+        }),
+        Some(CpEntry::Utf8("<init>".to_string())),
+        Some(CpEntry::Utf8("(Ljava/lang/Object;)V".to_string())),
+        Some(CpEntry::Methodref {
+            class_index: CpIndex(1),
+            name_and_type_index: CpIndex(8),
+        }),
+        Some(CpEntry::NameAndType {
+            name_index: CpIndex(9),
+            descriptor_index: CpIndex(10),
+        }),
+        Some(CpEntry::Utf8("get".to_string())),
+        Some(CpEntry::Utf8("()Ljava/lang/Object;".to_string())),
+    ]);
+    let instructions: Arc<[(usize, Instruction)]> = vec![
+        (0, Instruction::New(CpIndex(1))),
+        (3, Instruction::Dup),
+        (4, Instruction::Aload0), // referent (local 0)
+        (5, Instruction::Invokespecial(CpIndex(3))),
+        (8, Instruction::Invokevirtual(CpIndex(7))),
+        (11, Instruction::Areturn),
+    ]
+    .into();
+    let method = MethodEntry {
+        name: "roundTrip".to_string(),
+        descriptor: "(Ljava/lang/Object;)Ljava/lang/Object;".to_string(),
+        is_public: true,
+        is_static: true,
+        is_native: false,
+        is_abstract: false,
+        instructions: Arc::clone(&instructions),
+        max_stack: 3,
+        max_locals: 1,
+        exception_table: Vec::new(),
+        pc_to_idx: Arc::new(HashMap::from([
+            (0, 0),
+            (3, 1),
+            (4, 2),
+            (5, 3),
+            (8, 4),
+            (11, 5),
+        ])),
+        line_number_table: Vec::new(),
+        source_file: None,
+    };
+    let caller_ctx = ClassContext {
+        class_name: "TestWeakRef".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        interfaces: Vec::new(),
+        constant_pool: cp,
+        methods: vec![method],
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Classfile,
+    };
+
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    registry.register(caller_ctx);
+    let loader = fixtures_loader();
+
+    let referent = heap.allocate("java/lang/Object".to_string(), 0);
+    let mut sink: Vec<u8> = Vec::new();
+    let result = execute_class(
+        &mut registry,
+        &loader,
+        &mut heap,
+        &mut sink,
+        "TestWeakRef",
+        "roundTrip",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        &[Slot::Reference(Some(referent))],
+    )
+    .expect("WeakReference new/init/get should execute")
+    .expect("WeakReference.get should return the referent");
+
+    assert_eq!(
+        result,
+        Slot::Reference(Some(referent)),
+        "WeakReference.get() must return the exact referent stored at construction"
     );
 }
 

@@ -5124,3 +5124,54 @@ pub(crate) fn native_thread_local_remove(
     heap.get_mut(this_ref)?.fields[0] = Slot::Reference(None);
     Ok(None)
 }
+
+// ┌──────────────────────────────────────────────────────────────────────────┐
+// │ java/lang/ref reference objects (Spring Boot ladder / commons-logging     │
+// │ LogFactory.getFactory frontier)                                           │
+// │                                                                           │
+// │ NON-COLLECTING stub: the referent is held by an ordinary *strong* heap    │
+// │ field (slot 0 on java/lang/ref/Reference), so it is never reclaimed by GC │
+// │ — get() returns it until an explicit clear(). This deliberately omits     │
+// │ real weak-reachability semantics; it only needs to round-trip the         │
+// │ referent, which is all commons-logging's thisClassLoaderRef relies on.    │
+// └──────────────────────────────────────────────────────────────────────────┘
+
+/// `java/lang/ref/WeakReference.<init>(Ljava/lang/Object;)V` — store the referent
+/// (which may be null) in slot 0. Strong-ref-backed, non-collecting (see block
+/// header): the referent is retained until `clear()`.
+pub(crate) fn native_reference_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let referent = extract_slot_arg(args, 1);
+    heap.get_mut(this_ref)?.fields[0] = referent;
+    heap.remember_reference_write(this_ref, referent);
+    Ok(None)
+}
+
+/// `java/lang/ref/Reference.get()Ljava/lang/Object;` — return the stored referent
+/// (null after `clear()`). Non-collecting: never spontaneously returns null.
+pub(crate) fn native_reference_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(heap.get(this_ref)?.fields[0]))
+}
+
+/// `java/lang/ref/Reference.clear()V` — drop the referent so `get()` returns null.
+pub(crate) fn native_reference_clear(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Reference(None);
+    Ok(None)
+}

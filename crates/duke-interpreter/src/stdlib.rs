@@ -13455,6 +13455,69 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             .register("java/lang/ThreadLocal", method, descriptor, handler);
     }
 
+    // ┌──────────────────────────────────────────────────────────────────────┐
+    // │ java/lang/ref reference objects (Spring Boot ladder / commons-logging │
+    // │ LogFactory.getFactory WeakReference.get frontier)                     │
+    // └──────────────────────────────────────────────────────────────────────┘
+    // Minimal NON-COLLECTING Reference/WeakReference: the referent lives in a
+    // single strong-ref slot (field 0 on Reference) so get() round-trips it until
+    // clear(); no GC weak semantics. commons-logging caches its own defining
+    // ClassLoader in a static WeakReference and only ever reads it back, which a
+    // strong slot models faithfully. See native_reference_* in native/java_lang.rs.
+    let reference_ctx = ClassContext {
+        class_name: "java/lang/ref/Reference".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "referent".to_string(),
+            descriptor: "Ljava/lang/Object;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(reference_ctx);
+    // get()/clear() live on the Reference base; WeakReference inherits them (the
+    // referent slot is inherited, so a WeakReference instance carries one field).
+    for (method, descriptor, handler) in [
+        (
+            "get",
+            "()Ljava/lang/Object;",
+            native_reference_get as NativeHandler,
+        ),
+        ("clear", "()V", native_reference_clear),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/lang/ref/Reference", method, descriptor, handler);
+    }
+
+    let weak_reference_ctx = ClassContext {
+        class_name: "java/lang/ref/WeakReference".to_string(),
+        super_class: Some("java/lang/ref/Reference".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(weak_reference_ctx);
+    // Only the single-arg WeakReference(referent) constructor is exercised by the
+    // ladder (commons-logging's thisClassLoaderRef static initialiser).
+    registry.natives_mut().register(
+        "java/lang/ref/WeakReference",
+        "<init>",
+        "(Ljava/lang/Object;)V",
+        native_reference_init,
+    );
+
     // java/lang/Class.isAssignableFrom — hierarchy-walking reflection predicate
     // (gson uses it while resolving type adapters).
     registry.natives_mut().register_callback(
