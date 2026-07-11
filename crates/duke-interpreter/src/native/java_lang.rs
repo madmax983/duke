@@ -852,6 +852,56 @@ pub(crate) fn native_class_loader_get_resources(
     let enum_ref = allocate_resource_enumeration(heap, resources)?;
     Ok(Some(Slot::Reference(Some(enum_ref))))
 }
+/// Native: static `ClassLoader.getSystemResources(String)` — mirrors
+/// `native_class_loader_get_resources` but resolves against the system/bootstrap
+/// loader (passing `None`), matching `getSystemResourceAsStream` semantics.
+pub(crate) fn native_class_loader_get_system_resources(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let requested_name = string_arg(args, 0, heap)?;
+    let classpath = classpath_debug_label(None);
+    let Some(resolved_name) = normalize_resource_name(&requested_name) else {
+        log_resource_lookup_miss(&requested_name, "<system>", &classpath);
+        let enum_ref = allocate_resource_enumeration(heap, Vec::new())?;
+        return Ok(Some(Slot::Reference(Some(enum_ref))));
+    };
+    let resources = ops.find_resource_entries(heap, None, &resolved_name)?;
+    if resources.is_empty() {
+        log_resource_lookup_miss(&resolved_name, "<system>", &classpath);
+    }
+    let enum_ref = allocate_resource_enumeration(heap, resources)?;
+    Ok(Some(Slot::Reference(Some(enum_ref))))
+}
+/// Static-field name on the synthetic `java/lang/ClassLoader` caching the single
+/// system `ClassLoader` instance returned by `getSystemClassLoader`.
+pub(crate) const SYSTEM_CLASS_LOADER_FIELD: &str = "$dukeSystemClassLoader";
+/// Native: static `ClassLoader.getSystemClassLoader()` — returns a single stable
+/// synthetic system `ClassLoader` instance, allocated lazily on first use and
+/// cached in a static field so every call yields the same object identity.
+pub(crate) fn native_class_loader_get_system_class_loader(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    if let Slot::Reference(Some(existing)) =
+        ops.read_static_field("java/lang/ClassLoader", SYSTEM_CLASS_LOADER_FIELD)?
+    {
+        return Ok(Some(Slot::Reference(Some(existing))));
+    }
+    let loader_ref = heap.allocate("java/lang/ClassLoader".to_string(), 0);
+    ops.write_static_field(
+        "java/lang/ClassLoader",
+        SYSTEM_CLASS_LOADER_FIELD,
+        Slot::Reference(Some(loader_ref)),
+    )?;
+    Ok(Some(Slot::Reference(Some(loader_ref))))
+}
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_class_loader_register_as_parallel_capable(
     _args: &[Slot],

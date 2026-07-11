@@ -4247,8 +4247,14 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: Vec::new(),
-        static_fields: Vec::new(),
+        // Static-only field caching the single system ClassLoader instance
+        // returned by `getSystemClassLoader` (see SYSTEM_CLASS_LOADER_FIELD).
+        fields: vec![FieldEntry {
+            name: SYSTEM_CLASS_LOADER_FIELD.to_string(),
+            descriptor: "Ljava/lang/ClassLoader;".to_string(),
+            is_static: true,
+        }],
+        static_fields: vec![Slot::Reference(None)],
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
@@ -4284,6 +4290,29 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getSystemResourceAsStream",
         "(Ljava/lang/String;)Ljava/io/InputStream;",
         native_class_loader_get_system_resource_as_stream,
+    );
+    // ┌──────────────────────────────────────────────────────────────────────┐
+    // │ System ClassLoader accessors (Spring Boot ladder / app frontier)      │
+    // └──────────────────────────────────────────────────────────────────────┘
+    registry.natives_mut().register_callback(
+        "java/lang/ClassLoader",
+        "getSystemResources",
+        "(Ljava/lang/String;)Ljava/util/Enumeration;",
+        native_class_loader_get_system_resources,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/ClassLoader",
+        "getSystemClassLoader",
+        "()Ljava/lang/ClassLoader;",
+        native_class_loader_get_system_class_loader,
+    );
+    // Base `ClassLoader.loadClass` delegates to the parent/default loader first and
+    // then the receiver's runtime paths — exactly `native_url_class_loader_load_class`.
+    registry.natives_mut().register_callback(
+        "java/lang/ClassLoader",
+        "loadClass",
+        "(Ljava/lang/String;)Ljava/lang/Class;",
+        native_url_class_loader_load_class,
     );
 
     let thread_ctx = ClassContext {
