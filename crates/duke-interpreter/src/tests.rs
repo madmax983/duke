@@ -22389,7 +22389,8 @@ fn native_class_for_name_missing_class_throws_even_when_key_lookup_fails() {
 
     let mut heap = duke_gc::Heap::new();
     let mut sink: Vec<u8> = Vec::new();
-    let binary_name_ref = heap.allocate_string("org.apache.logging.slf4j.SLF4JProvider".to_string());
+    let binary_name_ref =
+        heap.allocate_string("org.apache.logging.slf4j.SLF4JProvider".to_string());
     let mut ops = MissingKeyOps;
 
     let result = native_class_for_name_with_loader(
@@ -28277,14 +28278,10 @@ fn test_treeset_stream() {
 fn test_zoneid_system_default_is_utc() {
     let mut heap = duke_gc::Heap::new();
     let mut sink: Vec<u8> = Vec::new();
-    let zone = native_zoneid_system_default(
-        &[],
-        &mut heap,
-        &mut sink,
-        &mut NativeControl::default(),
-    )
-    .expect("systemDefault should succeed")
-    .expect("systemDefault should return a ZoneId");
+    let zone =
+        native_zoneid_system_default(&[], &mut heap, &mut sink, &mut NativeControl::default())
+            .expect("systemDefault should succeed")
+            .expect("systemDefault should return a ZoneId");
     let Slot::Reference(Some(zone_ref)) = zone else {
         panic!("expected ZoneId reference");
     };
