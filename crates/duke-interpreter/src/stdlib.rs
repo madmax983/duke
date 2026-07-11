@@ -13816,6 +13816,43 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Class;)Ljava/lang/Object;",
         native_unsafe_allocate_instance,
     );
+
+    // ─── java.lang.Module (minimal unnamed-module model) ─────────────────────
+    // Intercept `Class.getModule()` and the `Module` accessors the real JDK
+    // `ServiceLoader` reaches under `real_jdk_shadow`. Every class lives in the
+    // shared unnamed module of the system class loader; `isNamed()==false` lets
+    // `ServiceLoader.checkCaller` skip the module-layer `uses` check. Handlers in
+    // `native/java_lang.rs`.
+    registry.natives_mut().register(
+        "java/lang/Class",
+        "getModule",
+        "()Ljava/lang/Module;",
+        native_class_get_module,
+    );
+    registry
+        .natives_mut()
+        .register("java/lang/Module", "isNamed", "()Z", native_module_is_named);
+    registry.natives_mut().register(
+        "java/lang/Module",
+        "getName",
+        "()Ljava/lang/String;",
+        native_module_get_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/Module",
+        "canUse",
+        "(Ljava/lang/Class;)Z",
+        native_module_can_use,
+    );
+    // jdk/internal/reflect/Reflection.getClassAccessFlags — real
+    // `Reflection.verifyMemberAccess` (reached from `ServiceLoader` after the
+    // module check) reads the declaring class's access flags to test public access.
+    registry.natives_mut().register_callback(
+        "jdk/internal/reflect/Reflection",
+        "getClassAccessFlags",
+        "(Ljava/lang/Class;)I",
+        native_reflection_get_class_access_flags,
+    );
 }
 
 // ─── Phase 88 natives ────────────────────────────────────────────────────────

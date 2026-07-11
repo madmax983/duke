@@ -32865,3 +32865,72 @@ fn native_reflect_field_get_modifiers_reports_transient_and_final() {
         "PRIVATE|FINAL|TRANSIENT surfaced (was PUBLIC/STATIC-only before)"
     );
 }
+
+#[test]
+fn native_class_get_module_returns_interned_unnamed_module() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let class_a = allocate_class_object(&mut heap, "com/example/A").unwrap();
+    let class_b = allocate_class_object(&mut heap, "com/example/B").unwrap();
+
+    let module_a = native_class_get_module(
+        &[Slot::Reference(Some(class_a))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .unwrap()
+    .unwrap();
+    let module_b = native_class_get_module(
+        &[Slot::Reference(Some(class_b))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .unwrap()
+    .unwrap();
+
+    // Every class shares the one unnamed-module instance (identity matters to
+    // ServiceLoader's module comparisons).
+    assert_eq!(module_a, module_b, "getModule() interns a single instance");
+
+    let Slot::Reference(Some(module_ref)) = module_a else {
+        panic!("expected a Module reference");
+    };
+    assert_eq!(heap.get(module_ref).unwrap().class_name, "java/lang/Module");
+
+    // isNamed() == false, getName() == null, canUse(..) == true.
+    let is_named = native_module_is_named(
+        &[module_a],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(is_named, Slot::Int(0), "unnamed module: isNamed() == false");
+
+    let name = native_module_get_name(
+        &[module_a],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        name,
+        Slot::Reference(None),
+        "unnamed module: getName() == null"
+    );
+
+    let can_use = native_module_can_use(
+        &[module_a, Slot::Reference(Some(class_b))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(can_use, Slot::Int(1), "unnamed module canUse(..) == true");
+}

@@ -241,3 +241,26 @@ pub(crate) fn native_vm_initialize(
     ops.write_static_field("jdk/internal/misc/VM", "initLevel", Slot::Int(SYSTEM_BOOTED))?;
     Ok(None)
 }
+/// Native: `jdk/internal/reflect/Reflection.getClassAccessFlags(Ljava/lang/Class;)I`.
+///
+/// Returns the raw `ClassFile.access_flags` (§4.1) of the argument class. Real
+/// `Reflection.verifyMemberAccess` — reached from `java.util.ServiceLoader` under
+/// `real_jdk_shadow` after the module check — calls this and tests
+/// `Modifier.isPublic(flags)` on the member's declaring class to decide access.
+/// Returning the real flags (via [`CallbackOps::inspect_class`]) makes that check
+/// observe the true `public`/non-public status; a synthetic stub with no classfile
+/// flags falls back to `ACC_PUBLIC`.
+pub(crate) fn native_reflection_get_class_access_flags(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let access_flags = ops
+        .inspect_class(&internal_name)
+        .map_or(SYNTHETIC_CLASS_ACCESS_FLAGS, |info| info.access_flags);
+    Ok(Some(Slot::Int(i32::from(access_flags))))
+}
