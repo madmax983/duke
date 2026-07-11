@@ -264,6 +264,7 @@ pub struct ReflectedMethodInfo {
 ///     descriptor: "I".to_string(),
 ///     is_public: false,
 ///     is_static: true,
+///     access_flags: 0x0008,
 ///     annotations: vec![],
 /// };
 /// ```
@@ -277,6 +278,11 @@ pub struct ReflectedFieldInfo {
     pub is_public: bool,
     /// True if the field has the `ACC_STATIC` modifier.
     pub is_static: bool,
+    /// The raw `field_info.access_flags` u16 from the classfile (§4.5), so
+    /// reflection can report the full modifier set (including `ACC_FINAL` /
+    /// `ACC_TRANSIENT` / `ACC_VOLATILE`), not just public/static. Zero when the
+    /// declaring class is a synthetic stub carrying no classfile flags.
+    pub access_flags: u16,
     /// Runtime-visible annotations declared directly on the field.
     pub annotations: Vec<ReflectedAnnotation>,
 }
@@ -373,6 +379,7 @@ pub enum ReflectedAnnotationConst {
 ///     interfaces: vec!["java/io/Serializable".to_string()],
 ///     methods: vec![],
 ///     fields: vec![],
+///     access_flags: 0x0001,
 ///     annotations: vec![],
 /// };
 /// ```
@@ -390,6 +397,11 @@ pub struct ReflectedClassInfo {
     pub methods: Vec<ReflectedMethodInfo>,
     /// All fields explicitly declared by this class (excluding inherited).
     pub fields: Vec<ReflectedFieldInfo>,
+    /// The raw `ClassFile.access_flags` u16 (§4.1), so `Class.getModifiers` /
+    /// `Class.isInterface` can report the real class modifiers instead of a
+    /// hardcoded `ACC_PUBLIC`. `ACC_PUBLIC` for a synthetic stub with no
+    /// classfile flags (matching the legacy default).
+    pub access_flags: u16,
     /// Runtime-visible annotations declared directly on the class.
     pub annotations: Vec<ReflectedAnnotation>,
 }

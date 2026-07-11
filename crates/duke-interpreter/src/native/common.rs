@@ -10329,6 +10329,7 @@ fn reflected_class_info_from_loader(
                 descriptor,
                 is_public: field.access_flags.contains(FieldAccessFlags::PUBLIC),
                 is_static: field.access_flags.contains(FieldAccessFlags::STATIC),
+                access_flags: field.access_flags.bits(),
                 annotations: runtime_visible_annotations_from_attrs(
                     &class_file.constant_pool,
                     &field.attributes,
@@ -10353,6 +10354,7 @@ fn reflected_class_info_from_loader(
         interfaces,
         methods,
         fields,
+        access_flags: class_file.access_flags.bits(),
         annotations: runtime_visible_annotations_from_attrs(
             &class_file.constant_pool,
             &class_file.attributes,
@@ -10418,6 +10420,7 @@ fn inspect_reflected_class(
                     descriptor: field.descriptor.clone(),
                     is_public: true,
                     is_static: field.is_static,
+                    access_flags: synthetic_field_access_flags(field.is_static),
                     annotations: Vec::new(),
                 })
                 .collect();
@@ -10428,6 +10431,7 @@ fn inspect_reflected_class(
                 interfaces: ctx.interfaces.clone(),
                 methods,
                 fields,
+                access_flags: SYNTHETIC_CLASS_ACCESS_FLAGS,
                 annotations: Vec::new(),
             });
         }
@@ -10466,6 +10470,7 @@ fn inspect_reflected_class(
             descriptor: field.descriptor.clone(),
             is_public: true,
             is_static: field.is_static,
+            access_flags: synthetic_field_access_flags(field.is_static),
             annotations: Vec::new(),
         })
         .collect();
@@ -10477,6 +10482,7 @@ fn inspect_reflected_class(
         interfaces: ctx.interfaces.clone(),
         methods,
         fields,
+        access_flags: SYNTHETIC_CLASS_ACCESS_FLAGS,
         annotations: Vec::new(),
     })
 }
@@ -10487,6 +10493,51 @@ const REFLECTION_MEMBER_DESCRIPTOR_FIELD: usize = 2;
 const REFLECTION_MEMBER_PUBLIC_FIELD: usize = 3;
 const REFLECTION_MEMBER_STATIC_FIELD: usize = 4;
 const REFLECTION_MEMBER_ACCESSIBLE_FIELD: usize = 5;
+
+/// `ACC_INTERFACE` (§4.1) — set when a `Class` mirror denotes an interface.
+const ACC_INTERFACE: u16 = 0x0200;
+
+/// Classfile access flags reported for reflection over a synthetic (stub) class
+/// that carries no real classfile flags. Matches the legacy `Class.getModifiers`
+/// default of `ACC_PUBLIC`.
+const SYNTHETIC_CLASS_ACCESS_FLAGS: u16 = 0x0001;
+
+/// Reconstruct field access flags for a synthetic-class field so reflection over
+/// a stub keeps reporting the legacy default (public, plus static when applicable).
+const fn synthetic_field_access_flags(is_static: bool) -> u16 {
+    if is_static { 0x0001 | 0x0008 } else { 0x0001 }
+}
+
+/// The modifier bits `Class.getModifiers()` reports: the JLS recognized class
+/// modifiers (`ACC_PUBLIC|FINAL|INTERFACE|ABSTRACT|SYNTHETIC|ANNOTATION|ENUM`),
+/// with `ACC_SUPER` (0x0020) and `ACC_MODULE` (0x8000) masked off, matching the
+/// value `HotSpot`'s `JVM_GetClassModifiers` returns for a top-level class.
+const CLASS_MODIFIER_MASK: u16 =
+    0x0001 | 0x0010 | 0x0200 | 0x0400 | 0x1000 | 0x2000 | 0x4000;
+
+/// The modifier bits `Field.getModifiers()` reports
+/// (`JVM_RECOGNIZED_FIELD_MODIFIERS`): public/private/protected/static/final/
+/// volatile/transient/synthetic/enum.
+const FIELD_MODIFIER_MASK: u16 =
+    0x0001 | 0x0002 | 0x0004 | 0x0008 | 0x0010 | 0x0040 | 0x0080 | 0x1000 | 0x4000;
+
+/// Mask raw classfile class access flags to the set `Class.getModifiers()` reports.
+#[must_use]
+pub(crate) const fn class_modifiers_from_access_flags(access_flags: u16) -> i32 {
+    (access_flags & CLASS_MODIFIER_MASK) as i32
+}
+
+/// Whether raw classfile class access flags denote an interface.
+#[must_use]
+pub(crate) const fn is_interface_from_access_flags(access_flags: u16) -> bool {
+    access_flags & ACC_INTERFACE != 0
+}
+
+/// Mask raw classfile field access flags to the set `Field.getModifiers()` reports.
+#[must_use]
+pub(crate) const fn field_modifiers_from_access_flags(access_flags: u16) -> i32 {
+    (access_flags & FIELD_MODIFIER_MASK) as i32
+}
 
 fn class_internal_name_from_key(class_key: &str) -> &str {
     class_key

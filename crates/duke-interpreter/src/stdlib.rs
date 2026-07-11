@@ -13644,7 +13644,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
 
     // java/lang/Class reflection predicates used by gson's ReflectionHelper to
     // classify the raw type before choosing an instantiation strategy.
-    registry.natives_mut().register(
+    registry.natives_mut().register_callback(
         "java/lang/Class",
         "getModifiers",
         "()I",
@@ -13665,7 +13665,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/Class", "isRecord", "()Z", native_class_is_record);
-    registry.natives_mut().register(
+    registry.natives_mut().register_callback(
         "java/lang/Class",
         "isInterface",
         "()Z",
@@ -13692,7 +13692,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
 
     // java/lang/reflect/Field.getModifiers — gson reads these to skip
     // static/transient fields when building reflective adapters.
-    registry.natives_mut().register(
+    registry.natives_mut().register_callback(
         "java/lang/reflect/Field",
         "getModifiers",
         "()I",

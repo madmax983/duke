@@ -98,6 +98,7 @@ impl CallbackOps for NoopCallbackOps {
             interfaces: Vec::new(),
             methods: Vec::new(),
             fields: Vec::new(),
+            access_flags: 0,
             annotations: Vec::new(),
         })
     }
@@ -132,6 +133,7 @@ impl CallbackOps for FixedCodeSourceOps {
             interfaces: Vec::new(),
             methods: Vec::new(),
             fields: Vec::new(),
+            access_flags: 0,
             annotations: Vec::new(),
         })
     }
@@ -176,6 +178,7 @@ fn native_hashset_init_from_collection_copies_to_array_elements() {
                 interfaces: Vec::new(),
                 methods: Vec::new(),
                 fields: Vec::new(),
+                access_flags: 0,
                 annotations: Vec::new(),
             })
         }
@@ -22747,6 +22750,7 @@ fn native_class_get_declared_method_matches_parameter_class_array() {
                     },
                 ],
                 fields: Vec::new(),
+                access_flags: 0x0001,
                 annotations: Vec::new(),
             })
         }
@@ -32694,5 +32698,170 @@ fn test_box_primitive_slot() {
     assert_eq!(
         result, none_ref,
         "Expected pass-through for other slot types"
+    );
+}
+
+/// Minimal [`CallbackOps`] stub whose `inspect_class` returns a fixed
+/// [`ReflectedClassInfo`], for exercising the access-flag reflection natives.
+struct FixedClassInfoOps {
+    info: ReflectedClassInfo,
+}
+
+impl CallbackOps for FixedClassInfoOps {
+    fn invoke(
+        &mut self,
+        _heap: &mut duke_gc::Heap,
+        _output: &mut dyn Write,
+        _class: &str,
+        _method: &str,
+        _descriptor: &str,
+        _args: Vec<Slot>,
+    ) -> Result<Option<Slot>> {
+        Ok(None)
+    }
+
+    fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+        Ok(())
+    }
+
+    fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+        Ok(self.info.clone())
+    }
+}
+
+fn class_info_with_flags(internal_name: &str, access_flags: u16) -> ReflectedClassInfo {
+    ReflectedClassInfo {
+        internal_name: internal_name.to_string(),
+        binary_name: internal_name.replace('/', "."),
+        super_class: Some("java/lang/Object".to_string()),
+        interfaces: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        access_flags,
+        annotations: Vec::new(),
+    }
+}
+
+#[test]
+fn native_class_get_modifiers_reports_real_flags_and_strips_super() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let class_ref = allocate_class_object(&mut heap, "com/example/Widget").unwrap();
+
+    // ACC_PUBLIC | ACC_SUPER | ACC_FINAL (0x0031) — as javac emits for a final
+    // class. getModifiers must strip ACC_SUPER (0x0020) and report 0x0011.
+    let mut ops = FixedClassInfoOps {
+        info: class_info_with_flags("com/example/Widget", 0x0031),
+    };
+    let modifiers = native_class_get_modifiers(
+        &[Slot::Reference(Some(class_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+        &mut ops,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        modifiers,
+        Slot::Int(0x0011),
+        "PUBLIC|FINAL, ACC_SUPER stripped"
+    );
+}
+
+#[test]
+fn native_class_is_interface_reads_real_acc_interface_bit() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let class_ref = allocate_class_object(&mut heap, "com/example/Service").unwrap();
+
+    // ACC_PUBLIC | ACC_INTERFACE | ACC_ABSTRACT (0x0601).
+    let mut ops = FixedClassInfoOps {
+        info: class_info_with_flags("com/example/Service", 0x0601),
+    };
+    let is_iface = native_class_is_interface(
+        &[Slot::Reference(Some(class_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+        &mut ops,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(is_iface, Slot::Int(1), "interface flag reported");
+
+    let modifiers = native_class_get_modifiers(
+        &[Slot::Reference(Some(class_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+        &mut ops,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(modifiers, Slot::Int(0x0601), "PUBLIC|INTERFACE|ABSTRACT");
+}
+
+#[test]
+fn native_class_is_interface_false_for_concrete_class() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let class_ref = allocate_class_object(&mut heap, "com/example/Widget").unwrap();
+    let mut ops = FixedClassInfoOps {
+        info: class_info_with_flags("com/example/Widget", 0x0021),
+    };
+    let is_iface = native_class_is_interface(
+        &[Slot::Reference(Some(class_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+        &mut ops,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(is_iface, Slot::Int(0));
+}
+
+#[test]
+fn native_reflect_field_get_modifiers_reports_transient_and_final() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+
+    // A `private final transient int cache;` field (0x0002|0x0010|0x0080 = 0x0092).
+    let field_ref = allocate_reflection_member_object(
+        &mut heap,
+        "java/lang/reflect/Field",
+        "com/example/Widget",
+        "cache",
+        "I",
+        false, // is_public
+        false, // is_static
+    )
+    .unwrap();
+
+    let mut info = class_info_with_flags("com/example/Widget", 0x0021);
+    info.fields = vec![ReflectedFieldInfo {
+        name: "cache".to_string(),
+        descriptor: "I".to_string(),
+        is_public: false,
+        is_static: false,
+        access_flags: 0x0092,
+        annotations: Vec::new(),
+    }];
+    let mut ops = FixedClassInfoOps { info };
+
+    let modifiers = native_reflect_field_get_modifiers(
+        &[Slot::Reference(Some(field_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+        &mut ops,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        modifiers,
+        Slot::Int(0x0092),
+        "PRIVATE|FINAL|TRANSIENT surfaced (was PUBLIC/STATIC-only before)"
     );
 }

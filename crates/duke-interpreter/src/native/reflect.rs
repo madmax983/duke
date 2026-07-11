@@ -490,26 +490,28 @@ pub(crate) fn native_class_is_assignable_from(
     )))))
 }
 
-/// Native: `Class.getModifiers()I` — access modifiers of the class.
+/// Native: `Class.getModifiers()I` — the real access modifiers of the class.
 ///
-/// Duke does not retain raw `ClassAccessFlags` on `ClassContext`, so this reports a
-/// concrete, non-interface, non-abstract class (`ACC_PUBLIC`). gson only reads these
-/// modifiers to test `Modifier.isInterface`/`isAbstract` (both correctly false here)
-/// and `Modifier.isStatic` (handled explicitly by `isAnonymousClass`/`isLocalClass`,
-/// which return false for every named class in this path).
-#[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
+/// Reads the raw `ClassFile.access_flags` carried on [`ReflectedClassInfo`] and
+/// masks them to the set `HotSpot`'s `JVM_GetClassModifiers` reports (JLS recognized
+/// class modifiers, with `ACC_SUPER`/`ACC_MODULE` stripped) via
+/// [`class_modifiers_from_access_flags`]. A synthetic stub with no classfile flags
+/// falls back to `ACC_PUBLIC`, matching the legacy default.
 pub(crate) fn native_class_get_modifiers(
     args: &[Slot],
-    _heap: &mut duke_gc::Heap,
+    heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let _ = extract_ref_arg(args, 0)?;
-    // TODO(known-limitation): getModifiers/isInterface report ACC_PUBLIC-only; needs real access flags
-    // (ReflectedClassInfo does not carry ClassAccessFlags; plumbing them requires
-    // touching registry.rs, which is out of scope here).
-    // ACC_PUBLIC
-    Ok(Some(Slot::Int(0x0001)))
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let access_flags = ops
+        .inspect_class(&internal_name)
+        .map_or(SYNTHETIC_CLASS_ACCESS_FLAGS, |info| info.access_flags);
+    Ok(Some(Slot::Int(class_modifiers_from_access_flags(
+        access_flags,
+    ))))
 }
 
 /// Native: `Class.isAnonymousClass()Z` — false for every named class Duke loads.
@@ -599,48 +601,66 @@ pub(crate) fn native_class_get_generic_superclass(
 
 /// Native: `Class.isInterface()Z`.
 ///
-/// Duke does not retain the `ACC_INTERFACE` flag, and no reliable signal for it
-/// exists in the reflection metadata; gson calls this on the concrete raw type it
-/// is (de)serializing, which is never an interface, so this reports false.
-#[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
+/// Reads the real `ACC_INTERFACE` bit from the class's `ClassFile.access_flags`
+/// carried on [`ReflectedClassInfo`]. A synthetic stub with no classfile flags (or
+/// a primitive/array mirror inspect cannot resolve) reports false.
 pub(crate) fn native_class_is_interface(
     args: &[Slot],
-    _heap: &mut duke_gc::Heap,
+    heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let _ = extract_ref_arg(args, 0)?;
-    // TODO(known-limitation): getModifiers/isInterface report ACC_PUBLIC-only; needs real access flags
-    // (ReflectedClassInfo does not carry ClassAccessFlags; plumbing them requires
-    // touching registry.rs, which is out of scope here).
-    Ok(Some(Slot::Int(0)))
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let is_interface = ops
+        .inspect_class(&internal_name)
+        .is_ok_and(|info| is_interface_from_access_flags(info.access_flags));
+    Ok(Some(Slot::Int(i32::from(is_interface))))
 }
 
-/// Native: `Field.getModifiers()I` — the modifier bits Duke tracks for a field.
+/// Native: `Field.getModifiers()I` — the real modifier bits of a field.
 ///
-/// `ReflectedFieldHandle` records `ACC_PUBLIC`/`ACC_STATIC`; `final`/`transient` are
-/// not retained. gson reads these to skip static/transient fields, so reporting the
-/// tracked bits is sufficient (Pojo's package-private instance fields yield 0 and are
-/// correctly serialized).
+/// Resolves the declaring class via [`CallbackOps::inspect_class`] and reads the
+/// matching field's raw `field_info.access_flags` (carried on
+/// [`ReflectedFieldInfo`]), masked to `JVM_RECOGNIZED_FIELD_MODIFIERS` via
+/// [`field_modifiers_from_access_flags`] — so `final` (0x10), `transient` (0x80)
+/// and `volatile` (0x40) are now reported, not just public/static. When the
+/// declaring class is a synthetic stub (or the field cannot be resolved) it falls
+/// back to the public/static bits recorded on the `Field` mirror.
 pub(crate) fn native_reflect_field_get_modifiers(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let field_ref = extract_ref_arg(args, 0)?;
     let field = reflected_field_handle(heap, field_ref)?;
-    let mut modifiers = 0;
-    if field.is_public {
-        modifiers |= 0x0001; // ACC_PUBLIC
-    }
-    if field.is_static {
-        modifiers |= 0x0008; // ACC_STATIC
-    }
-    // TODO(known-limitation): Field.getModifiers omits transient/final
-    // (ReflectedFieldHandle/ReflectedFieldInfo only carry public/static; the
-    // transient/final bits are dropped when the Field mirror is built, and
-    // retaining them requires touching registry.rs, which is out of scope here).
+    let declaring = class_internal_name_from_key(&field.declaring_class_key).to_string();
+    let resolved = ops.inspect_class(&declaring).ok().and_then(|info| {
+        info.fields
+            .into_iter()
+            .find(|candidate| {
+                let name_matches = candidate.name == field.field_name;
+                let descriptor_matches = candidate.descriptor == field.descriptor;
+                name_matches && descriptor_matches
+            })
+            .map(|candidate| candidate.access_flags)
+    });
+    let modifiers = resolved.map_or_else(
+        || {
+            let mut fallback = 0;
+            if field.is_public {
+                fallback |= 0x0001; // ACC_PUBLIC
+            }
+            if field.is_static {
+                fallback |= 0x0008; // ACC_STATIC
+            }
+            fallback
+        },
+        field_modifiers_from_access_flags,
+    );
     Ok(Some(Slot::Int(modifiers)))
 }
 
