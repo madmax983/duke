@@ -5186,3 +5186,83 @@ pub(crate) fn native_reference_clear(
     heap.get_mut(this_ref)?.fields[0] = Slot::Reference(None);
     Ok(None)
 }
+
+// ─── java.lang.Module — minimal unnamed-module model ─────────────────────────
+//
+// Duke models every class as living in the *unnamed module of the system class
+// loader*. Under `real_jdk_shadow`, real `java.util.ServiceLoader` bytecode calls
+// `caller.getModule()` and then, in `checkCaller`, `if (callerModule.isNamed())`
+// consults the module layer's `uses` declarations. For the unnamed module that
+// branch is skipped, so an unnamed (non-null, `isNamed()==false`) module is exactly
+// what lets ServiceLoader past the module-system wall. These natives intercept the
+// real JDK methods the same way `VM.initialize`/`Reflection.getCallerClass` do
+// (#1319); no synthetic `java/lang/Module` class is registered because the natives
+// answer every call and the shared instance is heap-allocated on demand.
+
+/// Sentinel key used to intern the single shared unnamed `java.lang.Module`
+/// instance (stored in `HeapObject.string_value`, mirroring the `Class` mirrors).
+const UNNAMED_MODULE_KEY: &str = "unnamed";
+
+/// Lazily allocate — and thereafter intern — the one shared unnamed
+/// `java.lang.Module` instance. Interning by `string_value` (as `allocate_class_object`
+/// does for `Class` mirrors) guarantees `a.getModule() == b.getModule()` identity,
+/// which the real `ServiceLoader` relies on when comparing modules.
+fn unnamed_module_ref(heap: &mut duke_gc::Heap) -> Result<u64> {
+    if let Some(existing) = heap.find_string_backed_object("java/lang/Module", UNNAMED_MODULE_KEY) {
+        return Ok(existing);
+    }
+    let module_ref = heap.allocate("java/lang/Module".to_string(), 0);
+    heap.get_mut(module_ref)?.string_value = Some(UNNAMED_MODULE_KEY.to_string());
+    Ok(module_ref)
+}
+
+/// `java/lang/Class.getModule()Ljava/lang/Module;` — every Duke class belongs to
+/// the shared unnamed module of the system class loader.
+pub(crate) fn native_class_get_module(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let _ = extract_ref_arg(args, 0)?;
+    let module_ref = unnamed_module_ref(heap)?;
+    Ok(Some(Slot::Reference(Some(module_ref))))
+}
+
+/// `java/lang/Module.isNamed()Z` — the shared module is unnamed, so `false`. This
+/// is the bit `ServiceLoader.checkCaller` reads to skip the `uses`-declaration check.
+#[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
+pub(crate) fn native_module_is_named(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let _ = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(0)))
+}
+
+/// `java/lang/Module.getName()Ljava/lang/String;` — `null` for the unnamed module.
+#[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
+pub(crate) fn native_module_get_name(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let _ = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Reference(None)))
+}
+
+/// `java/lang/Module.canUse(Ljava/lang/Class;)Z` — the unnamed module reads every
+/// service, so `true` (the real unnamed-module implementation returns `true`).
+#[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
+pub(crate) fn native_module_can_use(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let _ = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(1)))
+}
