@@ -42,13 +42,22 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // `java/lang/ClassLoader` method that lives in crates/duke-interpreter/src/stdlib.rs
 // (other lane), so both are pinned here rather than fixed.
 //
-// The two fixtures now diverge: #1320 pushed the APP past the previously-shared
-// `getSystemResources` rung onto `getSystemClassLoader`, while the LADDER still
-// lands on `getSystemResources`. If either boot advances past its pin, re-observe
-// and update. See docs/findings/2026-07-10-spring-boot-real-app.md.
+// The synthetic `ClassLoader` natives `getSystemResources`, `getSystemClassLoader`
+// and base `loadClass` are now implemented (ClassLoader lane), advancing BOTH
+// fixtures past the previous ClassLoader pins. The frontier has moved out of the
+// ClassLoader lane on both:
+//   * APP now lands on `getClass()` virtual dispatch failing to resolve the
+//     inherited `java/lang/Object` native for a class loaded through the runtime
+//     `loadClass` path (interpreter method-dispatch / class-identity lane, not the
+//     ClassLoader-native lane).
+//   * LADDER now runs deep into real commons-logging `LogFactory.getFactory` and
+//     hits an `operand stack underflow` when `java/lang/ref/WeakReference.get()`
+//     returns no value (java.lang.ref reference-object native lane).
+// If either boot advances past its pin, re-observe and update.
+// See docs/findings/2026-07-10-spring-boot-real-app.md.
 const APP_BLOCKER: &str =
-    "method not found: java/lang/ClassLoader.getSystemClassLoader()Ljava/lang/ClassLoader;";
-const LADDER_BLOCKER: &str = "method not found: java/lang/ClassLoader.getSystemResources(Ljava/lang/String;)Ljava/util/Enumeration;";
+    "method not found: ch/qos/logback/classic/util/DefaultJoranConfigurator.getClass()Ljava/lang/Class;";
+const LADDER_BLOCKER: &str = "operand stack underflow";
 
 fn run_fixture(jar: &str) -> Output {
     let jar_path = spring_boot_fixture(jar);
@@ -77,9 +86,10 @@ fn combined_output(output: &Output) -> String {
 /// End-to-end CANARY for the real Spring Boot app fixture. Ignored until boot
 /// reaches the started-application line. Un-ignore when the happy path clears.
 #[test]
-#[ignore = "Blocked on missing synthetic java/lang/ClassLoader.getSystemClassLoader \
-            (stdlib lane; #1320 cleared the earlier getSystemResources rung for the \
-            app); keep ignored until the Spring Boot app boot completes. \
+#[ignore = "Blocked on inherited java/lang/Object.getClass() virtual dispatch failing \
+            for a class loaded through the runtime loadClass path (interpreter \
+            method-dispatch lane; the ClassLoader getSystemClassLoader/loadClass rungs \
+            are now cleared); keep ignored until the Spring Boot app boot completes. \
             See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_app_boots_end_to_end() {
     let output = run_fixture(APP_JAR);
@@ -125,9 +135,11 @@ fn spring_boot_app_surfaces_next_missing_capability_explicitly() {
 /// End-to-end CANARY for the commons-logging ladder fixture. Ignored until boot
 /// completes all rungs. Un-ignore when the happy path clears.
 #[test]
-#[ignore = "Blocked on missing synthetic java/lang/ClassLoader.getSystemResources \
-            (stdlib lane); keep ignored until the ladder fixture completes. \
-            See docs/findings/2026-07-10-spring-boot-real-app.md"]
+#[ignore = "Blocked on operand stack underflow when java/lang/ref/WeakReference.get() \
+            returns no value deep in commons-logging LogFactory.getFactory \
+            (java.lang.ref reference-object native lane; the ClassLoader \
+            getSystemResources rung is now cleared); keep ignored until the ladder \
+            fixture completes. See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_ladder_boots_end_to_end() {
     let output = run_fixture(LADDER_JAR);
     let combined = combined_output(&output);
