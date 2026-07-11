@@ -55,8 +55,7 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //     returns no value (java.lang.ref reference-object native lane).
 // If either boot advances past its pin, re-observe and update.
 // See docs/findings/2026-07-10-spring-boot-real-app.md.
-const APP_BLOCKER: &str =
-    "method not found: ch/qos/logback/classic/util/DefaultJoranConfigurator.getClass()Ljava/lang/Class;";
+const APP_BLOCKER: &str = "method not found: ch/qos/logback/classic/util/DefaultJoranConfigurator.getClass()Ljava/lang/Class;";
 const LADDER_BLOCKER: &str = "operand stack underflow";
 
 fn run_fixture(jar: &str) -> Output {
