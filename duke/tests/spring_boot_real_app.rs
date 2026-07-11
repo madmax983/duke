@@ -44,18 +44,19 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //
 // The synthetic `ClassLoader` natives `getSystemResources`, `getSystemClassLoader`
 // and base `loadClass` are now implemented (ClassLoader lane), advancing BOTH
-// fixtures past the previous ClassLoader pins. The frontier has moved out of the
-// ClassLoader lane on both:
-//   * APP now lands on `getClass()` virtual dispatch failing to resolve the
-//     inherited `java/lang/Object` native for a class loaded through the runtime
-//     `loadClass` path (interpreter method-dispatch / class-identity lane, not the
-//     ClassLoader-native lane).
+// fixtures past the previous ClassLoader pins. The interpreter method-dispatch
+// lane then cleared the inherited `java/lang/Object.getClass()` virtual dispatch
+// for interface-typed callsites, advancing the app fixture again. Current
+// frontiers:
+//   * APP now lands on `class not found: java/time/ZoneId` deep in logback's
+//     configuration path — a missing synthetic `java.time` class (stdlib
+//     date/time lane, not the interpreter method-dispatch lane).
 //   * LADDER now runs deep into real commons-logging `LogFactory.getFactory` and
 //     hits an `operand stack underflow` when `java/lang/ref/WeakReference.get()`
 //     returns no value (java.lang.ref reference-object native lane).
 // If either boot advances past its pin, re-observe and update.
 // See docs/findings/2026-07-10-spring-boot-real-app.md.
-const APP_BLOCKER: &str = "method not found: ch/qos/logback/classic/util/DefaultJoranConfigurator.getClass()Ljava/lang/Class;";
+const APP_BLOCKER: &str = "class not found: java/time/ZoneId";
 const LADDER_BLOCKER: &str = "operand stack underflow";
 
 fn run_fixture(jar: &str) -> Output {
@@ -85,10 +86,9 @@ fn combined_output(output: &Output) -> String {
 /// End-to-end CANARY for the real Spring Boot app fixture. Ignored until boot
 /// reaches the started-application line. Un-ignore when the happy path clears.
 #[test]
-#[ignore = "Blocked on inherited java/lang/Object.getClass() virtual dispatch failing \
-            for a class loaded through the runtime loadClass path (interpreter \
-            method-dispatch lane; the ClassLoader getSystemClassLoader/loadClass rungs \
-            are now cleared); keep ignored until the Spring Boot app boot completes. \
+#[ignore = "Blocked on missing synthetic java/time/ZoneId (stdlib date/time lane; the \
+            inherited java/lang/Object.getClass() interface-dispatch rung is now \
+            cleared); keep ignored until the Spring Boot app boot completes. \
             See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_app_boots_end_to_end() {
     let output = run_fixture(APP_JAR);

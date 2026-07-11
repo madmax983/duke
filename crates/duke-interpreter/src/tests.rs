@@ -1177,6 +1177,152 @@ fn invokevirtual_missing_loaded_method_returns_method_not_found() {
     );
 }
 
+/// Regression: `getClass()` invoked through an *interface-typed* callsite must
+/// resolve the inherited `java/lang/Object.getClass` native by walking the
+/// receiver's super chain. Real Spring Boot bytecode calls
+/// `Configurator.getClass()` on a `DefaultJoranConfigurator` (which inherits
+/// `getClass` from `Object` via an intermediate base class). Before the fix the
+/// invokeinterface native fallback only probed the receiver class and the
+/// interface directly — never the super chain — so `Object.getClass` was never
+/// found and dispatch raised `MethodNotFound`.
+#[test]
+fn invokeinterface_getclass_resolves_inherited_object_native_via_super_chain() {
+    use duke_classfile::CpIndex;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    // Constant pool: an InterfaceMethodref for `Cfg.getClass()Ljava/lang/Class;`.
+    let cp = make_cp(vec![
+        Some(CpEntry::InterfaceMethodref {
+            class_index: CpIndex(2),
+            name_and_type_index: CpIndex(3),
+        }),
+        Some(CpEntry::Class {
+            name_index: CpIndex(4),
+        }),
+        Some(CpEntry::NameAndType {
+            name_index: CpIndex(5),
+            descriptor_index: CpIndex(6),
+        }),
+        Some(CpEntry::Utf8("Cfg".to_string())),
+        Some(CpEntry::Utf8("getClass".to_string())),
+        Some(CpEntry::Utf8("()Ljava/lang/Class;".to_string())),
+    ]);
+    let instructions: Arc<[(usize, Instruction)]> = vec![
+        (0, Instruction::Aload0),
+        (
+            1,
+            Instruction::Invokeinterface {
+                index: CpIndex(1),
+                count: 1,
+            },
+        ),
+        (6, Instruction::Areturn),
+    ]
+    .into();
+    let method = MethodEntry {
+        name: "callGetClass".to_string(),
+        descriptor: "(Ljava/lang/Object;)Ljava/lang/Object;".to_string(),
+        is_public: true,
+        is_static: true,
+        is_native: false,
+        is_abstract: false,
+        instructions: Arc::clone(&instructions),
+        max_stack: 1,
+        max_locals: 1,
+        exception_table: Vec::new(),
+        pc_to_idx: Arc::new(HashMap::from([(0, 0), (1, 1), (6, 2)])),
+        line_number_table: Vec::new(),
+        source_file: None,
+    };
+    let caller_ctx = ClassContext {
+        class_name: "TestCaller".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        interfaces: Vec::new(),
+        constant_pool: cp,
+        methods: vec![method],
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Classfile,
+    };
+
+    // Marker interface `Cfg` (declares no `getClass` of its own).
+    let cfg_iface = ClassContext {
+        class_name: "Cfg".to_string(),
+        super_class: None,
+        interfaces: Vec::new(),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    // Intermediate base class between the impl and Object — mirrors logback's
+    // `ContextAwareBase` so the native only resolves by walking past it.
+    let base_ctx = ClassContext {
+        class_name: "CfgBase".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        interfaces: Vec::new(),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    // Concrete receiver: `CfgImpl extends CfgBase implements Cfg`, no own methods.
+    let impl_ctx = ClassContext {
+        class_name: "CfgImpl".to_string(),
+        super_class: Some("CfgBase".to_string()),
+        interfaces: vec!["Cfg".to_string()],
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    registry.register(caller_ctx);
+    registry.register(cfg_iface);
+    registry.register(base_ctx);
+    registry.register(impl_ctx);
+    let loader = fixtures_loader();
+
+    let impl_ref = heap.allocate("CfgImpl".to_string(), 0);
+    let mut sink: Vec<u8> = Vec::new();
+    let result = execute_class(
+        &mut registry,
+        &loader,
+        &mut heap,
+        &mut sink,
+        "TestCaller",
+        "callGetClass",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        &[Slot::Reference(Some(impl_ref))],
+    )
+    .expect("invokeinterface getClass should resolve the inherited Object native")
+    .expect("getClass should return a Class object");
+
+    let Slot::Reference(Some(class_ref)) = result else {
+        panic!("expected a Class reference from getClass, got {result:?}");
+    };
+    assert_eq!(
+        class_internal_name_from_ref(&heap, class_ref).unwrap(),
+        "CfgImpl",
+        "getClass() must report the receiver's concrete runtime class"
+    );
+}
+
 #[test]
 fn object_constructor_dispatches_via_invokespecial() {
     use duke_classfile::CpIndex;

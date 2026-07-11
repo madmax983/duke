@@ -2970,15 +2970,19 @@ pub fn run_execution(
                     if let MethodHierarchyLookup::Bytecode(dispatch_class, callee_idx) = resolved {
                         (dispatch_class, callee_idx)
                     } else {
-                        // Check native registry — try actual class then interface class.
-                        let native_kind = lookup_registered_native_kind(
+                        // Check native registry, walking the super chain from the
+                        // actual class then the interface class. The walk lets
+                        // inherited `java/lang/Object` natives (e.g. `getClass`)
+                        // resolve for an interface-typed callsite whose receiver
+                        // class declares no such native of its own.
+                        let native_kind = lookup_native_kind_in_super_chain(
                             registry,
                             &actual_class,
                             &callee_name,
                             &callee_desc,
                         )
                         .or_else(|| {
-                            lookup_registered_native_kind(
+                            lookup_native_kind_in_super_chain(
                                 registry,
                                 &callee_class_key,
                                 &callee_name,
