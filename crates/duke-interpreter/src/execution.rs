@@ -464,6 +464,40 @@ pub fn run_execution(
             }};
         }
 
+        // Throw a *catchable* java.lang.NoClassDefFoundError whose detail message
+        // is the internal (slash-form) name of the class that failed to resolve —
+        // mirroring the real JVM. Routes through the same machinery as
+        // `throw_java!`, so an enclosing `catch (LinkageError)` / `catch (Throwable)`
+        // in the running bytecode handles it.
+        macro_rules! throw_no_class_def_found {
+            ($internal_class_name:expr) => {{
+                push_pending_java_exception_message(
+                    "java/lang/NoClassDefFoundError",
+                    $internal_class_name.to_string(),
+                );
+                throw_java!("java/lang/NoClassDefFoundError");
+            }};
+        }
+
+        // Route a class-initialisation result (from `ensure_initialized`) through
+        // the currently-executing method's exception table. A failed <clinit>
+        // surfaces as a catchable `Error::JavaException`; re-throwing it via
+        // `throw_java!` re-materialises the *same* stashed throwable object (with
+        // its detail message / cause preserved) and dispatches it against the
+        // enclosing handler. This is what lets a `catch (LinkageError)` around a
+        // class's first use observe the initialisation failure.
+        macro_rules! route_class_init_result {
+            ($res:expr) => {{
+                match $res {
+                    Ok(()) => {}
+                    Err(Error::JavaException { class_name }) => {
+                        throw_java!(class_name);
+                    }
+                    Err(other) => return Err(other),
+                }
+            }};
+        }
+
         // Telemetry: capture opcode name and start time before dispatch.
         // Arms that use `continue` (branches, invokes) will skip the post-match
         // recording for that iteration — timing is approximate for those opcodes.
@@ -534,14 +568,28 @@ pub fn run_execution(
                 let callee_class_key =
                     registry.class_key_from_source(&callee_class, Some(current_class.as_str()));
                 if class_was_loaded {
-                    ensure_initialized(
+                    route_class_init_result!(ensure_initialized(
                         registry,
                         loader,
                         heap,
                         stdout,
                         &callee_class_key,
                         current_class,
-                    )?;
+                    ));
+                } else if !registry.contains(&callee_class_key)
+                    && !has_registered_native_override(
+                        registry,
+                        &callee_class_key,
+                        &callee_name,
+                        &callee_desc,
+                    )
+                {
+                    // The referenced class could not be loaded, is not registered,
+                    // and has no native fallback: real JVM linkage failure. Throw a
+                    // catchable NoClassDefFoundError instead of the fatal
+                    // `registry.get(&callee_class_key)?` below. (Ladder-critical:
+                    // Log4jApiLogFactory.<clinit> invokestatic MarkerManager.getMarker.)
+                    throw_no_class_def_found!(callee_class);
                 }
                 let callee_idx = if has_registered_native_override(
                     registry,
@@ -1545,15 +1593,23 @@ pub fn run_execution(
                 };
                 let target_class_key =
                     registry.class_key_from_source(&target_class, Some(current_class.as_str()));
-                registry.ensure_loaded_from(&target_class, Some(current_class.as_str()), loader)?;
-                ensure_initialized(
+                let target_was_loaded = registry.ensure_loaded_from(
+                    &target_class,
+                    Some(current_class.as_str()),
+                    loader,
+                )?;
+                if !target_was_loaded && !registry.contains(&target_class_key) {
+                    // `new` of a class that cannot be resolved is a linkage failure.
+                    throw_no_class_def_found!(target_class);
+                }
+                route_class_init_result!(ensure_initialized(
                     registry,
                     loader,
                     heap,
                     stdout,
                     &target_class_key,
                     current_class,
-                )?;
+                ));
                 // Walk the super chain to sum all instance field counts
                 // (e.g. Enum has 2 fields inherited by every enum subclass).
                 let field_count = total_instance_field_count(registry, &target_class_key);
@@ -1586,7 +1642,14 @@ pub fn run_execution(
                 let target_class_key =
                     registry.class_key_from_source(&target_class, Some(current_class.as_str()));
                 let r = frame.pop_ref()?;
-                registry.ensure_loaded_from(&target_class, Some(current_class.as_str()), loader)?;
+                let owner_was_loaded = registry.ensure_loaded_from(
+                    &target_class,
+                    Some(current_class.as_str()),
+                    loader,
+                )?;
+                if !owner_was_loaded && !registry.contains(&target_class_key) {
+                    throw_no_class_def_found!(target_class);
+                }
                 let fidx = field_slot_idx(registry, &target_class_key, &field_name)?;
                 // Layout-coherence guard: hard no-op unless DUKE_LAYOUT_CHECK is set AND
                 // real-JDK shadow mode is on (both cheap checks short-circuit when off).
@@ -1623,7 +1686,14 @@ pub fn run_execution(
                     registry.class_key_from_source(&target_class, Some(current_class.as_str()));
                 let val = frame.pop()?;
                 let r = frame.pop_ref()?;
-                registry.ensure_loaded_from(&target_class, Some(current_class.as_str()), loader)?;
+                let owner_was_loaded = registry.ensure_loaded_from(
+                    &target_class,
+                    Some(current_class.as_str()),
+                    loader,
+                )?;
+                if !owner_was_loaded && !registry.contains(&target_class_key) {
+                    throw_no_class_def_found!(target_class);
+                }
                 let fidx = field_slot_idx(registry, &target_class_key, &field_name)?;
                 // Layout-coherence guard: hard no-op unless DUKE_LAYOUT_CHECK is set AND
                 // real-JDK shadow mode is on (both cheap checks short-circuit when off).
@@ -1657,15 +1727,22 @@ pub fn run_execution(
                 };
                 let target_class_key =
                     registry.class_key_from_source(&target_class, Some(current_class.as_str()));
-                registry.ensure_loaded_from(&target_class, Some(current_class.as_str()), loader)?;
-                ensure_initialized(
+                let owner_was_loaded = registry.ensure_loaded_from(
+                    &target_class,
+                    Some(current_class.as_str()),
+                    loader,
+                )?;
+                if !owner_was_loaded && !registry.contains(&target_class_key) {
+                    throw_no_class_def_found!(target_class);
+                }
+                route_class_init_result!(ensure_initialized(
                     registry,
                     loader,
                     heap,
                     stdout,
                     &target_class_key,
                     current_class,
-                )?;
+                ));
                 let sidx = static_field_idx(registry.get(&target_class_key)?, &field_name)?;
                 let val = registry.get(&target_class_key)?.static_fields[sidx];
                 frame.push(val)?;
@@ -1678,15 +1755,22 @@ pub fn run_execution(
                 let target_class_key =
                     registry.class_key_from_source(&target_class, Some(current_class.as_str()));
                 let val = frame.pop()?;
-                registry.ensure_loaded_from(&target_class, Some(current_class.as_str()), loader)?;
-                ensure_initialized(
+                let owner_was_loaded = registry.ensure_loaded_from(
+                    &target_class,
+                    Some(current_class.as_str()),
+                    loader,
+                )?;
+                if !owner_was_loaded && !registry.contains(&target_class_key) {
+                    throw_no_class_def_found!(target_class);
+                }
+                route_class_init_result!(ensure_initialized(
                     registry,
                     loader,
                     heap,
                     stdout,
                     &target_class_key,
                     current_class,
-                )?;
+                ));
                 let sidx = static_field_idx(registry.get(&target_class_key)?, &field_name)?;
                 registry.get_mut(&target_class_key)?.static_fields[sidx] = val;
             }

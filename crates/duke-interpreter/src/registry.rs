@@ -411,6 +411,10 @@ pub struct ClassRegistry {
     natives: NativeRegistry,
     /// Tracks which classes have had their `<clinit>` run.
     initialized: HashSet<String>,
+    /// Tracks classes whose `<clinit>` threw (JVMS 5.5 "erroneous" state). A
+    /// subsequent attempt to initialise such a class must throw
+    /// `NoClassDefFoundError` rather than re-running the initialiser.
+    erroneous: HashSet<String>,
     /// Lambda proxy class name → metadata.
     lambdas: HashMap<String, LambdaInfo>,
     /// Monotonic counter for generating unique lambda class names.
@@ -465,6 +469,7 @@ impl ClassRegistry {
             classes: HashMap::new(),
             natives: NativeRegistry::new(),
             initialized: HashSet::new(),
+            erroneous: HashSet::new(),
             lambdas: HashMap::new(),
             lambda_counter: 0,
             default_code_source: None,
@@ -528,6 +533,21 @@ impl ClassRegistry {
     /// ```
     pub fn mark_initialized(&mut self, name: &str) {
         self.initialized.insert(name.to_string());
+    }
+
+    /// Returns `true` if the named class is in the JVMS 5.5 "erroneous" state,
+    /// i.e. its `<clinit>` threw. Any later attempt to initialise it must throw
+    /// `NoClassDefFoundError`.
+    #[must_use]
+    pub fn is_erroneous(&self, name: &str) -> bool {
+        self.erroneous.contains(name)
+    }
+
+    /// Marks a class as erroneous (its `<clinit>` threw). The class is removed
+    /// from the initialized set so callers observe a single, coherent state.
+    pub fn mark_erroneous(&mut self, name: &str) {
+        self.initialized.remove(name);
+        self.erroneous.insert(name.to_string());
     }
 
     /// Sets the fallback code source path for classes loaded by the VM.

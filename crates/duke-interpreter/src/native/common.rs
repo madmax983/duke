@@ -7808,10 +7808,19 @@ fn ensure_initialized(
     class_name: &str,
     _triggered_by: &str,
 ) -> Result<()> {
+    // JVMS 5.5: a class left in the "erroneous" state by a previously-failed
+    // <clinit> must not be re-initialised — any attempt throws a fresh,
+    // catchable NoClassDefFoundError naming the class.
+    if registry.is_erroneous(class_name) {
+        return Err(throw_no_class_def_found_error(class_name));
+    }
     if registry.is_initialized(class_name) {
         return Ok(());
     }
     // Mark as initialized BEFORE running clinit to prevent infinite recursion.
+    // (Single-threaded init model: we do not implement the full JVMS 5.5
+    // per-thread "in progress" state machine — the recursion guard is a plain
+    // membership flag, and on failure we move the class to the erroneous set.)
     registry.mark_initialized(class_name);
     initialize_primitive_wrapper_type_field(registry, heap, class_name)?;
 
@@ -7829,7 +7838,7 @@ fn ensure_initialized(
         #[cfg(feature = "telemetry")]
         #[allow(clippy::used_underscore_binding)]
         let _clinit_start = std::time::Instant::now();
-        execute_class(
+        let clinit_result = execute_class(
             registry,
             init_loader,
             heap,
@@ -7838,7 +7847,14 @@ fn ensure_initialized(
             "<clinit>",
             "()V",
             &[],
-        )?;
+        );
+        if let Err(err) = clinit_result {
+            // JVMS 5.5: the initialiser completed abruptly. Move the class to the
+            // erroneous state and surface a *catchable* Java throwable so the
+            // triggering opcode routes it through the caller's exception table.
+            registry.mark_erroneous(class_name);
+            return Err(map_clinit_failure(registry, loader, heap, err));
+        }
         #[cfg(feature = "telemetry")]
         registry.telemetry.class_init_dag.record(
             class_name,
@@ -7847,6 +7863,72 @@ fn ensure_initialized(
         );
     }
     Ok(())
+}
+
+/// Build a catchable `NoClassDefFoundError` [`Error::JavaException`] whose detail
+/// message is the internal (slash-form) class name — matching the real JVM.
+///
+/// The returned error is *catchable*: opcode handlers re-materialise it through
+/// `throw_java!`, and the pending message is consumed at materialisation time to
+/// populate the throwable's detail message.
+fn throw_no_class_def_found_error(internal_class_name: &str) -> Error {
+    push_pending_java_exception_message(
+        "java/lang/NoClassDefFoundError",
+        internal_class_name.to_string(),
+    );
+    Error::JavaException {
+        class_name: "java/lang/NoClassDefFoundError".to_string(),
+    }
+}
+
+/// Translate a `<clinit>` failure into the correct catchable throwable per
+/// JVMS 5.5:
+///
+/// * If the thrown throwable is (a subclass of) `java/lang/Error`, it propagates
+///   unwrapped — this is the commons-logging ladder case where an inner
+///   `NoClassDefFoundError` must reach a `catch (LinkageError)`.
+/// * Otherwise the throwable is wrapped in a freshly materialised
+///   `java/lang/ExceptionInInitializerError` whose cause is the original object.
+///
+/// Non-`JavaException` errors (genuine VM-internal failures) are returned as-is.
+fn map_clinit_failure(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    err: Error,
+) -> Error {
+    let Error::JavaException { class_name } = err else {
+        return err;
+    };
+    // Errors propagate unwrapped.
+    if is_assignable_from(registry, loader, &class_name, "java/lang/Error", None) {
+        return Error::JavaException { class_name };
+    }
+    // Wrap Exceptions in ExceptionInInitializerError(cause = original).
+    let cause_ref = take_uncaught_java_exception_ref(&class_name);
+    let eiie_class = "java/lang/ExceptionInInitializerError";
+    match materialize_java_exception_object(registry, loader, heap, eiie_class) {
+        Ok(eiie_ref) => {
+            if let Some(cause) = cause_ref
+                && set_object_field(
+                    heap,
+                    eiie_ref,
+                    THROWABLE_CAUSE_FIELD,
+                    Slot::Reference(Some(cause)),
+                )
+                .is_ok()
+            {
+                heap.remember_reference_write(eiie_ref, Slot::Reference(Some(cause)));
+            }
+            record_uncaught_java_exception_ref(eiie_class, eiie_ref);
+            Error::JavaException {
+                class_name: eiie_class.to_string(),
+            }
+        }
+        // If we somehow cannot materialise the wrapper, fall back to the raw
+        // exception rather than masking the failure.
+        Err(_) => Error::JavaException { class_name },
+    }
 }
 
 fn primitive_wrapper_type_descriptor(class_name: &str) -> Option<&'static str> {
