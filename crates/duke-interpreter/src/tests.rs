@@ -28271,6 +28271,73 @@ fn test_treeset_stream() {
     );
 }
 
+// ---- java.time.ZoneId (minimal-for-boot) ----
+
+#[test]
+fn test_zoneid_system_default_is_utc() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let zone = native_zoneid_system_default(
+        &[],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .expect("systemDefault should succeed")
+    .expect("systemDefault should return a ZoneId");
+    let Slot::Reference(Some(zone_ref)) = zone else {
+        panic!("expected ZoneId reference");
+    };
+    let id = native_zoneid_get_id(
+        &[Slot::Reference(Some(zone_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .expect("getId should succeed")
+    .expect("getId should return a String");
+    let Slot::Reference(Some(id_ref)) = id else {
+        panic!("expected String reference");
+    };
+    assert_eq!(
+        heap.get(id_ref).unwrap().string_value.as_deref(),
+        Some("UTC")
+    );
+}
+
+#[test]
+fn test_zoneid_of_round_trips_id() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let name_ref = heap.allocate_string("America/New_York".to_string());
+    let zone = native_zoneid_of(
+        &[Slot::Reference(Some(name_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .expect("ZoneId.of should succeed")
+    .expect("ZoneId.of should return a ZoneId");
+    let Slot::Reference(Some(zone_ref)) = zone else {
+        panic!("expected ZoneId reference");
+    };
+    let id = native_zoneid_get_id(
+        &[Slot::Reference(Some(zone_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .expect("getId should succeed")
+    .expect("getId should return a String");
+    let Slot::Reference(Some(id_ref)) = id else {
+        panic!("expected String reference");
+    };
+    assert_eq!(
+        heap.get(id_ref).unwrap().string_value.as_deref(),
+        Some("America/New_York")
+    );
+}
+
 // ---- Phase 62: java.time (LocalDate, Duration, Period, Instant) ----
 
 #[test]

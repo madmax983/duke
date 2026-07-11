@@ -185,6 +185,35 @@ loader — precisely the pattern Spring's `LaunchedClassLoader` (and any nested-
 or custom-classloader app) creates. The two Spring Boot fixtures are the
 regression witnesses, but the fix is generic.
 
+## Update (this wave): two more rungs cleared
+
+**Ladder — `SLF4JProvider` `Class.forName` availability probe (CLEARED).**
+`crates/duke-interpreter/src/native/java_lang.rs`, `native_class_for_name_with_loader`.
+commons-logging `LogFactory.newStandardFactory` probes for logging backends via
+`isClassAvailable(name, cl)` → `Class.forName(name, false, cl)`, catching
+`ClassNotFoundException`. Duke's 3-arg `Class.forName` native computed the class
+identity key **eagerly** (with `?`) alongside the load attempt; for an absent
+class the key lookup itself raises `ClassNotFound`, propagating a **fatal** error
+before the not-found result could be mapped to a catchable
+`ClassNotFoundException`. Fix: compute the key lazily, only on a successful load.
+New ladder frontier: `class not found: org/apache/logging/log4j/MarkerManager`,
+reached while initializing `Log4jApiLogFactory` (its `<clinit>` calls
+`MarkerManager.getMarker`). A real JVM raises a **catchable `NoClassDefFoundError`**
+(a `LinkageError`) that commons-logging catches and falls through on; duke has no
+synthetic `NoClassDefFoundError`/`LinkageError` and surfaces class-resolution
+failures during bytecode execution as fatal errors. That is a distinct
+interpreter class-resolution / linkage-error rung (handoff).
+
+**App — minimal `java.time.ZoneId` for boot (CLEARED).**
+`crates/duke-interpreter/src/native/java_time.rs` + registration in
+`crates/duke-interpreter/src/stdlib.rs`. logback's timestamp formatting reaches
+`ZoneId` during Spring Boot startup. Registered a thin synthetic `ZoneId`:
+`systemDefault()` reports **UTC** (duke's `Instant`/`LocalDate*` clocks are all
+epoch/UTC based, so a UTC default keeps timestamps self-consistent **without**
+modelling `ZoneRules`/tzdb), plus `of(String)`, `getId()`, `toString()`. Clearing
+`ZoneId` did **not** cascade into a chronology/tzdb chain — the app frontier moved
+to `class not found: java/util/Locale` (a shallow, separate java.util rung, handoff).
+
 ## Lane ownership summary
 
 | Blocker | Owning lane | Status |
@@ -195,8 +224,10 @@ regression witnesses, but the fix is generic.
 | #1b `ClassLoader.loadClass` missing | synthetic-stdlib `java_lang` — `ClassLoader` (`stdlib.rs`) | **CLEARED (this branch)** |
 | #1c `Object.getClass()` interface-callsite dispatch | execution.rs interface dispatch (native fallback super-chain walk) | **CLEARED (this branch)** |
 | #1d `WeakReference.get()` underflow in commons-logging | native — `java.lang.ref` reference-object | **CLEARED (this branch)** |
-| #1e `class not found: java/time/ZoneId` | native / stdlib — `java_time` (`ZoneId`) | **HANDOFF — current app pin** |
-| #1f `class not found: org/apache/logging/slf4j/SLF4JProvider` | logging-backend / service-provider (classpath resolution) | **HANDOFF — current ladder pin** |
+| #1e `class not found: java/time/ZoneId` | native / stdlib — `java_time` (`ZoneId`) | **CLEARED (this branch)** |
+| #1e′ `class not found: java/util/Locale` | native / stdlib — `java_util` (`Locale`) | **HANDOFF — current app pin** |
+| #1f `class not found: org/apache/logging/slf4j/SLF4JProvider` | class-loader — `Class.forName` availability probe (`java_lang`) | **CLEARED (this branch)** |
+| #1f′ `class not found: org/apache/logging/log4j/MarkerManager` | interpreter — class-resolution / `NoClassDefFoundError` linkage during `<clinit>` (`execution.rs` + synthetic `LinkageError` in `stdlib.rs`) | **HANDOFF — current ladder pin** |
 | #2 `java/net/URL` layout coherence | native / stdlib object-layout — `java_net` (`URL`) | inferred |
 | #3 `spring.factories` / `AutoConfiguration.imports` resource enumeration | java_util + classloader/registry | inferred |
 | #4 reflective bean instantiation / annotations | reflect (`java_lang_reflect`) + `java_lang` (`Class`) | inferred |

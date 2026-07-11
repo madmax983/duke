@@ -13037,6 +13037,51 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_localdatetime_hash_code,
     );
 
+    // ---- java.time.ZoneId (minimal-for-boot) ----
+    // Spring Boot / logback's timestamp formatting reaches `ZoneId` during startup.
+    // Duke does not model a real tzdb, so `ZoneId` is a thin synthetic holder for a
+    // zone-id string. `systemDefault()` reports UTC: the interpreter's clocks are all
+    // epoch/UTC based (see `Instant`/`LocalDate*` natives above), so a UTC default
+    // zone keeps timestamps self-consistent without pulling in `ZoneRules`/tzdb.
+    let zone_id_ctx = ClassContext {
+        class_name: "java/time/ZoneId".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        // one field: the zone-id string (stored via string_value on the instance)
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(zone_id_ctx);
+    registry.natives_mut().register(
+        "java/time/ZoneId",
+        "systemDefault",
+        "()Ljava/time/ZoneId;",
+        native_zoneid_system_default,
+    );
+    registry.natives_mut().register(
+        "java/time/ZoneId",
+        "of",
+        "(Ljava/lang/String;)Ljava/time/ZoneId;",
+        native_zoneid_of,
+    );
+    registry.natives_mut().register(
+        "java/time/ZoneId",
+        "getId",
+        "()Ljava/lang/String;",
+        native_zoneid_get_id,
+    );
+    registry.natives_mut().register(
+        "java/time/ZoneId",
+        "toString",
+        "()Ljava/lang/String;",
+        native_zoneid_get_id,
+    );
+
     // Phase 64 additions
     registry.natives_mut().register(
         "java/lang/String",

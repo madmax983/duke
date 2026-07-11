@@ -1518,3 +1518,48 @@ pub(crate) fn native_localdatetime_hash_code(
     hash = hash.wrapping_mul(31).wrapping_add(nanos);
     Ok(Some(Slot::Int(hash)))
 }
+/// Allocate a synthetic `java/time/ZoneId` holding `zone_id` in its `string_value`.
+fn allocate_zone_id(heap: &mut duke_gc::Heap, zone_id: &str) -> Result<u64> {
+    let r = heap.allocate("java/time/ZoneId".to_string(), 0);
+    heap.get_mut(r)?.string_value = Some(zone_id.to_string());
+    Ok(r)
+}
+/// Native: `ZoneId.systemDefault() -> ZoneId`.
+///
+/// Reports UTC. Duke's clocks (`Instant`, `LocalDate*`) are all epoch/UTC based, so a
+/// UTC system-default zone keeps timestamps self-consistent without modelling a real
+/// tzdb or `ZoneRules`.
+pub(crate) fn native_zoneid_system_default(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(Slot::Reference(Some(allocate_zone_id(heap, "UTC")?))))
+}
+/// Native: `ZoneId.of(String) -> ZoneId` — synthetic holder carrying the given id.
+pub(crate) fn native_zoneid_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let zone_id = extract_string_arg_value(args, 0, heap)?;
+    Ok(Some(Slot::Reference(Some(allocate_zone_id(heap, &zone_id)?))))
+}
+/// Native: `ZoneId.getId() -> String` (also serves `toString()`).
+pub(crate) fn native_zoneid_get_id(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let id = heap
+        .get(this_ref)?
+        .string_value
+        .clone()
+        .unwrap_or_else(|| "UTC".to_string());
+    let sr = heap.allocate_string(id);
+    Ok(Some(Slot::Reference(Some(sr))))
+}
