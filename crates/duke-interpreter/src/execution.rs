@@ -231,11 +231,8 @@ pub fn run_execution(
         }
         remaining = remaining.saturating_sub(1);
 
-        let (pc, instr) = {
-            let Some(&(pc, ref instr)) = instructions.get(*idx) else {
-                return Err(Error::FellOffEnd);
-            };
-            (pc, instr.clone())
+        let Some(&(pc, ref instr)) = instructions.get(*idx) else {
+            return Err(Error::FellOffEnd);
         };
 
         if trace_exec {
@@ -473,12 +470,12 @@ pub fn run_execution(
         #[cfg(feature = "telemetry")]
         #[allow(clippy::used_underscore_binding)]
         let (_telem_name, _telem_pc, _telem_start) = {
-            let name = instr_name(&instr);
+            let name = instr_name(instr);
             let pc_val = pc;
             (name, pc_val, std::time::Instant::now())
         };
 
-        match &instr {
+        match instr {
             // ---- invokestatic ----
             Instruction::Invokestatic(cp_idx) => {
                 if let Some(cached) = dispatch_cache
