@@ -218,6 +218,13 @@ pub fn run_execution(
 
     let mut remaining = quantum.unwrap_or(usize::MAX);
 
+    // Hoisted out of the opcode loop: reading this env var per-instruction cost a
+    // full process-wide `environ` scan (ENV_LOCK + linear search) on every
+    // dispatch, dominating the interpreter's hot loop. Nothing mutates
+    // `DUKE_TRACE_EXEC` mid-run — a tracer sets it before execution — so reading
+    // it once at loop entry is observationally identical.
+    let trace_exec = std::env::var_os("DUKE_TRACE_EXEC").is_some();
+
     loop {
         if remaining == 0 {
             return Ok(ExecutionOutcome::Yield);
@@ -231,7 +238,7 @@ pub fn run_execution(
             (pc, instr.clone())
         };
 
-        if std::env::var_os("DUKE_TRACE_EXEC").is_some() {
+        if trace_exec {
             let method_name = registry
                 .get(current_class)
                 .ok()
