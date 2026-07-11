@@ -218,20 +218,24 @@ pub fn run_execution(
 
     let mut remaining = quantum.unwrap_or(usize::MAX);
 
+    // Hoisted out of the opcode loop: reading this env var per-instruction cost a
+    // full process-wide `environ` scan (ENV_LOCK + linear search) on every
+    // dispatch, dominating the interpreter's hot loop. Nothing mutates
+    // `DUKE_TRACE_EXEC` mid-run — a tracer sets it before execution — so reading
+    // it once at loop entry is observationally identical.
+    let trace_exec = std::env::var_os("DUKE_TRACE_EXEC").is_some();
+
     loop {
         if remaining == 0 {
             return Ok(ExecutionOutcome::Yield);
         }
         remaining = remaining.saturating_sub(1);
 
-        let (pc, instr) = {
-            let Some(&(pc, ref instr)) = instructions.get(*idx) else {
-                return Err(Error::FellOffEnd);
-            };
-            (pc, instr.clone())
+        let Some(&(pc, ref instr)) = instructions.get(*idx) else {
+            return Err(Error::FellOffEnd);
         };
 
-        if std::env::var_os("DUKE_TRACE_EXEC").is_some() {
+        if trace_exec {
             let method_name = registry
                 .get(current_class)
                 .ok()
@@ -466,12 +470,12 @@ pub fn run_execution(
         #[cfg(feature = "telemetry")]
         #[allow(clippy::used_underscore_binding)]
         let (_telem_name, _telem_pc, _telem_start) = {
-            let name = instr_name(&instr);
+            let name = instr_name(instr);
             let pc_val = pc;
             (name, pc_val, std::time::Instant::now())
         };
 
-        match &instr {
+        match instr {
             // ---- invokestatic ----
             Instruction::Invokestatic(cp_idx) => {
                 if let Some(cached) = dispatch_cache

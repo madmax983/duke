@@ -227,3 +227,63 @@ The benchmarks include `make_env` setup (class parse + bootstrap) in total time.
 - **Remaining bottleneck**: `bootstrap_stdlib` at ~251 µs × iterations dominates all benchmarks.
   Options: lazy registration (register natives on first use), pre-built registry snapshot,
   or splitting benchmark setup so only the relevant subset is bootstrapped.
+
+## 2026-07-11: Hot-loop regression fix — hoist trace-flag env read + drop per-fetch clone
+
+Date: 2026-07-11
+Hardware: CI container
+Duke version: trunk @ `0d937e4` + interpreter hot-loop fixes
+HotSpot version: OpenJDK (system `java`)
+
+### Root cause
+
+The main opcode dispatch loop in `crates/duke-interpreter/src/execution.rs` performed two
+avoidable operations on **every** bytecode dispatch:
+
+1. **`std::env::var_os("DUKE_TRACE_EXEC")` per instruction (dominant).** The trace-gate at
+   the top of the loop read the env var unconditionally on every opcode. On Unix `var_os`
+   takes the process-wide `ENV_LOCK` and linearly scans `environ`; with the key absent (the
+   normal case) it scans the entire environment and returns `None` — the slowest path. In a
+   cargo/criterion process (large environment) this measured ~150 ns/dispatch, i.e. far more
+   than the ~1-3 ns opcode it guarded. benchSum runs ~4.5M dispatches, benchFib ~2.1M.
+2. **`Instruction::clone()` per fetch.** The fetch cloned the ~32-byte `Instruction` enum
+   though the dispatch `match` only borrows it.
+
+### Fixes (behavior-identical, interpreter-only)
+
+- **Fix #1:** read `DUKE_TRACE_EXEC` once into a `bool` before `loop {` and gate the trace
+  block on it. Nothing mutates that env var mid-run (a tracer sets it before execution), so
+  the trace output is identical.
+- **Fix #2:** bind the fetched instruction by reference (`let Some(&(pc, ref instr)) = …`)
+  and `match instr` instead of `instr.clone()`. NLL releases the borrow before the
+  invoke/return arms reassign the instruction stream, so no clone is needed and no wider
+  refactor was required.
+
+### Wall-clock (median of 7, `duke exec` release binary — includes startup + parse + bootstrap)
+
+| Benchmark | Before (ms) | After (ms) | Speedup | HS JIT (median/5) | Duke/HS before → after |
+|-----------|-------------|------------|---------|-------------------|------------------------|
+| benchSum (500k int adds)        | 1280 | 612 | 2.09x | 44 | 28x → 14x |
+| benchFib (fib(25), ~243k calls) | 708  | 389 | 1.82x | 42 | 15x → 9x  |
+
+### Criterion (median, `--sample-size 10 --measurement-time 8`; isolates the execution loop)
+
+| Benchmark | Before (ms) | After (ms) | Speedup |
+|-----------|-------------|------------|---------|
+| benchSum  | 757  | 83.5 | 9.06x |
+| benchFib  | 404  | 75.7 | 5.34x |
+
+The criterion improvement is proportionally larger than wall-clock because criterion strips
+the fixed process/startup/bootstrap cost, exposing the per-instruction loop where the env
+read dominated. Gate: `cargo test --workspace` = 3042 passed / 0 failed / 4 ignored;
+`cargo fmt --all --check` clean; `cargo +1.97.0 clippy --workspace --all-targets
+-W pedantic -W nursery` clean.
+
+### Follow-ups (out of this lane's scope)
+
+- Two `String` clones of the class name per method call — `cached.class_name.clone()`
+  (execution.rs invokestatic fast path) and `class_name: current_class.clone()` inside
+  `activate_method_state` (`native/common.rs`). Converting class keys to `Arc<str>` would
+  turn these into ref-count bumps (~485k allocs saved on benchFib), but the type flows
+  through `native/common.rs`/`registry.rs`, which are owned by other lanes — deferred.
+- `bootstrap_stdlib` (~251 µs) remains the standing wall-clock startup term (stdlib.rs).
