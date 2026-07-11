@@ -28335,6 +28335,60 @@ fn test_zoneid_of_round_trips_id() {
     );
 }
 
+// ---- java.util.Locale (minimal-for-boot) ----
+
+#[test]
+fn test_locale_get_default_is_en_us() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let locale =
+        native_locale_get_default(&[], &mut heap, &mut sink, &mut NativeControl::default())
+            .expect("getDefault should succeed")
+            .expect("getDefault should return a Locale");
+    let Slot::Reference(Some(locale_ref)) = locale else {
+        panic!("expected Locale reference");
+    };
+    // The documented fixed default: language "en", country "US".
+    let language = native_locale_get_language(
+        &[Slot::Reference(Some(locale_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .expect("getLanguage should succeed")
+    .expect("getLanguage should return a String");
+    let country = native_locale_get_country(
+        &[Slot::Reference(Some(locale_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .expect("getCountry should succeed")
+    .expect("getCountry should return a String");
+    let to_string = native_locale_to_string(
+        &[Slot::Reference(Some(locale_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .expect("toString should succeed")
+    .expect("toString should return a String");
+    let (Slot::Reference(Some(lang_ref)), Slot::Reference(Some(country_ref)), Slot::Reference(Some(str_ref))) =
+        (language, country, to_string)
+    else {
+        panic!("expected String references");
+    };
+    assert_eq!(heap.get(lang_ref).unwrap().string_value.as_deref(), Some("en"));
+    assert_eq!(
+        heap.get(country_ref).unwrap().string_value.as_deref(),
+        Some("US")
+    );
+    assert_eq!(
+        heap.get(str_ref).unwrap().string_value.as_deref(),
+        Some("en_US")
+    );
+}
+
 // ---- Phase 62: java.time (LocalDate, Duration, Period, Instant) ----
 
 #[test]

@@ -13082,6 +13082,57 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_zoneid_get_id,
     );
 
+    // ---- java.util.Locale (minimal-for-boot) ----
+    // logback's `CachingDateFormatter` calls `Locale.getDefault()` during startup.
+    // Duke does not model CLDR / ResourceBundle, so `Locale` is a thin synthetic holder
+    // for a language tag + country code (see the natives in native/java_util.rs).
+    // `getDefault()` reports a fixed en-US locale, keeping boot deterministic without a
+    // locale/CLDR data build-out.
+    let locale_ctx = ClassContext {
+        class_name: "java/util/Locale".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        // fields[0] = language String, fields[1] = country String
+        instance_field_count: 2,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(locale_ctx);
+    registry.natives_mut().register(
+        "java/util/Locale",
+        "getDefault",
+        "()Ljava/util/Locale;",
+        native_locale_get_default,
+    );
+    registry.natives_mut().register(
+        "java/util/Locale",
+        "getDefault",
+        "(Ljava/util/Locale$Category;)Ljava/util/Locale;",
+        native_locale_get_default_category,
+    );
+    registry.natives_mut().register(
+        "java/util/Locale",
+        "getLanguage",
+        "()Ljava/lang/String;",
+        native_locale_get_language,
+    );
+    registry.natives_mut().register(
+        "java/util/Locale",
+        "getCountry",
+        "()Ljava/lang/String;",
+        native_locale_get_country,
+    );
+    registry.natives_mut().register(
+        "java/util/Locale",
+        "toString",
+        "()Ljava/lang/String;",
+        native_locale_to_string,
+    );
+
     // Phase 64 additions
     registry.natives_mut().register(
         "java/lang/String",
