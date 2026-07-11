@@ -711,15 +711,16 @@ pub(crate) fn native_class_for_name_with_loader(
         .clone()
         .ok_or(Error::NullPointerException)?;
     let internal_name = binary_name_to_internal_name(&binary_name);
-    let (load_result, class_key) = match args.get(2) {
-        Some(Slot::Reference(Some(loader_ref))) => (
-            ops.ensure_loaded_with_runtime_loader(heap, *loader_ref, &internal_name),
-            ops.class_key_for_runtime_loader(heap, *loader_ref, &internal_name)?,
-        ),
-        Some(Slot::Reference(None)) | None => (
-            ops.ensure_loaded(&internal_name),
-            ops.class_key_for_loaded_class(&internal_name)?,
-        ),
+    // Determine the loader argument and attempt to load the class. The class key
+    // must be computed lazily (only after a successful load): computing it eagerly
+    // can itself raise `ClassNotFound` for an unloaded class, and that error would
+    // bypass the conversion below and surface as a fatal runtime error instead of a
+    // catchable `ClassNotFoundException`. Real code (e.g. commons-logging's backend
+    // probing) relies on `Class.forName` throwing a catchable exception for absent
+    // classes, so the not-found case must always resolve to a Java exception.
+    let loader_arg = match args.get(2) {
+        Some(Slot::Reference(loader)) => *loader,
+        None => None,
         _ => {
             return Err(Error::TypeMismatch {
                 expected: "Reference",
@@ -727,8 +728,18 @@ pub(crate) fn native_class_for_name_with_loader(
             });
         }
     };
+    let load_result = match loader_arg {
+        Some(loader_ref) => ops.ensure_loaded_with_runtime_loader(heap, loader_ref, &internal_name),
+        None => ops.ensure_loaded(&internal_name),
+    };
     match load_result {
         Ok(()) => {
+            let class_key = match loader_arg {
+                Some(loader_ref) => {
+                    ops.class_key_for_runtime_loader(heap, loader_ref, &internal_name)?
+                }
+                None => ops.class_key_for_loaded_class(&internal_name)?,
+            };
             let class_ref = allocate_class_object(heap, &class_key)?;
             Ok(Some(Slot::Reference(Some(class_ref))))
         }
@@ -851,6 +862,56 @@ pub(crate) fn native_class_loader_get_resources(
     }
     let enum_ref = allocate_resource_enumeration(heap, resources)?;
     Ok(Some(Slot::Reference(Some(enum_ref))))
+}
+/// Native: static `ClassLoader.getSystemResources(String)` — mirrors
+/// `native_class_loader_get_resources` but resolves against the system/bootstrap
+/// loader (passing `None`), matching `getSystemResourceAsStream` semantics.
+pub(crate) fn native_class_loader_get_system_resources(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let requested_name = string_arg(args, 0, heap)?;
+    let classpath = classpath_debug_label(None);
+    let Some(resolved_name) = normalize_resource_name(&requested_name) else {
+        log_resource_lookup_miss(&requested_name, "<system>", &classpath);
+        let enum_ref = allocate_resource_enumeration(heap, Vec::new())?;
+        return Ok(Some(Slot::Reference(Some(enum_ref))));
+    };
+    let resources = ops.find_resource_entries(heap, None, &resolved_name)?;
+    if resources.is_empty() {
+        log_resource_lookup_miss(&resolved_name, "<system>", &classpath);
+    }
+    let enum_ref = allocate_resource_enumeration(heap, resources)?;
+    Ok(Some(Slot::Reference(Some(enum_ref))))
+}
+/// Static-field name on the synthetic `java/lang/ClassLoader` caching the single
+/// system `ClassLoader` instance returned by `getSystemClassLoader`.
+pub(crate) const SYSTEM_CLASS_LOADER_FIELD: &str = "$dukeSystemClassLoader";
+/// Native: static `ClassLoader.getSystemClassLoader()` — returns a single stable
+/// synthetic system `ClassLoader` instance, allocated lazily on first use and
+/// cached in a static field so every call yields the same object identity.
+pub(crate) fn native_class_loader_get_system_class_loader(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    if let Slot::Reference(Some(existing)) =
+        ops.read_static_field("java/lang/ClassLoader", SYSTEM_CLASS_LOADER_FIELD)?
+    {
+        return Ok(Some(Slot::Reference(Some(existing))));
+    }
+    let loader_ref = heap.allocate("java/lang/ClassLoader".to_string(), 0);
+    ops.write_static_field(
+        "java/lang/ClassLoader",
+        SYSTEM_CLASS_LOADER_FIELD,
+        Slot::Reference(Some(loader_ref)),
+    )?;
+    Ok(Some(Slot::Reference(Some(loader_ref))))
 }
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_class_loader_register_as_parallel_capable(
@@ -5065,6 +5126,57 @@ pub(crate) fn native_thread_local_set(
 
 /// `ThreadLocal.remove()V` — clear the slot back to null.
 pub(crate) fn native_thread_local_remove(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Reference(None);
+    Ok(None)
+}
+
+// ┌──────────────────────────────────────────────────────────────────────────┐
+// │ java/lang/ref reference objects (Spring Boot ladder / commons-logging     │
+// │ LogFactory.getFactory frontier)                                           │
+// │                                                                           │
+// │ NON-COLLECTING stub: the referent is held by an ordinary *strong* heap    │
+// │ field (slot 0 on java/lang/ref/Reference), so it is never reclaimed by GC │
+// │ — get() returns it until an explicit clear(). This deliberately omits     │
+// │ real weak-reachability semantics; it only needs to round-trip the         │
+// │ referent, which is all commons-logging's thisClassLoaderRef relies on.    │
+// └──────────────────────────────────────────────────────────────────────────┘
+
+/// `java/lang/ref/WeakReference.<init>(Ljava/lang/Object;)V` — store the referent
+/// (which may be null) in slot 0. Strong-ref-backed, non-collecting (see block
+/// header): the referent is retained until `clear()`.
+pub(crate) fn native_reference_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let referent = extract_slot_arg(args, 1);
+    heap.get_mut(this_ref)?.fields[0] = referent;
+    heap.remember_reference_write(this_ref, referent);
+    Ok(None)
+}
+
+/// `java/lang/ref/Reference.get()Ljava/lang/Object;` — return the stored referent
+/// (null after `clear()`). Non-collecting: never spontaneously returns null.
+pub(crate) fn native_reference_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(heap.get(this_ref)?.fields[0]))
+}
+
+/// `java/lang/ref/Reference.clear()V` — drop the referent so `get()` returns null.
+pub(crate) fn native_reference_clear(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,

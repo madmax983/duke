@@ -4247,8 +4247,14 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: Vec::new(),
-        static_fields: Vec::new(),
+        // Static-only field caching the single system ClassLoader instance
+        // returned by `getSystemClassLoader` (see SYSTEM_CLASS_LOADER_FIELD).
+        fields: vec![FieldEntry {
+            name: SYSTEM_CLASS_LOADER_FIELD.to_string(),
+            descriptor: "Ljava/lang/ClassLoader;".to_string(),
+            is_static: true,
+        }],
+        static_fields: vec![Slot::Reference(None)],
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
@@ -4284,6 +4290,29 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getSystemResourceAsStream",
         "(Ljava/lang/String;)Ljava/io/InputStream;",
         native_class_loader_get_system_resource_as_stream,
+    );
+    // ┌──────────────────────────────────────────────────────────────────────┐
+    // │ System ClassLoader accessors (Spring Boot ladder / app frontier)      │
+    // └──────────────────────────────────────────────────────────────────────┘
+    registry.natives_mut().register_callback(
+        "java/lang/ClassLoader",
+        "getSystemResources",
+        "(Ljava/lang/String;)Ljava/util/Enumeration;",
+        native_class_loader_get_system_resources,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/ClassLoader",
+        "getSystemClassLoader",
+        "()Ljava/lang/ClassLoader;",
+        native_class_loader_get_system_class_loader,
+    );
+    // Base `ClassLoader.loadClass` delegates to the parent/default loader first and
+    // then the receiver's runtime paths — exactly `native_url_class_loader_load_class`.
+    registry.natives_mut().register_callback(
+        "java/lang/ClassLoader",
+        "loadClass",
+        "(Ljava/lang/String;)Ljava/lang/Class;",
+        native_url_class_loader_load_class,
     );
 
     let thread_ctx = ClassContext {
@@ -13008,6 +13037,102 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_localdatetime_hash_code,
     );
 
+    // ---- java.time.ZoneId (minimal-for-boot) ----
+    // Spring Boot / logback's timestamp formatting reaches `ZoneId` during startup.
+    // Duke does not model a real tzdb, so `ZoneId` is a thin synthetic holder for a
+    // zone-id string. `systemDefault()` reports UTC: the interpreter's clocks are all
+    // epoch/UTC based (see `Instant`/`LocalDate*` natives above), so a UTC default
+    // zone keeps timestamps self-consistent without pulling in `ZoneRules`/tzdb.
+    let zone_id_ctx = ClassContext {
+        class_name: "java/time/ZoneId".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        // one field: the zone-id string (stored via string_value on the instance)
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(zone_id_ctx);
+    registry.natives_mut().register(
+        "java/time/ZoneId",
+        "systemDefault",
+        "()Ljava/time/ZoneId;",
+        native_zoneid_system_default,
+    );
+    registry.natives_mut().register(
+        "java/time/ZoneId",
+        "of",
+        "(Ljava/lang/String;)Ljava/time/ZoneId;",
+        native_zoneid_of,
+    );
+    registry.natives_mut().register(
+        "java/time/ZoneId",
+        "getId",
+        "()Ljava/lang/String;",
+        native_zoneid_get_id,
+    );
+    registry.natives_mut().register(
+        "java/time/ZoneId",
+        "toString",
+        "()Ljava/lang/String;",
+        native_zoneid_get_id,
+    );
+
+    // ---- java.util.Locale (minimal-for-boot) ----
+    // logback's `CachingDateFormatter` calls `Locale.getDefault()` during startup.
+    // Duke does not model CLDR / ResourceBundle, so `Locale` is a thin synthetic holder
+    // for a language tag + country code (see the natives in native/java_util.rs).
+    // `getDefault()` reports a fixed en-US locale, keeping boot deterministic without a
+    // locale/CLDR data build-out.
+    let locale_ctx = ClassContext {
+        class_name: "java/util/Locale".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        // fields[0] = language String, fields[1] = country String
+        instance_field_count: 2,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(locale_ctx);
+    registry.natives_mut().register(
+        "java/util/Locale",
+        "getDefault",
+        "()Ljava/util/Locale;",
+        native_locale_get_default,
+    );
+    registry.natives_mut().register(
+        "java/util/Locale",
+        "getDefault",
+        "(Ljava/util/Locale$Category;)Ljava/util/Locale;",
+        native_locale_get_default_category,
+    );
+    registry.natives_mut().register(
+        "java/util/Locale",
+        "getLanguage",
+        "()Ljava/lang/String;",
+        native_locale_get_language,
+    );
+    registry.natives_mut().register(
+        "java/util/Locale",
+        "getCountry",
+        "()Ljava/lang/String;",
+        native_locale_get_country,
+    );
+    registry.natives_mut().register(
+        "java/util/Locale",
+        "toString",
+        "()Ljava/lang/String;",
+        native_locale_to_string,
+    );
+
     // Phase 64 additions
     registry.natives_mut().register(
         "java/lang/String",
@@ -13425,6 +13550,69 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             .natives_mut()
             .register("java/lang/ThreadLocal", method, descriptor, handler);
     }
+
+    // ┌──────────────────────────────────────────────────────────────────────┐
+    // │ java/lang/ref reference objects (Spring Boot ladder / commons-logging │
+    // │ LogFactory.getFactory WeakReference.get frontier)                     │
+    // └──────────────────────────────────────────────────────────────────────┘
+    // Minimal NON-COLLECTING Reference/WeakReference: the referent lives in a
+    // single strong-ref slot (field 0 on Reference) so get() round-trips it until
+    // clear(); no GC weak semantics. commons-logging caches its own defining
+    // ClassLoader in a static WeakReference and only ever reads it back, which a
+    // strong slot models faithfully. See native_reference_* in native/java_lang.rs.
+    let reference_ctx = ClassContext {
+        class_name: "java/lang/ref/Reference".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "referent".to_string(),
+            descriptor: "Ljava/lang/Object;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(reference_ctx);
+    // get()/clear() live on the Reference base; WeakReference inherits them (the
+    // referent slot is inherited, so a WeakReference instance carries one field).
+    for (method, descriptor, handler) in [
+        (
+            "get",
+            "()Ljava/lang/Object;",
+            native_reference_get as NativeHandler,
+        ),
+        ("clear", "()V", native_reference_clear),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/lang/ref/Reference", method, descriptor, handler);
+    }
+
+    let weak_reference_ctx = ClassContext {
+        class_name: "java/lang/ref/WeakReference".to_string(),
+        super_class: Some("java/lang/ref/Reference".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(weak_reference_ctx);
+    // Only the single-arg WeakReference(referent) constructor is exercised by the
+    // ladder (commons-logging's thisClassLoaderRef static initialiser).
+    registry.natives_mut().register(
+        "java/lang/ref/WeakReference",
+        "<init>",
+        "(Ljava/lang/Object;)V",
+        native_reference_init,
+    );
 
     // java/lang/Class.isAssignableFrom — hierarchy-walking reflection predicate
     // (gson uses it while resolving type adapters).

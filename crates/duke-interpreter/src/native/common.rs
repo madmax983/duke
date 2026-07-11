@@ -11405,6 +11405,29 @@ fn lookup_registered_native_kind(
         })
 }
 
+/// Walk `start_class` and its super chain looking for a registered native handler
+/// for `method_name`/`method_desc`. Mirrors the super-chain walk used by
+/// invokevirtual so inherited `java/lang/Object` natives (e.g. `getClass`) resolve
+/// even when the receiver is reached through an interface-typed callsite whose own
+/// class declares no such native.
+fn lookup_native_kind_in_super_chain(
+    registry: &ClassRegistry,
+    start_class: &str,
+    method_name: &str,
+    method_desc: &str,
+) -> Option<HandlerKind> {
+    let mut current = Some(start_class.to_string());
+    while let Some(ref class) = current {
+        if let Some(handler) =
+            lookup_registered_native_kind(registry, class, method_name, method_desc)
+        {
+            return Some(handler);
+        }
+        current = registry.get(class).ok().and_then(|ctx| ctx.super_class.clone());
+    }
+    None
+}
+
 /// Walk the class hierarchy to find a bytecode method by name and descriptor,
 /// stopping early if an exact native override owns that slot.
 fn resolve_method_in_hierarchy_lookup(

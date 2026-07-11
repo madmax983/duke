@@ -53,9 +53,77 @@ With the loader-lane fix in this branch (`5860f6b`, see below), `duke -jar` on
 3. Reaches Spring Boot's **classpath-scanning phase** — the point where the
    framework enumerates classpath resources to discover configuration.
 
-It then stops. **Update 2026-07-10 (after #1320):** the gson-natives work in
-#1320 advanced the **app** fixture past the `getSystemResources` rung; the two
-fixtures now diverge on the first blocker:
+It then stops. **Update 2026-07-11 (ClassLoader-lane rungs cleared):** three
+synthetic `java/lang/ClassLoader` natives are now implemented —
+`getSystemResources(String)` (mirrors `getResources` but resolves against the
+system/bootstrap loader), `getSystemClassLoader()` (returns a single stable
+synthetic system `ClassLoader` instance, cached in a static field), and base
+`loadClass(String)` (reuses `native_url_class_loader_load_class`, which delegates
+to the parent/default loader first). These advanced **both** fixtures several
+rungs. The frontier has now moved **out of the ClassLoader-native lane** on both:
+
+**Update 2026-07-11 (end of wave — 8 rungs cleared this wave):** this wave cleared
+**eight** distinct rungs across four lanes. In order:
+1. `ClassLoader.getSystemResources(String)` (ladder) — synthetic-stdlib `java_lang`.
+2. `ClassLoader.getSystemClassLoader()` (app) — synthetic-stdlib `java_lang`.
+3. `ClassLoader.loadClass(String)` (app) — synthetic-stdlib `java_lang`.
+4. Inherited `Object.getClass()` through an interface-typed callsite (app) —
+   execution.rs invokeinterface native fallback now walks the super chain.
+5. Minimal non-collecting synthetic `java/lang/ref/WeakReference` (ladder) —
+   clears the commons-logging `LogFactory.getFactory` underflow.
+6. 3-arg `Class.forName(name, false, cl)` availability probe made catchable via a
+   **lazy** identity-key computation (ladder) — native `java_lang`.
+7. Minimal-for-boot synthetic `java/time/ZoneId` (app) — native/stdlib `java_time`.
+8. Minimal-for-boot synthetic `java/util/Locale` (app) — native/stdlib `java_util`.
+
+After all eight, the two fixtures are parked at these **final end-of-wave
+frontiers**:
+
+```
+# app  (duke-spring-boot-app-3.5.12.jar) — final frontier:
+duke: runtime error: method not found: java/time/format/DateTimeFormatter.ofPattern(Ljava/lang/String;)Ljava/time/format/DateTimeFormatter;
+
+# ladder (duke-spring-boot-ladder-3.5.12.jar) — final frontier:
+duke: runtime error: class not found: org/apache/logging/log4j/MarkerManager
+```
+
+The **app** frontier is now logback's `CachingDateFormatter` calling
+`DateTimeFormatter.ofPattern(String)` — the synthetic `DateTimeFormatter` carries
+only the ISO constant instances, not the `ofPattern` factory (java.time formatter
+lane; handoff to a future wave). The **ladder** frontier is a missing
+`org/apache/logging/log4j/MarkerManager` reached while initializing
+`Log4jApiLogFactory` (its `<clinit>` calls `MarkerManager.getMarker`): a real JVM
+raises a **catchable `NoClassDefFoundError`** (a `LinkageError`) that
+commons-logging catches and falls through on. Duke has no synthetic
+`NoClassDefFoundError`/`LinkageError` and surfaces class-resolution failures during
+bytecode execution as fatal errors — a distinct interpreter class-resolution /
+linkage-error rung **deferred to a future wave** (do not conflate with the missing
+class itself). Both are handoffs to other lanes.
+
+An intermediate frontier this wave (after the `WeakReference` rung, before the
+`Class.forName` probe fix) was `class not found: org/apache/logging/slf4j/SLF4JProvider`
+on the ladder; the lazy-key `Class.forName` fix turned that availability probe
+catchable and advanced the ladder to the `MarkerManager` frontier above.
+
+For history, the prior (2026-07-11) frontiers were:
+
+```
+# app  — inherited Object.getClass() interface dispatch (FIXED this branch):
+duke: runtime error: method not found: ch/qos/logback/classic/util/DefaultJoranConfigurator.getClass()Ljava/lang/Class;
+
+# ladder — WeakReference.get() underflow (FIXED this branch):
+duke: runtime error: operand stack underflow
+```
+
+The app rung was inherited `java/lang/Object.getClass()` dispatch failing to
+resolve through an interface-typed callsite. The ladder rung was an
+`operand stack underflow` deep in real commons-logging `LogFactory.getFactory` at
+`java/lang/ref/WeakReference.get()Ljava/lang/Object;` (offset 188 → `checkcast` at
+191 underflows because `get()` returned no value) — an unimplemented
+`java.lang.ref` reference-object native.
+
+Previous divergence (**Update 2026-07-10, after #1320**), retained for history —
+the two fixtures diverged after #1320 advanced the app past `getSystemResources`:
 
 ```
 # app  (duke-spring-boot-app-3.5.12.jar):
@@ -81,8 +149,16 @@ under the default synthetic-stdlib path).
 | # | Blocker (symptom) | Root cause | Status | Owning lane |
 | --- | --- | --- | --- | --- |
 | **0** | `class not found: java/lang/System` (app) / `java/lang/ClassLoader` (ladder) — died before any framework code, at a loader-suffixed key (`java/lang/System\0loader:113`). | `ensure_loaded_inner` recorded per-loader/per-code-source provenance onto **plain synthetic bootstrap singletons**, flipping `is_plain_bootstrap_class` false and desyncing it from `class_key_from_provenance`, which then computed a loader-suffixed key nothing was stored under. | **FIXED here** (`5860f6b`) | classloader/registry (**this lane**) |
-| **1** | `method not found: java/lang/ClassLoader.getSystemResources(Ljava/lang/String;)Ljava/util/Enumeration;` — boot reaches classpath scanning, no banner. | `getSystemResources` is a **missing synthetic method** on the synthetic `java/lang/ClassLoader` in `stdlib.rs`. The resource-enumeration API surface (`getResource(s)`, `getSystemResource(s)`, `getResourceAsStream`) is incomplete. | **CLEARED for app by #1320** (gson natives advanced the app past this rung). **Still OBSERVED for the ladder — current ladder pin.** | synthetic-stdlib / native — `java_lang` (`ClassLoader` resource API) |
-| **1a** | `method not found: java/lang/ClassLoader.getSystemClassLoader()Ljava/lang/ClassLoader;` — app fixture's new first blocker after #1320, still in the classpath-scanning / classloader-bootstrap path, no banner. | `getSystemClassLoader` is another **missing synthetic method** on the synthetic `java/lang/ClassLoader` in `stdlib.rs` — same `ClassLoader` surface as #1, next method the app reaches. | **OBSERVED — current app pin** | synthetic-stdlib / native — `java_lang` (`ClassLoader` static/system-loader API) |
+| **1** | `method not found: java/lang/ClassLoader.getSystemResources(Ljava/lang/String;)Ljava/util/Enumeration;` — boot reaches classpath scanning, no banner. | `getSystemResources` is a **missing synthetic method** on the synthetic `java/lang/ClassLoader` in `stdlib.rs`. The resource-enumeration API surface (`getResource(s)`, `getSystemResource(s)`, `getResourceAsStream`) is incomplete. | **CLEARED for app by #1320; CLEARED for ladder here** — `native_class_loader_get_system_resources` added (mirrors `getResources` with `None` loader). | synthetic-stdlib / native — `java_lang` (`ClassLoader` resource API) |
+| **1a** | `method not found: java/lang/ClassLoader.getSystemClassLoader()Ljava/lang/ClassLoader;` — app fixture's first blocker after #1320. | `getSystemClassLoader` missing on synthetic `java/lang/ClassLoader`. | **CLEARED here** — `native_class_loader_get_system_class_loader` returns one stable synthetic `ClassLoader` cached in a new static field. | synthetic-stdlib / native — `java_lang` (`ClassLoader` static/system-loader API) |
+| **1b** | `method not found: java/lang/ClassLoader.loadClass(Ljava/lang/String;)Ljava/lang/Class;` — app, after 1a cleared. | Base `ClassLoader.loadClass` missing on synthetic `java/lang/ClassLoader`. | **CLEARED here** — registered `native_url_class_loader_load_class` (parent-first delegation) for base `ClassLoader.loadClass`. | synthetic-stdlib / native — `java_lang` (`ClassLoader`) |
+| **1c** | `method not found: ch/qos/logback/classic/util/DefaultJoranConfigurator.getClass()Ljava/lang/Class;` — app, after 1b cleared. | Inherited `java/lang/Object.getClass()` invoked through an **interface-typed** callsite (`Configurator.getClass()`): the invokeinterface native fallback probed only the receiver class and the interface directly — never the receiver's super chain — so the `java/lang/Object.getClass` native was never found. | **CLEARED here** — `lookup_native_kind_in_super_chain` added; invokeinterface native fallback now walks the super chain like invokevirtual. | execution.rs interface dispatch (native fallback) |
+| **1d** | `operand stack underflow` — ladder, after `getSystemResources` cleared. Deep in real commons-logging `LogFactory.getFactory`. | `java/lang/ref/WeakReference.get()Ljava/lang/Object;` returned no value (offset 188), so the following `checkcast` (191) underflowed. Reference-object native unimplemented. | **CLEARED here** — minimal non-collecting synthetic `java/lang/ref/Reference`/`WeakReference` (strong-ref-backed `referent` slot; `<init>`/`get`/`clear`). | native / stdlib — `java.lang.ref` (`Reference`/`WeakReference`) |
+| **1e** | `class not found: java/time/ZoneId` — app, after 1c cleared. Deeper in logback configuration. | Synthetic `java.time` surface incomplete — `java/time/ZoneId` is not registered. | **CLEARED here** — minimal synthetic `ZoneId` (UTC system default; `of`/`getId`/`toString`). | native / stdlib — `java_time` (`ZoneId`) |
+| **1e′** | `class not found: java/util/Locale` — app, after 1e cleared. logback timestamp formatting. | Synthetic `java.util` surface incomplete — `java/util/Locale` is not registered. | **CLEARED here** — minimal synthetic `Locale` (fixed en-US default; `getDefault`/`getLanguage`/`getCountry`/`toString`). | native / stdlib — `java_util` (`Locale`) |
+| **1e″** | `method not found: java/time/format/DateTimeFormatter.ofPattern(Ljava/lang/String;)Ljava/time/format/DateTimeFormatter;` — app, after 1e′ cleared. logback `CachingDateFormatter` builds a pattern formatter. | Synthetic `DateTimeFormatter` carries only the ISO constant instances, not the `ofPattern(String)` factory. | **OBSERVED — current app pin. HANDOFF** to java.time formatter lane (deferred to future wave). | native / stdlib — `java_time` (`DateTimeFormatter`) |
+| **1f** | `class not found: org/apache/logging/slf4j/SLF4JProvider` — ladder, after 1d cleared. | The log4j-to-slf4j binding's `SLF4JProvider` is not resolvable — a logging-backend provider class discovered via the SLF4J `ServiceLoader`/provider mechanism is missing from the classpath resolution path. | **CLEARED here** — lazy-key 3-arg `Class.forName` makes the availability probe catchable. | class-loader — `Class.forName` availability probe (`java_lang`) |
+| **1f′** | `class not found: org/apache/logging/log4j/MarkerManager` — ladder, after 1f cleared. `Log4jApiLogFactory.<clinit>` calls `MarkerManager.getMarker`. | A real JVM raises a catchable `NoClassDefFoundError` (`LinkageError`) here that commons-logging catches; duke has no synthetic `NoClassDefFoundError`/`LinkageError` and surfaces class-resolution failures during execution as fatal errors. | **OBSERVED — current ladder pin. HANDOFF** to interpreter class-resolution / linkage-error lane (deferred to future wave). | interpreter — class-resolution / `LinkageError` |
 | **2** | `--real-jdk` probe: getfield slot 10 out of bounds on a `java/net/URL` allocated with 1 slot where real `URL` bytecode expects 13 (`crates/duke-interpreter/src/execution.rs:1600`). | Synthetic-vs-real **object-layout coherence** boundary: `java/net/URL` is allocated synthetically (1 slot) but real `URL` bytecode indexes its full 13-field layout. | **INFERRED** (seen only under `--real-jdk`, past blocker #1) | native / stdlib object-layout — `java_net` (`URL`) |
 | **3** | Resource enumeration + `META-INF/spring.factories` and `META-INF/spring/…AutoConfiguration.imports` discovery returning empty/failing. | Spring's `SpringFactoriesLoader` / `ImportCandidates` walk **every** classpath entry via `ClassLoader.getResources`; requires working nested-jar resource enumeration (depends on #1). | **INFERRED** | java_util + classloader/registry (resource enumeration) |
 | **4** | Heavy `java.lang.reflect` use during auto-configuration: `Constructor.newInstance`, `Method.invoke`, annotation reads, `Class.forName` fan-out. | `SpringApplication.run` instantiates and wires beans almost entirely reflectively; annotation metadata is read via reflection/ASM. | **INFERRED** | reflect (`java_lang_reflect`) + `java_lang` (`Class`) |
@@ -133,13 +209,63 @@ loader — precisely the pattern Spring's `LaunchedClassLoader` (and any nested-
 or custom-classloader app) creates. The two Spring Boot fixtures are the
 regression witnesses, but the fix is generic.
 
+## Update (this wave): two more rungs cleared
+
+**Ladder — `SLF4JProvider` `Class.forName` availability probe (CLEARED).**
+`crates/duke-interpreter/src/native/java_lang.rs`, `native_class_for_name_with_loader`.
+commons-logging `LogFactory.newStandardFactory` probes for logging backends via
+`isClassAvailable(name, cl)` → `Class.forName(name, false, cl)`, catching
+`ClassNotFoundException`. Duke's 3-arg `Class.forName` native computed the class
+identity key **eagerly** (with `?`) alongside the load attempt; for an absent
+class the key lookup itself raises `ClassNotFound`, propagating a **fatal** error
+before the not-found result could be mapped to a catchable
+`ClassNotFoundException`. Fix: compute the key lazily, only on a successful load.
+New ladder frontier: `class not found: org/apache/logging/log4j/MarkerManager`,
+reached while initializing `Log4jApiLogFactory` (its `<clinit>` calls
+`MarkerManager.getMarker`). A real JVM raises a **catchable `NoClassDefFoundError`**
+(a `LinkageError`) that commons-logging catches and falls through on; duke has no
+synthetic `NoClassDefFoundError`/`LinkageError` and surfaces class-resolution
+failures during bytecode execution as fatal errors. That is a distinct
+interpreter class-resolution / linkage-error rung (handoff).
+
+**App — minimal `java.time.ZoneId` for boot (CLEARED).**
+`crates/duke-interpreter/src/native/java_time.rs` + registration in
+`crates/duke-interpreter/src/stdlib.rs`. logback's timestamp formatting reaches
+`ZoneId` during Spring Boot startup. Registered a thin synthetic `ZoneId`:
+`systemDefault()` reports **UTC** (duke's `Instant`/`LocalDate*` clocks are all
+epoch/UTC based, so a UTC default keeps timestamps self-consistent **without**
+modelling `ZoneRules`/tzdb), plus `of(String)`, `getId()`, `toString()`. Clearing
+`ZoneId` did **not** cascade into a chronology/tzdb chain — the app frontier moved
+to `class not found: java/util/Locale` (a shallow, separate java.util rung).
+
+**App — minimal `java.util.Locale` for boot (CLEARED).**
+`crates/duke-interpreter/src/native/java_util.rs` + registration in
+`crates/duke-interpreter/src/stdlib.rs`. logback's `CachingDateFormatter` calls
+`Locale.getDefault()` during Spring Boot startup. Registered a thin synthetic
+`Locale`: a holder carrying a language tag + country code, with `getDefault()`
+reporting a **fixed en-US** locale (a fixed default keeps boot deterministic
+**without** a CLDR/`ResourceBundle` build-out; the formatters duke models are
+locale-insensitive, so the choice is inert beyond boot), plus
+`getDefault(Locale$Category)`, `getLanguage()`, `getCountry()`, `toString()`.
+Clearing `Locale` did **not** cascade into a locale/CLDR chain — the app frontier
+moved to `method not found: java/time/format/DateTimeFormatter.ofPattern(String)`
+(a java.time formatter rung, handoff to a future wave).
+
 ## Lane ownership summary
 
 | Blocker | Owning lane | Status |
 | --- | --- | --- |
 | #0 provenance-poison on bootstrap singletons | classloader / registry (`registry.rs`) | **DONE (this branch)** |
-| #1 `ClassLoader.getSystemResources` missing | synthetic-stdlib `java_lang` — `ClassLoader` resource API (`stdlib.rs`) | **CLEARED for app by #1320; still NEXT for ladder** |
-| #1a `ClassLoader.getSystemClassLoader` missing | synthetic-stdlib `java_lang` — `ClassLoader` static/system-loader API (`stdlib.rs`) | **NEXT for app (current pin)** |
+| #1 `ClassLoader.getSystemResources` missing | synthetic-stdlib `java_lang` — `ClassLoader` resource API (`stdlib.rs`) | **CLEARED (app #1320, ladder this branch)** |
+| #1a `ClassLoader.getSystemClassLoader` missing | synthetic-stdlib `java_lang` — `ClassLoader` static/system-loader API (`stdlib.rs`) | **CLEARED (this branch)** |
+| #1b `ClassLoader.loadClass` missing | synthetic-stdlib `java_lang` — `ClassLoader` (`stdlib.rs`) | **CLEARED (this branch)** |
+| #1c `Object.getClass()` interface-callsite dispatch | execution.rs interface dispatch (native fallback super-chain walk) | **CLEARED (this branch)** |
+| #1d `WeakReference.get()` underflow in commons-logging | native — `java.lang.ref` reference-object | **CLEARED (this branch)** |
+| #1e `class not found: java/time/ZoneId` | native / stdlib — `java_time` (`ZoneId`) | **CLEARED (this branch)** |
+| #1e′ `class not found: java/util/Locale` | native / stdlib — `java_util` (`Locale`) | **CLEARED (this branch)** |
+| #1e″ `method not found: DateTimeFormatter.ofPattern(String)` | native / stdlib — `java_time` (`DateTimeFormatter` factory) | **HANDOFF — current app pin (deferred to future wave)** |
+| #1f `class not found: org/apache/logging/slf4j/SLF4JProvider` | class-loader — `Class.forName` availability probe (`java_lang`) | **CLEARED (this branch)** |
+| #1f′ `class not found: org/apache/logging/log4j/MarkerManager` | interpreter — class-resolution / `NoClassDefFoundError` linkage during `<clinit>` (`execution.rs` + synthetic `LinkageError` in `stdlib.rs`) | **HANDOFF — current ladder pin (deferred to future wave)** |
 | #2 `java/net/URL` layout coherence | native / stdlib object-layout — `java_net` (`URL`) | inferred |
 | #3 `spring.factories` / `AutoConfiguration.imports` resource enumeration | java_util + classloader/registry | inferred |
 | #4 reflective bean instantiation / annotations | reflect (`java_lang_reflect`) + `java_lang` (`Class`) | inferred |
@@ -161,10 +287,11 @@ fixture:
   `spring_boot_app_surfaces_next_missing_capability_explicitly`,
   `spring_boot_ladder_surfaces_next_missing_capability_explicitly`. Each asserts
   the process still fails at **exactly** the current blocker. As of #1320 the
-  two fixtures diverge, so the pins assert per-fixture constants:
-  `APP_BLOCKER = "method not found: java/lang/ClassLoader.getSystemClassLoader()Ljava/lang/ClassLoader;"`
+  two fixtures diverge, so the pins assert per-fixture constants. As of the end of
+  this wave (all eight rungs above cleared) they are:
+  `APP_BLOCKER = "method not found: java/time/format/DateTimeFormatter.ofPattern(Ljava/lang/String;)Ljava/time/format/DateTimeFormatter;"`
   and
-  `LADDER_BLOCKER = "method not found: java/lang/ClassLoader.getSystemResources(Ljava/lang/String;)Ljava/util/Enumeration;"`.
+  `LADDER_BLOCKER = "class not found: org/apache/logging/log4j/MarkerManager"`.
   If boot advances (or regresses) past those strings, the pin **trips**, forcing a
   re-observe and an update to this doc.
 
@@ -188,7 +315,8 @@ cargo run -p duke -- -jar tests/fixtures/oss-jars/spring-boot/duke-spring-boot-l
 verification below was run locally.**
 
 - `cargo build --workspace` — clean.
-- `cargo test --workspace --no-fail-fast` — **3039 passed / 0 failed / 6 ignored.**
+- `cargo test --workspace --no-fail-fast` — **3048 passed / 0 failed / 4 ignored**
+  (end of this wave; +1 new `test_locale_get_default_is_en_us` unit test).
 - `cargo fmt --check` — clean.
 - `cargo clippy --workspace` — zero warnings.
 

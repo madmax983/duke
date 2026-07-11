@@ -5087,3 +5087,103 @@ pub(crate) fn native_objects_check_from_index_size(
     }
     Ok(Some(Slot::Int(from_index)))
 }
+
+// ---- java.util.Locale (minimal-for-boot) ----
+//
+// Spring Boot / logback's `CachingDateFormatter` reaches `Locale.getDefault()` while
+// wiring up its timestamp layout during startup. Duke does not model CLDR / the full
+// locale + ResourceBundle machinery, so `Locale` is a thin synthetic holder carrying a
+// language tag and country code in its first two reference fields
+// (`fields[0]` = language `String`, `fields[1]` = country `String`).
+//
+// `getDefault()` returns a FIXED **en-US** locale rather than reading the host
+// environment. A fixed default keeps boot deterministic (identical formatting/behaviour
+// regardless of the machine's locale) and avoids pulling in the CLDR data build-out that
+// a faithful default-locale probe would require. en-US is the conventional JVM fallback
+// and the formatters Duke models are locale-insensitive, so the choice is inert beyond
+// boot.
+
+/// Allocate a synthetic `java/util/Locale` holding `language`/`country` strings.
+fn allocate_locale(heap: &mut duke_gc::Heap, language: &str, country: &str) -> Result<u64> {
+    let lang_ref = heap.allocate_string(language.to_string());
+    let country_ref = heap.allocate_string(country.to_string());
+    let r = heap.allocate("java/util/Locale".to_string(), 2);
+    let obj = heap.get_mut(r)?;
+    obj.fields[0] = Slot::Reference(Some(lang_ref));
+    obj.fields[1] = Slot::Reference(Some(country_ref));
+    Ok(r)
+}
+
+/// Native: `Locale.getDefault() -> Locale` — fixed en-US (see module note above).
+pub(crate) fn native_locale_get_default(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(Slot::Reference(Some(allocate_locale(heap, "en", "US")?))))
+}
+
+/// Native: `Locale.getDefault(Locale$Category) -> Locale` — ignores the category and
+/// returns the same fixed en-US default as the no-arg form.
+pub(crate) fn native_locale_get_default_category(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(Slot::Reference(Some(allocate_locale(heap, "en", "US")?))))
+}
+
+/// Native: `Locale.getLanguage() -> String` — the stored language tag (`fields[0]`).
+pub(crate) fn native_locale_get_language(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Reference(Some(r))) => Ok(Some(Slot::Reference(Some(*r)))),
+        _ => Ok(Some(Slot::Reference(Some(heap.allocate_string(String::new()))))),
+    }
+}
+
+/// Native: `Locale.getCountry() -> String` — the stored country code (`fields[1]`).
+pub(crate) fn native_locale_get_country(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Reference(Some(r))) => Ok(Some(Slot::Reference(Some(*r)))),
+        _ => Ok(Some(Slot::Reference(Some(heap.allocate_string(String::new()))))),
+    }
+}
+
+/// Native: `Locale.toString() -> String` — `language`, then `_country` when a country
+/// is present (matching `java.util.Locale.toString()`; ROOT renders as `""`).
+pub(crate) fn native_locale_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let language = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
+        _ => String::new(),
+    };
+    let country = match heap.get(this_ref)?.fields.get(1) {
+        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
+        _ => String::new(),
+    };
+    let text = if country.is_empty() {
+        language
+    } else {
+        format!("{language}_{country}")
+    };
+    Ok(Some(Slot::Reference(Some(heap.allocate_string(text)))))
+}

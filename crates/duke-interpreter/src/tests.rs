@@ -1177,6 +1177,263 @@ fn invokevirtual_missing_loaded_method_returns_method_not_found() {
     );
 }
 
+/// Regression: `getClass()` invoked through an *interface-typed* callsite must
+/// resolve the inherited `java/lang/Object.getClass` native by walking the
+/// receiver's super chain. Real Spring Boot bytecode calls
+/// `Configurator.getClass()` on a `DefaultJoranConfigurator` (which inherits
+/// `getClass` from `Object` via an intermediate base class). Before the fix the
+/// invokeinterface native fallback only probed the receiver class and the
+/// interface directly — never the super chain — so `Object.getClass` was never
+/// found and dispatch raised `MethodNotFound`.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn invokeinterface_getclass_resolves_inherited_object_native_via_super_chain() {
+    use duke_classfile::CpIndex;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    // Constant pool: an InterfaceMethodref for `Cfg.getClass()Ljava/lang/Class;`.
+    let cp = make_cp(vec![
+        Some(CpEntry::InterfaceMethodref {
+            class_index: CpIndex(2),
+            name_and_type_index: CpIndex(3),
+        }),
+        Some(CpEntry::Class {
+            name_index: CpIndex(4),
+        }),
+        Some(CpEntry::NameAndType {
+            name_index: CpIndex(5),
+            descriptor_index: CpIndex(6),
+        }),
+        Some(CpEntry::Utf8("Cfg".to_string())),
+        Some(CpEntry::Utf8("getClass".to_string())),
+        Some(CpEntry::Utf8("()Ljava/lang/Class;".to_string())),
+    ]);
+    let instructions: Arc<[(usize, Instruction)]> = vec![
+        (0, Instruction::Aload0),
+        (
+            1,
+            Instruction::Invokeinterface {
+                index: CpIndex(1),
+                count: 1,
+            },
+        ),
+        (6, Instruction::Areturn),
+    ]
+    .into();
+    let method = MethodEntry {
+        name: "callGetClass".to_string(),
+        descriptor: "(Ljava/lang/Object;)Ljava/lang/Object;".to_string(),
+        is_public: true,
+        is_static: true,
+        is_native: false,
+        is_abstract: false,
+        instructions: Arc::clone(&instructions),
+        max_stack: 1,
+        max_locals: 1,
+        exception_table: Vec::new(),
+        pc_to_idx: Arc::new(HashMap::from([(0, 0), (1, 1), (6, 2)])),
+        line_number_table: Vec::new(),
+        source_file: None,
+    };
+    let caller_ctx = ClassContext {
+        class_name: "TestCaller".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        interfaces: Vec::new(),
+        constant_pool: cp,
+        methods: vec![method],
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Classfile,
+    };
+
+    // Marker interface `Cfg` (declares no `getClass` of its own).
+    let cfg_iface = ClassContext {
+        class_name: "Cfg".to_string(),
+        super_class: None,
+        interfaces: Vec::new(),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    // Intermediate base class between the impl and Object — mirrors logback's
+    // `ContextAwareBase` so the native only resolves by walking past it.
+    let base_ctx = ClassContext {
+        class_name: "CfgBase".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        interfaces: Vec::new(),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    // Concrete receiver: `CfgImpl extends CfgBase implements Cfg`, no own methods.
+    let impl_ctx = ClassContext {
+        class_name: "CfgImpl".to_string(),
+        super_class: Some("CfgBase".to_string()),
+        interfaces: vec!["Cfg".to_string()],
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    registry.register(caller_ctx);
+    registry.register(cfg_iface);
+    registry.register(base_ctx);
+    registry.register(impl_ctx);
+    let loader = fixtures_loader();
+
+    let impl_ref = heap.allocate("CfgImpl".to_string(), 0);
+    let mut sink: Vec<u8> = Vec::new();
+    let result = execute_class(
+        &mut registry,
+        &loader,
+        &mut heap,
+        &mut sink,
+        "TestCaller",
+        "callGetClass",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        &[Slot::Reference(Some(impl_ref))],
+    )
+    .expect("invokeinterface getClass should resolve the inherited Object native")
+    .expect("getClass should return a Class object");
+
+    let Slot::Reference(Some(class_ref)) = result else {
+        panic!("expected a Class reference from getClass, got {result:?}");
+    };
+    assert_eq!(
+        class_internal_name_from_ref(&heap, class_ref).unwrap(),
+        "CfgImpl",
+        "getClass() must report the receiver's concrete runtime class"
+    );
+}
+
+/// The minimal synthetic `java/lang/ref/WeakReference` round-trips its referent:
+/// `new WeakReference(x)` then `.get()` returns `x`. Mirrors commons-logging's
+/// `thisClassLoaderRef` (a static `WeakReference<ClassLoader>` it constructs once
+/// and only ever reads back). `get()` resolves on the `Reference` base via the
+/// receiver's super chain. This is a NON-COLLECTING strong-ref-backed stub.
+#[test]
+fn weak_reference_get_round_trips_referent() {
+    use duke_classfile::CpIndex;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    // CP: new/init/get for java/lang/ref/WeakReference.
+    let cp = make_cp(vec![
+        Some(CpEntry::Class {
+            name_index: CpIndex(2),
+        }),
+        Some(CpEntry::Utf8("java/lang/ref/WeakReference".to_string())),
+        Some(CpEntry::Methodref {
+            class_index: CpIndex(1),
+            name_and_type_index: CpIndex(4),
+        }),
+        Some(CpEntry::NameAndType {
+            name_index: CpIndex(5),
+            descriptor_index: CpIndex(6),
+        }),
+        Some(CpEntry::Utf8("<init>".to_string())),
+        Some(CpEntry::Utf8("(Ljava/lang/Object;)V".to_string())),
+        Some(CpEntry::Methodref {
+            class_index: CpIndex(1),
+            name_and_type_index: CpIndex(8),
+        }),
+        Some(CpEntry::NameAndType {
+            name_index: CpIndex(9),
+            descriptor_index: CpIndex(10),
+        }),
+        Some(CpEntry::Utf8("get".to_string())),
+        Some(CpEntry::Utf8("()Ljava/lang/Object;".to_string())),
+    ]);
+    let instructions: Arc<[(usize, Instruction)]> = vec![
+        (0, Instruction::New(CpIndex(1))),
+        (3, Instruction::Dup),
+        (4, Instruction::Aload0), // referent (local 0)
+        (5, Instruction::Invokespecial(CpIndex(3))),
+        (8, Instruction::Invokevirtual(CpIndex(7))),
+        (11, Instruction::Areturn),
+    ]
+    .into();
+    let method = MethodEntry {
+        name: "roundTrip".to_string(),
+        descriptor: "(Ljava/lang/Object;)Ljava/lang/Object;".to_string(),
+        is_public: true,
+        is_static: true,
+        is_native: false,
+        is_abstract: false,
+        instructions: Arc::clone(&instructions),
+        max_stack: 3,
+        max_locals: 1,
+        exception_table: Vec::new(),
+        pc_to_idx: Arc::new(HashMap::from([
+            (0, 0),
+            (3, 1),
+            (4, 2),
+            (5, 3),
+            (8, 4),
+            (11, 5),
+        ])),
+        line_number_table: Vec::new(),
+        source_file: None,
+    };
+    let caller_ctx = ClassContext {
+        class_name: "TestWeakRef".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        interfaces: Vec::new(),
+        constant_pool: cp,
+        methods: vec![method],
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Classfile,
+    };
+
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    registry.register(caller_ctx);
+    let loader = fixtures_loader();
+
+    let referent = heap.allocate("java/lang/Object".to_string(), 0);
+    let mut sink: Vec<u8> = Vec::new();
+    let result = execute_class(
+        &mut registry,
+        &loader,
+        &mut heap,
+        &mut sink,
+        "TestWeakRef",
+        "roundTrip",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        &[Slot::Reference(Some(referent))],
+    )
+    .expect("WeakReference new/init/get should execute")
+    .expect("WeakReference.get should return the referent");
+
+    assert_eq!(
+        result,
+        Slot::Reference(Some(referent)),
+        "WeakReference.get() must return the exact referent stored at construction"
+    );
+}
+
 #[test]
 fn object_constructor_dispatches_via_invokespecial() {
     use duke_classfile::CpIndex;
@@ -22085,6 +22342,79 @@ fn native_class_for_name_with_loader_uses_binary_name() {
     );
 }
 
+/// Regression: a `Class.forName(name, false, cl)` availability probe for an absent
+/// class must surface a catchable `ClassNotFoundException`, even when computing the
+/// class identity key would itself raise `ClassNotFound`. The native previously
+/// computed the key eagerly (with `?`) alongside the load attempt, so a missing
+/// class made the key lookup fail first and propagate a fatal `ClassNotFound`
+/// instead of the mapped Java exception. Commons-logging's backend probing relies
+/// on the exception being catchable (e.g. the `SLF4JProvider`/`Log4jApiLogFactory`
+/// availability checks in `LogFactory.newStandardFactory`).
+#[test]
+fn native_class_for_name_missing_class_throws_even_when_key_lookup_fails() {
+    #[derive(Default)]
+    struct MissingKeyOps;
+
+    impl CallbackOps for MissingKeyOps {
+        fn invoke(
+            &mut self,
+            _heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            _args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            Ok(None)
+        }
+
+        fn ensure_loaded(&mut self, class: &str) -> Result<()> {
+            Err(Error::ClassNotFound {
+                name: class.to_string(),
+            })
+        }
+
+        // Mirrors the real registry: resolving the identity key for an unloaded
+        // class raises `ClassNotFound`. This must NOT escape as a fatal error.
+        fn class_key_for_loaded_class(&mut self, class: &str) -> Result<String> {
+            Err(Error::ClassNotFound {
+                name: class.to_string(),
+            })
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            unreachable!("inspect_class should not be used")
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let binary_name_ref =
+        heap.allocate_string("org.apache.logging.slf4j.SLF4JProvider".to_string());
+    let mut ops = MissingKeyOps;
+
+    let result = native_class_for_name_with_loader(
+        &[
+            Slot::Reference(Some(binary_name_ref)),
+            Slot::Int(0),
+            Slot::Reference(None),
+        ],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+        &mut ops,
+    );
+
+    assert!(
+        matches!(
+            result,
+            Err(Error::JavaException { ref class_name })
+                if class_name == "java/lang/ClassNotFoundException"
+        ),
+        "missing class must throw catchable ClassNotFoundException, not a fatal error: {result:?}"
+    );
+}
+
 #[test]
 #[allow(clippy::too_many_lines)]
 fn native_class_for_name_with_loader_uses_loader_archive_not_global_default_code_source() {
@@ -27939,6 +28269,129 @@ fn test_treeset_stream() {
     assert_eq!(
         run_bootstrap_int("Phase60Test.class", "testTreeSetStream", "()I"),
         3
+    );
+}
+
+// ---- java.time.ZoneId (minimal-for-boot) ----
+
+#[test]
+fn test_zoneid_system_default_is_utc() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let zone =
+        native_zoneid_system_default(&[], &mut heap, &mut sink, &mut NativeControl::default())
+            .expect("systemDefault should succeed")
+            .expect("systemDefault should return a ZoneId");
+    let Slot::Reference(Some(zone_ref)) = zone else {
+        panic!("expected ZoneId reference");
+    };
+    let id = native_zoneid_get_id(
+        &[Slot::Reference(Some(zone_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .expect("getId should succeed")
+    .expect("getId should return a String");
+    let Slot::Reference(Some(id_ref)) = id else {
+        panic!("expected String reference");
+    };
+    assert_eq!(
+        heap.get(id_ref).unwrap().string_value.as_deref(),
+        Some("UTC")
+    );
+}
+
+#[test]
+fn test_zoneid_of_round_trips_id() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let name_ref = heap.allocate_string("America/New_York".to_string());
+    let zone = native_zoneid_of(
+        &[Slot::Reference(Some(name_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .expect("ZoneId.of should succeed")
+    .expect("ZoneId.of should return a ZoneId");
+    let Slot::Reference(Some(zone_ref)) = zone else {
+        panic!("expected ZoneId reference");
+    };
+    let id = native_zoneid_get_id(
+        &[Slot::Reference(Some(zone_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .expect("getId should succeed")
+    .expect("getId should return a String");
+    let Slot::Reference(Some(id_ref)) = id else {
+        panic!("expected String reference");
+    };
+    assert_eq!(
+        heap.get(id_ref).unwrap().string_value.as_deref(),
+        Some("America/New_York")
+    );
+}
+
+// ---- java.util.Locale (minimal-for-boot) ----
+
+#[test]
+fn test_locale_get_default_is_en_us() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let locale =
+        native_locale_get_default(&[], &mut heap, &mut sink, &mut NativeControl::default())
+            .expect("getDefault should succeed")
+            .expect("getDefault should return a Locale");
+    let Slot::Reference(Some(locale_ref)) = locale else {
+        panic!("expected Locale reference");
+    };
+    // The documented fixed default: language "en", country "US".
+    let language = native_locale_get_language(
+        &[Slot::Reference(Some(locale_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .expect("getLanguage should succeed")
+    .expect("getLanguage should return a String");
+    let country = native_locale_get_country(
+        &[Slot::Reference(Some(locale_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .expect("getCountry should succeed")
+    .expect("getCountry should return a String");
+    let to_string = native_locale_to_string(
+        &[Slot::Reference(Some(locale_ref))],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .expect("toString should succeed")
+    .expect("toString should return a String");
+    let (
+        Slot::Reference(Some(lang_ref)),
+        Slot::Reference(Some(country_ref)),
+        Slot::Reference(Some(str_ref)),
+    ) = (language, country, to_string)
+    else {
+        panic!("expected String references");
+    };
+    assert_eq!(
+        heap.get(lang_ref).unwrap().string_value.as_deref(),
+        Some("en")
+    );
+    assert_eq!(
+        heap.get(country_ref).unwrap().string_value.as_deref(),
+        Some("US")
+    );
+    assert_eq!(
+        heap.get(str_ref).unwrap().string_value.as_deref(),
+        Some("en_US")
     );
 }
 
