@@ -84,7 +84,8 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //     a `NoSuchMethodError`-territory blocker, out of the linkage-error scope).
 // If either boot advances past its pin, re-observe and update.
 // See docs/findings/2026-07-10-spring-boot-real-app.md.
-const APP_BLOCKER: &str = "method not found: java/lang/StringBuilder.append(Ljava/lang/Object;)Ljava/lang/StringBuilder;";
+const APP_BLOCKER: &str =
+    "method not found: java/lang/StringBuilder.append(Ljava/lang/Object;)Ljava/lang/StringBuilder;";
 const LADDER_BLOCKER: &str = "method not found: java/util/Hashtable.computeIfAbsent(Ljava/lang/Object;Ljava/util/function/Function;)Ljava/lang/Object;";
 
 fn run_fixture(jar: &str) -> Output {

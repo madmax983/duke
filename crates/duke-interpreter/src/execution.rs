@@ -2293,9 +2293,7 @@ pub fn run_execution(
                                     // "operand stack underflow").
                                     let msg = format!(
                                         "{}.{callee_name}{callee_desc}",
-                                        registry.internal_name_for_class(
-                                            callee_class_key.as_str()
-                                        )
+                                        registry.internal_name_for_class(callee_class_key.as_str())
                                     );
                                     throw_no_such_method!(msg);
                                 }

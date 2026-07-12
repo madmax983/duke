@@ -33104,11 +33104,7 @@ fn nsme_catchable_as_incompatible_class_change_error() {
 fn nsme_catchable_as_linkage_error_superclass() {
     // IncompatibleClassChangeError extends LinkageError.
     assert_eq!(
-        run_bootstrap_int_completion(
-            "NoSuchMethodProbes.class",
-            "probeCatchLinkageError",
-            "()I"
-        ),
+        run_bootstrap_int_completion("NoSuchMethodProbes.class", "probeCatchLinkageError", "()I"),
         1
     );
 }
