@@ -72,7 +72,7 @@ fn run_slf4j_real_jdk_shadow() -> Result<(), String> {
     // real-JDK bootstrap recursion this driver exercises overflows the default
     // test-harness thread stack only under that instrumentation. Run the driver on a
     // thread with explicit headroom so it survives coverage builds. The whole body is
-    // built inside the closure, so there are no captured non-`Send` locals to move,
+    // built inside the inner fn, so there are no captured non-`Send` locals to move,
     // and a panic/assert inside still propagates via `join()`.
     std::thread::Builder::new()
         .name("real-jdk-frontier-driver".to_string())
