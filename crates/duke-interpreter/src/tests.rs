@@ -32934,3 +32934,187 @@ fn native_class_get_module_returns_interned_unnamed_module() {
     .unwrap();
     assert_eq!(can_use, Slot::Int(1), "unnamed module canUse(..) == true");
 }
+
+// ---------------------------------------------------------------------------
+// Linkage-error lane: catchable NoClassDefFoundError + JVMS 5.5 erroneous-class
+// semantics. Fixtures: tests/fixtures/{NoClassDefFoundCatch,LinkageErrorProbes}.java
+// (their `Missing` / `NoClassDefFoundCatchHelper` helper classes are compiled but
+// intentionally not committed, so they are unresolvable at run time).
+// ---------------------------------------------------------------------------
+
+/// Run a no-arg `static int` probe on the LinkageErrorProbes fixture, returning
+/// the raw execution result so tests can inspect uncaught errors.
+fn run_linkage_probe_result(method_name: &str) -> Result<Option<Slot>> {
+    let ctx = load_class_context("LinkageErrorProbes.class");
+    let entry_class = ctx.class_name.clone();
+    let mut registry = ClassRegistry::new();
+    registry.register(ctx);
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let loader = fixtures_loader();
+    let mut out: Vec<u8> = Vec::new();
+    execute_class_to_completion(
+        &mut registry,
+        loader,
+        &mut heap,
+        &mut out,
+        &entry_class,
+        method_name,
+        "()I",
+        &[],
+    )
+}
+
+#[test]
+fn linkage_invokestatic_missing_class_is_catchable_ncdfe_with_message() {
+    // invokestatic against an unresolvable class throws NoClassDefFoundError
+    // whose message names the missing class (probe returns 1 only if both hold).
+    assert_eq!(
+        run_bootstrap_int_completion("LinkageErrorProbes.class", "probeInvokestatic", "()I"),
+        1
+    );
+}
+
+// NOTE: there is deliberately no `new`-opcode NCDFE test. Unlike the other
+// resolution sites, `new` on an unmodelled class historically "limps" (allocates
+// a zero-field object) rather than failing fatally, and real-jar boot progress
+// depends on that; see the comment at the New handler in execution.rs.
+
+#[test]
+fn linkage_getstatic_missing_class_is_catchable_ncdfe() {
+    assert_eq!(
+        run_bootstrap_int_completion("LinkageErrorProbes.class", "probeGetstatic", "()I"),
+        1
+    );
+}
+
+#[test]
+fn linkage_putstatic_missing_class_is_catchable_ncdfe() {
+    assert_eq!(
+        run_bootstrap_int_completion("LinkageErrorProbes.class", "probePutstatic", "()I"),
+        1
+    );
+}
+
+#[test]
+fn linkage_ncdfe_caught_as_linkage_error_superclass_falls_through() {
+    // commons-logging pattern: catch (LinkageError) around a missing-class use
+    // and fall through to an alternative.
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "LinkageErrorProbes.class",
+            "probeLinkageErrorFallback",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn linkage_ncdfe_caught_as_throwable_root() {
+    assert_eq!(
+        run_bootstrap_int_completion("LinkageErrorProbes.class", "probeThrowableCatch", "()I"),
+        1
+    );
+}
+
+#[test]
+fn linkage_uncaught_ncdfe_surfaces_as_java_exception_of_correct_type() {
+    // Directly assert the propagated Error variant / class name.
+    match run_linkage_probe_result("uncaughtInvokestatic") {
+        Err(Error::JavaException { class_name }) => {
+            assert_eq!(class_name, "java/lang/NoClassDefFoundError");
+        }
+        other => panic!("expected uncaught NoClassDefFoundError JavaException, got {other:?}"),
+    }
+}
+
+#[test]
+fn clinit_throwing_error_propagates_unwrapped() {
+    // A <clinit> that throws an Error surfaces that Error as-is (not wrapped in
+    // ExceptionInInitializerError): probe returns 1 from catch (Error).
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "LinkageErrorProbes.class",
+            "probeClinitErrorUnwrapped",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn clinit_throwing_exception_is_wrapped_in_exception_in_initializer_error() {
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "LinkageErrorProbes.class",
+            "probeClinitRuntimeWrapped",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn erroneous_class_second_use_throws_ncdfe() {
+    // JVMS 5.5: after a failed <clinit> the class is erroneous; a later use
+    // raises NoClassDefFoundError instead of re-running the initializer.
+    assert_eq!(
+        run_bootstrap_int_completion("LinkageErrorProbes.class", "probeErroneousSecondUse", "()I"),
+        1
+    );
+}
+
+#[test]
+fn compiled_fixture_catches_no_class_def_found_error() {
+    // Compiled Java fixture with `static int probe()` returning 1 from a
+    // catch (NoClassDefFoundError e) block over an unresolvable helper class.
+    assert_eq!(
+        run_bootstrap_int_completion("NoClassDefFoundCatch.class", "probe", "()I"),
+        1
+    );
+}
+
+#[test]
+fn registry_tracks_erroneous_class_state() {
+    let mut registry = ClassRegistry::new();
+    assert!(!registry.is_erroneous("com/example/Boom"));
+    registry.mark_initialized("com/example/Boom");
+    registry.mark_erroneous("com/example/Boom");
+    assert!(registry.is_erroneous("com/example/Boom"));
+    // mark_erroneous clears the initialized flag for a single coherent state.
+    assert!(!registry.is_initialized("com/example/Boom"));
+}
+
+#[test]
+fn linkage_error_hierarchy_is_registered_for_catch_matching() {
+    // NoClassDefFoundError must resolve up through LinkageError -> Error ->
+    // Throwable so catch clauses on any of those match it.
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let loader = fixtures_loader();
+    for target in [
+        "java/lang/LinkageError",
+        "java/lang/Error",
+        "java/lang/Throwable",
+    ] {
+        assert!(
+            is_assignable_from(
+                &mut registry,
+                &loader,
+                "java/lang/NoClassDefFoundError",
+                target,
+                None,
+            ),
+            "NoClassDefFoundError should be assignable to {target}"
+        );
+    }
+    assert!(is_assignable_from(
+        &mut registry,
+        &loader,
+        "java/lang/ExceptionInInitializerError",
+        "java/lang/LinkageError",
+        None,
+    ));
+}
