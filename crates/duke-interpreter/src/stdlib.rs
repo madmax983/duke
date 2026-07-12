@@ -13853,6 +13853,45 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Class;)I",
         native_reflection_get_class_access_flags,
     );
+
+    // ─── java.lang.invoke / SharedSecrets foundation ─────────────────────────
+    // Natives demanded by the real `FileOutputStream.<clinit>` chain under
+    // `DUKE_REAL_JDK=1`. The chain routes through `MethodHandles.Lookup`
+    // initialization, which forces `<clinit>` of the target class via
+    // `Unsafe.ensureClassInitialized`. `Unsafe` stays on `KEEP_SYNTHETIC`, so its
+    // methods are dispatched to this native (not shadowed bytecode); the native
+    // honors the real contract by driving the class through its real `<clinit>`.
+    // Handlers in `native/jdk_internal.rs`.
+    registry.natives_mut().register_callback(
+        "jdk/internal/misc/Unsafe",
+        "ensureClassInitialized",
+        "(Ljava/lang/Class;)V",
+        native_unsafe_ensure_class_initialized,
+    );
+    // `FileDescriptor.<clinit>` and `FileOutputStream.<clinit>` (forced by
+    // `ensureClassInitialized`) each open with the native `initIDs()V`. HotSpot uses
+    // it only to cache jfieldIDs; Duke resolves fields positionally, so it is a
+    // no-op. The rest of each `<clinit>` runs as real bytecode.
+    for class in ["java/io/FileDescriptor", "java/io/FileOutputStream"] {
+        registry
+            .natives_mut()
+            .register(class, "initIDs", "()V", native_io_init_ids_noop);
+    }
+    // The real `FileDescriptor(int)` constructor seeds `handle`/`append` from these
+    // natives. `getHandle` is -1 on unix (Windows-only concept); `getAppend` is
+    // false for the standard descriptors built in `<clinit>`.
+    registry.natives_mut().register(
+        "java/io/FileDescriptor",
+        "getHandle",
+        "(I)J",
+        native_file_descriptor_get_handle,
+    );
+    registry.natives_mut().register(
+        "java/io/FileDescriptor",
+        "getAppend",
+        "(I)Z",
+        native_file_descriptor_get_append,
+    );
 }
 
 // ─── Phase 88 natives ────────────────────────────────────────────────────────

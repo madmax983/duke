@@ -256,6 +256,82 @@ for CI stability.
 
 ---
 
+## 8. Edge-1 update (2026-07-12) — `java.lang.invoke` / `SharedSecrets` foundation
+
+Stage (a)/(b) down-payment: walking the FIRST edge of the file chain until the
+real `java/io/FileOutputStream.<clinit>` runs to completion under
+`DUKE_REAL_JDK=1`. Probed empirically with a throwaway removal of
+`FileOutputStream` from `KEEP_SYNTHETIC` under `DUKE_LAYOUT_CHECK=fail`, driving a
+fixture that constructs a `FileOutputStream`. **The probe was reverted** — the
+allowlist is unchanged (still 10 members). The half-migration would regress
+because full FOS *construction* is not yet wired (see the next-blocker wall
+below); only `<clinit>` completes.
+
+### Chain progress — before vs. after
+
+**Before this wave** (post-#1330, `getClassAccessFlags` already landed): dropping
+`FileOutputStream` died at `Unsafe.ensureClassInitialized` — `method not found`.
+
+**After this wave:** real `FileOutputStream.<clinit>` runs to completion
+(`FileOutputStream::<clinit>@9 return` observed under `DUKE_TRACE_EXEC=1`). The
+full cleared chain is:
+
+1. `FileOutputStream.<clinit>@0` → `SharedSecrets.getJavaIOFileDescriptorAccess()`
+   (FD_ACCESS null) → `MethodHandles.Lookup.ensureInitialized(FileDescriptor)`
+   (real invoke bytecode: `VerifyAccess.isClassAccessible`, `checkSecurityManager`)
+   → `Unsafe.ensureClassInitialized(FileDescriptor.class)`. **[native added]**
+2. That forces real `FileDescriptor.<clinit>`, which opens with native
+   `initIDs()V` **[native added, no-op]**, installs the `JavaIOFileDescriptorAccess`
+   via `SharedSecrets.setJavaIOFileDescriptorAccess` (real bytecode), and builds
+   `in`/`out`/`err` via `FileDescriptor(int)` — whose body calls native
+   `getHandle(I)J` **[native added, −1 on unix]** and `getAppend(I)Z`
+   **[native added, false]**.
+3. Control returns; `SharedSecrets.getJavaIOFileDescriptorAccess()` now returns
+   non-null FD_ACCESS.
+4. `FileOutputStream.<clinit>@3` stores FD_ACCESS, `@6` runs native
+   `FileOutputStream.initIDs()V` **[native added, no-op]**, `@9 return`. **DONE.**
+
+### Natives added (all honest, dormant while FOS stays synthetic)
+
+Registration in `stdlib.rs` (`bootstrap_stdlib` tail, grouped block
+`// java.lang.invoke / SharedSecrets foundation`); handlers in
+`native/jdk_internal.rs`:
+
+| Native | Descriptor | Behavior |
+|--------|-----------|----------|
+| `jdk/internal/misc/Unsafe.ensureClassInitialized` | `(Ljava/lang/Class;)V` | drives arg-1 `Class` through `CallbackOps::ensure_class_initialized` (real `<clinit>`) |
+| `java/io/FileDescriptor.initIDs` | `()V` | no-op (nothing to cache under positional fields) |
+| `java/io/FileOutputStream.initIDs` | `()V` | no-op (same) |
+| `java/io/FileDescriptor.getHandle` | `(I)J` | `-1` (Windows-only concept; matches unix native) |
+| `java/io/FileDescriptor.getAppend` | `(I)Z` | `false` (std descriptors built in `<clinit>` are non-append) |
+
+4 direct-dispatch unit tests pin these contracts (`tests.rs`), since the natives
+are dormant in the default (FOS-synthetic) config.
+
+### VERBATIM next blocker (the next wall — a NEW, deeper chain)
+
+Past `<clinit>`, FOS *construction* (`new FileOutputStream(path)`) allocates a
+`File`, whose `File.<clinit>` reaches `UnixFileSystem.<clinit>@0 invokestatic`:
+
+```
+duke: trace java/io/UnixFileSystem::<clinit>@0 invokestatic stack=0
+duke: runtime error: fell off end of bytecode without a return instruction
+```
+
+`UnixFileSystem.<clinit>` is `0: invokestatic initIDs:()V; 3: return` — i.e. the
+native `java/io/UnixFileSystem.initIDs()V`. This is **Stage (b) file-stream
+territory**, not the invoke foundation: it drags in the whole `File` /
+`FileSystem` / `UnixFileSystem` layer plus the leaf file natives
+(`open0`/`writeBytes`/`readBytes`/`read0`/`close0`), which still model `fd` as an
+`int` incompatible with the real `FileDescriptor` reference field. That is a
+separate wave and was intentionally NOT walked here.
+
+**Allowlist delta: none.** `KEEP_SYNTHETIC` remains 10 members. Tests
+3059 → 3063 (+4). fmt/clippy clean, HelloWorld exit 0 flag-on and flag-off,
+real-JDK gate tests green.
+
+---
+
 ## Summary
 
 Phase 1 is an investigation plus a scaffolding down-payment. The single most
@@ -263,4 +339,7 @@ load-bearing takeaway is §3: **bytecode wins over registered natives for shadow
 classes**, so no allowlist member can be migrated with a native-shim shortcut —
 the real object graph must be genuinely well-formed. The staged plan in §5
 sequences the remaining waves behind one shared `java.lang.invoke` /
-`Reflection.getClassAccessFlags` prerequisite.
+`Reflection.getClassAccessFlags` prerequisite. §8 lands the first slice of that
+prerequisite: real `FileOutputStream.<clinit>` now completes under
+`DUKE_REAL_JDK=1`; the next wall is the `UnixFileSystem`/leaf-file-native layer
+(Stage b), which the allowlist still correctly guards.

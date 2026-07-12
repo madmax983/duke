@@ -32934,3 +32934,124 @@ fn native_class_get_module_returns_interned_unnamed_module() {
     .unwrap();
     assert_eq!(can_use, Slot::Int(1), "unnamed module canUse(..) == true");
 }
+
+// java.lang.invoke / SharedSecrets foundation natives
+// ---------------------------------------------------------------------------
+// These walk the real `FileOutputStream.<clinit>` chain under `DUKE_REAL_JDK=1`:
+// `Unsafe.ensureClassInitialized` forces `FileDescriptor.<clinit>`, whose real
+// bytecode calls `initIDs`/`getHandle`/`getAppend`. They are dormant while
+// `FileOutputStream` stays on `KEEP_SYNTHETIC`, so these direct-dispatch tests
+// pin their contracts against bit-rot.
+
+/// `Unsafe.ensureClassInitialized(Class)` must drive the argument class (arg 1,
+/// after the ignored `Unsafe` receiver) through `ensure_class_initialized`.
+#[test]
+fn native_unsafe_ensure_class_initialized_forces_arg_class() {
+    struct RecordingOps {
+        initialized: Vec<String>,
+    }
+
+    impl CallbackOps for RecordingOps {
+        fn invoke(
+            &mut self,
+            _heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            _args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            Ok(None)
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            unreachable!("ensureClassInitialized must not inspect")
+        }
+
+        fn ensure_class_initialized(
+            &mut self,
+            _heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            class: &str,
+        ) -> Result<()> {
+            self.initialized.push(class.to_string());
+            Ok(())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let unsafe_ref = heap.allocate("jdk/internal/misc/Unsafe".to_string(), 0);
+    let class_ref = allocate_class_object(&mut heap, "java/io/FileDescriptor").unwrap();
+    let mut ops = RecordingOps {
+        initialized: Vec::new(),
+    };
+
+    let ret = native_unsafe_ensure_class_initialized(
+        &[
+            Slot::Reference(Some(unsafe_ref)),
+            Slot::Reference(Some(class_ref)),
+        ],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(ret, None, "ensureClassInitialized returns void");
+    assert_eq!(
+        ops.initialized,
+        vec!["java/io/FileDescriptor".to_string()],
+        "the argument class must be forced through <clinit>"
+    );
+}
+
+/// `FileDescriptor`/`FileOutputStream` `initIDs()V` is an honest no-op under
+/// Duke's positional field model (nothing to cache).
+#[test]
+fn native_io_init_ids_is_noop() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let ret =
+        native_io_init_ids_noop(&[], &mut heap, &mut sink, &mut NativeControl::default()).unwrap();
+    assert_eq!(ret, None, "initIDs returns void and caches nothing");
+}
+
+/// Unix `FileDescriptor.getHandle(int)` returns -1 unconditionally (handles are
+/// a Windows-only concept).
+#[test]
+fn native_file_descriptor_get_handle_is_minus_one_on_unix() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let ret = native_file_descriptor_get_handle(
+        &[Slot::Int(0)],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(ret, Slot::Long(-1), "getHandle == -1 on unix");
+}
+
+/// `FileDescriptor.getAppend(int)` is false for the standard descriptors built
+/// in `<clinit>` (none opened in append mode).
+#[test]
+fn native_file_descriptor_get_append_is_false() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let ret = native_file_descriptor_get_append(
+        &[Slot::Int(1)],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(ret, Slot::Int(0), "getAppend == false");
+}
