@@ -32942,7 +32942,7 @@ fn native_class_get_module_returns_interned_unnamed_module() {
 // intentionally not committed, so they are unresolvable at run time).
 // ---------------------------------------------------------------------------
 
-/// Run a no-arg `static int` probe on the LinkageErrorProbes fixture, returning
+/// Run a no-arg `static int` probe on the `LinkageErrorProbes` fixture, returning
 /// the raw execution result so tests can inspect uncaught errors.
 fn run_linkage_probe_result(method_name: &str) -> Result<Option<Slot>> {
     let ctx = load_class_context("LinkageErrorProbes.class");

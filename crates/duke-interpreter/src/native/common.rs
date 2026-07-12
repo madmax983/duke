@@ -7907,27 +7907,25 @@ fn map_clinit_failure(
     // Wrap Exceptions in ExceptionInInitializerError(cause = original).
     let cause_ref = take_uncaught_java_exception_ref(&class_name);
     let eiie_class = "java/lang/ExceptionInInitializerError";
-    match materialize_java_exception_object(registry, loader, heap, eiie_class) {
-        Ok(eiie_ref) => {
-            if let Some(cause) = cause_ref
-                && set_object_field(
-                    heap,
-                    eiie_ref,
-                    THROWABLE_CAUSE_FIELD,
-                    Slot::Reference(Some(cause)),
-                )
-                .is_ok()
-            {
-                heap.remember_reference_write(eiie_ref, Slot::Reference(Some(cause)));
-            }
-            record_uncaught_java_exception_ref(eiie_class, eiie_ref);
-            Error::JavaException {
-                class_name: eiie_class.to_string(),
-            }
-        }
+    let Ok(eiie_ref) = materialize_java_exception_object(registry, loader, heap, eiie_class) else {
         // If we somehow cannot materialise the wrapper, fall back to the raw
         // exception rather than masking the failure.
-        Err(_) => Error::JavaException { class_name },
+        return Error::JavaException { class_name };
+    };
+    if let Some(cause) = cause_ref
+        && set_object_field(
+            heap,
+            eiie_ref,
+            THROWABLE_CAUSE_FIELD,
+            Slot::Reference(Some(cause)),
+        )
+        .is_ok()
+    {
+        heap.remember_reference_write(eiie_ref, Slot::Reference(Some(cause)));
+    }
+    record_uncaught_java_exception_ref(eiie_class, eiie_ref);
+    Error::JavaException {
+        class_name: eiie_class.to_string(),
     }
 }
 
