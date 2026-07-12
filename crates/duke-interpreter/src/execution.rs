@@ -479,6 +479,25 @@ pub fn run_execution(
             }};
         }
 
+        // Throw a *catchable* java.lang.NoSuchMethodError whose detail message
+        // names the unresolved method — `owner.name` + JVM descriptor in Duke's
+        // internal (slash-form) convention, e.g.
+        // `java/util/concurrent/CopyOnWriteArrayList.addIfAbsent(Ljava/lang/Object;)Z`.
+        // Routes through the same machinery as `throw_java!`, so an enclosing
+        // `catch (NoSuchMethodError | IncompatibleClassChangeError | LinkageError
+        // | Throwable)` in the running bytecode handles it. Replaces the former
+        // silent lenient-dispatch soft-fail, which corrupted the operand stack
+        // for non-void descriptors.
+        macro_rules! throw_no_such_method {
+            ($msg:expr) => {{
+                push_pending_java_exception_message(
+                    "java/lang/NoSuchMethodError",
+                    $msg.to_string(),
+                );
+                throw_java!("java/lang/NoSuchMethodError");
+            }};
+        }
+
         // Route a class-initialisation result (from `ensure_initialized`) through
         // the currently-executing method's exception table. A failed <clinit>
         // surfaces as a catchable `Error::JavaException`; re-throwing it via

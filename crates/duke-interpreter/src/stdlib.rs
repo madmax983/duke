@@ -4961,6 +4961,25 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/lang/ExceptionInInitializerError",
             "java/lang/LinkageError",
         ),
+        // IncompatibleClassChangeError family (JVMS 5.4.3): thrown when
+        // execution-time method/field resolution fails against a loaded class.
+        // Registered (with hierarchy) so `catch (LinkageError)` /
+        // `catch (IncompatibleClassChangeError)` / `catch (Throwable)` in running
+        // bytecode matches a synthesised NoSuchMethodError via the super chain.
+        // NoSuchFieldError is registered for hierarchy completeness only — no
+        // lenient field-resolution path throws it today.
+        (
+            "java/lang/IncompatibleClassChangeError",
+            "java/lang/LinkageError",
+        ),
+        (
+            "java/lang/NoSuchMethodError",
+            "java/lang/IncompatibleClassChangeError",
+        ),
+        (
+            "java/lang/NoSuchFieldError",
+            "java/lang/IncompatibleClassChangeError",
+        ),
     ] {
         let ctx = ClassContext {
             class_name: name.to_string(),
