@@ -48,21 +48,23 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // lane then cleared the inherited `java/lang/Object.getClass()` virtual dispatch
 // for interface-typed callsites, advancing the app fixture again. Current
 // frontiers:
-//   * APP cleared the logback timestamp `java/time/format/DateTimeFormatter`
-//     rung: a minimal synthetic `DateTimeFormatter` now implements
-//     `ofPattern`/`withZone`/`withLocale`/`format(TemporalAccessor)` with a small
-//     pattern engine (UTC-only, fixed en-US; see native/java_time.rs). logback's
-//     `CachingDateFormatter` now constructs and drives its formatter without a
-//     `method not found`. It now lands on `duke: runtime error: operand stack
-//     underflow`, raised inside logback's `COWArrayList.addIfAbsent`: that method
-//     calls `java/util/concurrent/CopyOnWriteArrayList.addIfAbsent(Object)Z` and
-//     `pop`s the boolean result, but duke resolves the unregistered
-//     `CopyOnWriteArrayList` leniently (no-op `<init>`, and the `addIfAbsent`
-//     invokevirtual returns void instead of a boolean), so the following `pop`
-//     underflows the operand stack. The real gap is a synthetic
-//     `java/util/concurrent/CopyOnWriteArrayList` (or a strict method-dispatch
-//     that raises `method not found` instead of silently returning void)
-//     (java.util.concurrent / interpreter lenient-dispatch lane).
+//   * APP cleared logback's `COWArrayList.addIfAbsent` operand-stack-underflow
+//     rung. Two changes did it: (1) lenient method dispatch is now honest — a
+//     call to a method on an unresolvable class raises a catchable
+//     `java/lang/NoSuchMethodError` instead of silently popping args and
+//     continuing (which corrupted the operand stack for non-void descriptors);
+//     and (2) a synthetic `java/util/concurrent/CopyOnWriteArrayList` (init/add/
+//     addIfAbsent/get/size/contains/isEmpty/iterator; see java_util_concurrent.rs)
+//     now models the type logback uses. With the honest throw in place the boot
+//     then surfaced — and this lane cleared — several previously-swallowed rungs:
+//     `java/lang/Record.<init>` (now registered), a synthetic
+//     `java/util/concurrent/LinkedBlockingQueue` (FIFO queue with drainTo/clear),
+//     and `java/lang/InheritableThreadLocal` (ThreadLocal subclass). The app now
+//     lands on `method not found: java/lang/StringBuilder.append(Ljava/lang/
+//     Object;)Ljava/lang/StringBuilder;` — the StringBuilder `append(Object)`
+//     overload (which must String.valueOf/`toString` its argument) is not yet a
+//     native. That is a java.lang lane blocker (a new toString-dispatching native
+//     in native/java_lang.rs), out of the j.u.c./java_util/dispatch scope here.
 //   * LADDER cleared the commons-logging `LogFactory.newStandardFactory`
 //     `Class.forName("...SLF4JProvider", false, cl)` availability probe: the
 //     3-arg `Class.forName` native was eagerly computing the class key (which
@@ -82,7 +84,7 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //     a `NoSuchMethodError`-territory blocker, out of the linkage-error scope).
 // If either boot advances past its pin, re-observe and update.
 // See docs/findings/2026-07-10-spring-boot-real-app.md.
-const APP_BLOCKER: &str = "duke: runtime error: operand stack underflow";
+const APP_BLOCKER: &str = "method not found: java/lang/StringBuilder.append(Ljava/lang/Object;)Ljava/lang/StringBuilder;";
 const LADDER_BLOCKER: &str = "method not found: java/util/Hashtable.computeIfAbsent(Ljava/lang/Object;Ljava/util/function/Function;)Ljava/lang/Object;";
 
 fn run_fixture(jar: &str) -> Output {
@@ -112,11 +114,13 @@ fn combined_output(output: &Output) -> String {
 /// End-to-end CANARY for the real Spring Boot app fixture. Ignored until boot
 /// reaches the started-application line. Un-ignore when the happy path clears.
 #[test]
-#[ignore = "Blocked on a runtime 'operand stack underflow' raised inside logback's \
-            COWArrayList.addIfAbsent — duke resolves java/util/concurrent/CopyOnWriteArrayList \
-            leniently so its addIfAbsent(Object)Z returns void and the following pop underflows \
-            (java.util.concurrent / interpreter lenient-dispatch lane; the DateTimeFormatter \
-            ofPattern rung is now cleared); keep ignored until the Spring Boot app boot completes. \
+#[ignore = "Blocked on 'method not found: java/lang/StringBuilder.append(Ljava/lang/Object;)\
+            Ljava/lang/StringBuilder;' — the StringBuilder append(Object) overload is not yet a \
+            native (a java.lang lane blocker: it must String.valueOf/toString its argument). \
+            The logback COWArrayList.addIfAbsent operand-stack-underflow rung is now cleared by \
+            honest method dispatch (catchable NoSuchMethodError) plus a synthetic \
+            CopyOnWriteArrayList/LinkedBlockingQueue/InheritableThreadLocal/Record; keep ignored \
+            until the Spring Boot app boot completes. \
             See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_app_boots_end_to_end() {
     let output = run_fixture(APP_JAR);
