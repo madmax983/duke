@@ -68,6 +68,21 @@ impl ClassLoader for ArcLoader {
 /// Drive the slf4j smoke under real-JDK shadow and return the rendered result
 /// (`Ok(())` if it ran to completion, or the `{err:?}` rendering of the first blocker).
 fn run_slf4j_real_jdk_shadow() -> Result<(), String> {
+    // llvm-cov's `-C instrument-coverage` inflates every stack frame, and the real
+    // Properties graph this branch materializes deepens interpreter recursion enough
+    // to overflow the default ~8 MB test-harness thread. Run the driver on a thread
+    // with explicit headroom so it survives instrumentation. Everything is built
+    // inside the closure, so there are no captured non-`Send` locals to move.
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(run_slf4j_real_jdk_shadow_inner)
+        .expect("spawn frontier driver")
+        .join()
+        .expect("frontier driver thread panicked")
+}
+
+/// The actual driver body, run on a large-stack thread by `run_slf4j_real_jdk_shadow`.
+fn run_slf4j_real_jdk_shadow_inner() -> Result<(), String> {
     let modules = jdk_modules_path().ok_or_else(|| "SKIP: no JDK jimage".to_string())?;
 
     let fixtures = repo_root().join("tests/fixtures");
