@@ -264,3 +264,89 @@ pub(crate) fn native_reflection_get_class_access_flags(
         .map_or(SYNTHETIC_CLASS_ACCESS_FLAGS, |info| info.access_flags);
     Ok(Some(Slot::Int(i32::from(access_flags))))
 }
+
+// java.lang.invoke / SharedSecrets foundation
+// ---------------------------------------------------------------------------
+// Natives walking the real `FileOutputStream.<clinit>` chain under
+// `DUKE_REAL_JDK=1`: `SharedSecrets.getJavaIOFileDescriptorAccess()` finds
+// `FD_ACCESS == null`, which drives `MethodHandles.Lookup.ensureInitialized`
+// and the `java.lang.invoke` bootstrap. These honor the real contracts (force
+// real `<clinit>`, report real init state) rather than papering over the graph.
+
+/// Native: `jdk/internal/misc/Unsafe.ensureClassInitialized(Ljava/lang/Class;)V`.
+///
+/// Real `MethodHandles.Lookup.ensureInitialized(Class)` — reached from
+/// `FileOutputStream.<clinit>` via `SharedSecrets.getJavaIOFileDescriptorAccess`
+/// → the `java.lang.invoke` bootstrap — calls `UNSAFE.ensureClassInitialized`
+/// (JDK 21: `MethodHandles.Lookup.ensureInitialized` routes through
+/// `Unsafe.ensureClassInitialized`) to force the target's `<clinit>` to complete
+/// before a handle is bound against it. Duke honors that contract by driving the
+/// argument class through [`CallbackOps::ensure_class_initialized`], which runs
+/// `<clinit>` exactly once. `arg 0` is the (ignored) synthetic `Unsafe` receiver;
+/// `arg 1` is the target `Class`.
+pub(crate) fn native_unsafe_ensure_class_initialized(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 1)?;
+    let class_name = class_internal_name_from_ref(heap, class_ref)?;
+    ops.ensure_class_initialized(heap, out, &class_name)?;
+    Ok(None)
+}
+
+/// Native: `initIDs()V` for `java/io/FileDescriptor` and `java/io/FileOutputStream`
+/// (and the other file-stream classes) — no-op.
+///
+/// This is the opening instruction of each of those classes' real `<clinit>`
+/// (reached once `Unsafe.ensureClassInitialized` forces initialization). In
+/// `HotSpot` `initIDs` only caches the `jfieldID`s (e.g. `fd`/`handle`/`append`) so
+/// later native code can poke those slots directly. Duke resolves fields
+/// positionally by name, so there is nothing to cache — an honest no-op. The rest
+/// of each `<clinit>` (installing the `JavaIOFileDescriptorAccess` via
+/// `SharedSecrets`, building `in`/`out`/`err`, seeding `FD_ACCESS`) runs as real
+/// bytecode.
+#[allow(clippy::unnecessary_wraps)] // signature must match `NativeHandler`
+pub(crate) fn native_io_init_ids_noop(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(None)
+}
+
+/// Native: `java/io/FileDescriptor.getHandle(I)J`.
+///
+/// Called by the real `FileDescriptor(int)` constructor to seed the `handle`
+/// field. Handles are a Windows-only concept; the unix JDK native returns `-1`
+/// unconditionally (see `FileDescriptor_md.c`), so this mirrors that exactly.
+#[allow(clippy::unnecessary_wraps)] // signature must match `NativeHandler`
+pub(crate) fn native_file_descriptor_get_handle(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(Slot::Long(-1)))
+}
+
+/// Native: `java/io/FileDescriptor.getAppend(I)Z`.
+///
+/// Called by the real `FileDescriptor(int)` constructor to seed the `append`
+/// field. The unix JDK native returns `fcntl(fd, F_GETFL) & O_APPEND`. This path
+/// runs only for the standard descriptors `0`/`1`/`2` built in
+/// `FileDescriptor.<clinit>` — none of which is opened in append mode — so the
+/// honest answer is `false`. (`FileOutputStream`'s own append flag lives in a
+/// separate field set from its constructor, not from this descriptor query.)
+#[allow(clippy::unnecessary_wraps)] // signature must match `NativeHandler`
+pub(crate) fn native_file_descriptor_get_append(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(Slot::Int(0)))
+}
