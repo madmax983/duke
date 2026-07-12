@@ -1005,6 +1005,12 @@ fn run_class_int(class_name: &str, method_name: &str, descriptor: &str, args: Ve
     );
     let slots: Vec<Slot> = args.into_iter().map(Slot::Int).collect();
     let mut heap = duke_gc::Heap::new();
+    // Register the JDK synthetics (java/lang/Object, java/lang/Record, the
+    // exception hierarchy, ...) exactly as a real interpreter run does. Fixture
+    // classes chain super-constructor calls (e.g. Object.<init>, Record.<init>,
+    // RuntimeException.<init>) that must resolve; without bootstrap they now
+    // surface as catchable NoSuchMethodError instead of the former lenient swallow.
+    bootstrap_stdlib(&mut registry, &mut heap);
     let mut sink: Vec<u8> = Vec::new();
     match execute_class(
         &mut registry,
@@ -2814,6 +2820,8 @@ fn run_cross_class_int(
     );
     let slots: Vec<Slot> = args.into_iter().map(Slot::Int).collect();
     let mut heap = duke_gc::Heap::new();
+    // See run_class_int: register JDK synthetics so super-constructor calls resolve.
+    bootstrap_stdlib(&mut registry, &mut heap);
     let mut sink: Vec<u8> = Vec::new();
     match execute_class(
         &mut registry,

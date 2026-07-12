@@ -3359,6 +3359,29 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_object_get_class,
     );
 
+    // java/lang/Record — the common superclass of all record classes (JLS 8.10).
+    // A record's generated <init> chains `invokespecial java/lang/Record.<init>()V`
+    // as its super-constructor call. Registered (with a no-op <init>()V mirroring
+    // Object's) so that super-call resolves honestly instead of relying on lenient
+    // dispatch; without it, every record instantiation would now throw
+    // NoSuchMethodError.
+    let record_ctx = ClassContext {
+        class_name: "java/lang/Record".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(record_ctx);
+    registry
+        .natives_mut()
+        .register("java/lang/Record", "<init>", "()V", native_object_init);
+
     register_charset_stdlib(registry, heap);
     register_base64_stdlib(registry);
     register_atomic_stdlib(registry);
@@ -6824,6 +6847,98 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "iterator",
         "()Ljava/util/Iterator;",
         native_arraylist_iterator,
+    );
+
+    // java/util/concurrent/LinkedBlockingQueue — synthetic unbounded FIFO queue
+    // sharing the ArrayList storage layout (fields[0] = size, fields[1..] =
+    // elements, front at index 1). Single-threaded execution collapses the
+    // blocking semantics: put/offer never block, take/poll yield null when empty.
+    let lbq_ctx = ClassContext {
+        class_name: "java/util/concurrent/LinkedBlockingQueue".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec![
+            "java/util/Queue".to_string(),
+            "java/util/Collection".to_string(),
+            "java/lang/Iterable".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(lbq_ctx);
+    registry.natives_mut().register(
+        "java/util/concurrent/LinkedBlockingQueue",
+        "<init>",
+        "()V",
+        native_lbq_init,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/LinkedBlockingQueue",
+        "<init>",
+        "(I)V",
+        native_lbq_init_capacity,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/LinkedBlockingQueue",
+        "add",
+        "(Ljava/lang/Object;)Z",
+        native_lbq_add,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/LinkedBlockingQueue",
+        "offer",
+        "(Ljava/lang/Object;)Z",
+        native_lbq_offer,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/LinkedBlockingQueue",
+        "put",
+        "(Ljava/lang/Object;)V",
+        native_lbq_put,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/LinkedBlockingQueue",
+        "poll",
+        "()Ljava/lang/Object;",
+        native_lbq_poll,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/LinkedBlockingQueue",
+        "take",
+        "()Ljava/lang/Object;",
+        native_lbq_take,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/LinkedBlockingQueue",
+        "peek",
+        "()Ljava/lang/Object;",
+        native_lbq_peek,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/LinkedBlockingQueue",
+        "size",
+        "()I",
+        native_lbq_size,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/LinkedBlockingQueue",
+        "isEmpty",
+        "()Z",
+        native_lbq_is_empty,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/LinkedBlockingQueue",
+        "remainingCapacity",
+        "()I",
+        native_lbq_remaining_capacity,
     );
 
     // java/util/Arrays — static array utilities
@@ -13714,6 +13829,43 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         registry
             .natives_mut()
             .register("java/lang/ThreadLocal", method, descriptor, handler);
+    }
+
+    // java/lang/InheritableThreadLocal — subclass of ThreadLocal that (in the
+    // real JDK) propagates its value to child threads. Duke executes on a single
+    // thread, so inheritance is a no-op and it behaves exactly like ThreadLocal;
+    // it reuses the same single-slot storage and natives. Registered so Spring's
+    // context-propagation `new InheritableThreadLocal()` resolves instead of
+    // throwing NoSuchMethodError.
+    let inheritable_thread_local_ctx = ClassContext {
+        class_name: "java/lang/InheritableThreadLocal".to_string(),
+        super_class: Some("java/lang/ThreadLocal".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "value".to_string(),
+            descriptor: "Ljava/lang/Object;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(inheritable_thread_local_ctx);
+    for (method, descriptor, handler) in [
+        ("<init>", "()V", native_thread_local_init as NativeHandler),
+        ("get", "()Ljava/lang/Object;", native_thread_local_get),
+        ("set", "(Ljava/lang/Object;)V", native_thread_local_set),
+        ("remove", "()V", native_thread_local_remove),
+    ] {
+        registry.natives_mut().register(
+            "java/lang/InheritableThreadLocal",
+            method,
+            descriptor,
+            handler,
+        );
     }
 
     // ┌──────────────────────────────────────────────────────────────────────┐

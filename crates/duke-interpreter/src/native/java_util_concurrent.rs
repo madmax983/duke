@@ -2258,3 +2258,189 @@ pub(crate) fn native_cowal_is_empty(
     };
     Ok(Some(Slot::Int(i32::from(is_empty))))
 }
+// ---------------------------------------------------------------------------
+// java/util/concurrent/LinkedBlockingQueue
+//
+// Synthetic FIFO queue backed by the ArrayList storage convention
+// (fields[0] = size as `Slot::Int`, fields[1..] = elements, front at index 1).
+// Single-threaded execution collapses the blocking semantics: `put`/`offer`
+// always succeed (unbounded), and `take`/`poll` return the head or null when
+// empty. The optional bounded-capacity constructor argument is accepted and
+// ignored (treated as effectively unbounded).
+// ---------------------------------------------------------------------------
+
+/// Native: `LinkedBlockingQueue.<init>()V` — initializes an empty queue.
+pub(crate) fn native_lbq_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
+    Ok(None)
+}
+
+/// Native: `LinkedBlockingQueue.<init>(I)V` — capacity ignored; empty queue.
+pub(crate) fn native_lbq_init_capacity(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
+    Ok(None)
+}
+
+/// Shared tail-append used by add/offer/put: appends `element`, bumps size,
+/// returns the new size for callers that need it.
+fn lbq_enqueue(heap: &mut duke_gc::Heap, this_ref: u64, element: Slot) -> Result<()> {
+    let obj = heap.get_mut(this_ref)?;
+    match obj.fields.first_mut() {
+        Some(Slot::Int(sz)) => *sz += 1,
+        _ => return Err(Error::NullPointerException),
+    }
+    obj.fields.push(element);
+    Ok(())
+}
+
+/// Shared head-removal used by poll/take/remove: removes and returns the front
+/// element, or `None` when the queue is empty.
+fn lbq_dequeue(heap: &mut duke_gc::Heap, this_ref: u64) -> Result<Option<Slot>> {
+    let obj = heap.get_mut(this_ref)?;
+    let size = match obj.fields.first() {
+        Some(Slot::Int(sz)) => *sz,
+        _ => 0,
+    };
+    if size <= 0 || obj.fields.len() < 2 {
+        return Ok(None);
+    }
+    let head = obj.fields.remove(1);
+    obj.fields[0] = Slot::Int(size - 1);
+    Ok(Some(head))
+}
+
+/// Native: `LinkedBlockingQueue.add(Object)Z` — appends, returns true.
+pub(crate) fn native_lbq_add(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let element = extract_slot_arg(args, 1);
+    lbq_enqueue(heap, this_ref, element)?;
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `LinkedBlockingQueue.offer(Object)Z` — appends, returns true (unbounded).
+pub(crate) fn native_lbq_offer(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let element = extract_slot_arg(args, 1);
+    lbq_enqueue(heap, this_ref, element)?;
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `LinkedBlockingQueue.put(Object)V` — appends (never blocks; unbounded).
+pub(crate) fn native_lbq_put(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let element = extract_slot_arg(args, 1);
+    lbq_enqueue(heap, this_ref, element)?;
+    Ok(None)
+}
+
+/// Native: `LinkedBlockingQueue.poll()Object` — removes/returns head, or null.
+pub(crate) fn native_lbq_poll(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(
+        lbq_dequeue(heap, this_ref)?.unwrap_or(Slot::Reference(None)),
+    ))
+}
+
+/// Native: `LinkedBlockingQueue.take()Object` — removes/returns head. In a
+/// single-threaded VM there is no producer to wait for, so an empty queue
+/// yields null rather than blocking forever.
+pub(crate) fn native_lbq_take(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(
+        lbq_dequeue(heap, this_ref)?.unwrap_or(Slot::Reference(None)),
+    ))
+}
+
+/// Native: `LinkedBlockingQueue.peek()Object` — returns head without removing, or null.
+pub(crate) fn native_lbq_peek(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get(this_ref)?;
+    let head = match obj.fields.first() {
+        Some(Slot::Int(sz)) if *sz > 0 => obj.fields.get(1).copied(),
+        _ => None,
+    };
+    Ok(Some(head.unwrap_or(Slot::Reference(None))))
+}
+
+/// Native: `LinkedBlockingQueue.size()I`
+pub(crate) fn native_lbq_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(sz)) => Ok(Some(Slot::Int(*sz))),
+        _ => Ok(Some(Slot::Int(0))),
+    }
+}
+
+/// Native: `LinkedBlockingQueue.isEmpty()Z`
+pub(crate) fn native_lbq_is_empty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let is_empty = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(sz)) => *sz == 0,
+        _ => true,
+    };
+    Ok(Some(Slot::Int(i32::from(is_empty))))
+}
+
+/// Native: `LinkedBlockingQueue.remainingCapacity()I` — reports Integer.MAX_VALUE
+/// (this synthetic queue is effectively unbounded).
+pub(crate) fn native_lbq_remaining_capacity(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let _this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(i32::MAX)))
+}
