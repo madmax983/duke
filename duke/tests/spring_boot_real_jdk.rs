@@ -1,0 +1,138 @@
+//! CLI-level `--real-jdk` frontier pins for the vendored Spring Boot fat JARs.
+//!
+//! Companion to `spring_boot_real_app.rs` (which drives the same fixtures WITHOUT
+//! real-JDK shadow). Under `--real-jdk`, non-allowlisted synthetic stdlib classes
+//! load real JDK-21 bytecode. `java/net/URL` used to be shadowed while its instances
+//! were still minted 1-slot by synthetic natives (`allocate_string_backed_object`),
+//! so the real `URL.toExternalForm` indexed `handler` at slot 10 on a 1-slot object
+//! and the interpreter panicked with a raw Rust `index out of bounds` at the
+//! `getfield` opcode. `java/net/URL` is now on `KEEP_SYNTHETIC`, so the allocation
+//! and the bytecode share one (synthetic) layout regime and the panic is gone; boot
+//! advances to the next honest frontier.
+//!
+//! Each test asserts two things: (1) the process no longer aborts with a raw
+//! `index out of bounds` panic from `execution.rs` (the guard-gap + coherence fix),
+//! and (2) boot is pinned at the current verbatim first blocker. When boot advances
+//! past the pin this trips, forcing a re-observe.
+//!
+//! Requires a real JDK jimage (`lib/modules`); without one the tests skip.
+
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+
+fn repo_root() -> PathBuf {
+    // CARGO_MANIFEST_DIR points at the `duke` crate; the workspace root is its parent.
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root")
+        .to_path_buf()
+}
+
+fn spring_boot_fixture(name: &str) -> PathBuf {
+    repo_root()
+        .join("tests/fixtures/oss-jars/spring-boot")
+        .join(name)
+}
+
+/// Locate a JDK jimage (`lib/modules`), preferring `JAVA_HOME`. `None` when absent, in
+/// which case the `--real-jdk` pins skip (real-JDK shadow cannot be enabled without one).
+fn jdk_modules_path() -> Option<PathBuf> {
+    let from_java_home = std::env::var_os("JAVA_HOME")
+        .map(PathBuf::from)
+        .map(|path| path.join("lib/modules"));
+    let fallbacks = [
+        PathBuf::from("/usr/lib/jvm/java-21-openjdk-amd64/lib/modules"),
+        PathBuf::from("/usr/lib/jvm/default-java/lib/modules"),
+    ];
+    from_java_home
+        .into_iter()
+        .chain(fallbacks)
+        .find(|path| path.exists())
+}
+
+const APP_JAR: &str = "duke-spring-boot-app-3.5.12.jar";
+const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
+
+// Current `--real-jdk` frontier (re-observed 2026-07-12, after the properties-hashtable
+// lane landed a synthetic `java/lang/System.getProperties()` native). With URL coherent
+// (KEEP_SYNTHETIC) both fixtures boot past the former `java/net/URL` getfield layout panic;
+// they then cleared the real-JDK system-properties bootstrap wall now that
+// `System.getProperties()` materializes a live, real-layout `java/util/Properties` object
+// graph (allocate + real `<init>` + real `setProperty`), so `StaticProperty.<clinit>`
+// advances past it. The wall now falls on a real `getstatic java/lang/String.COMPACT_STRINGS`
+// (a real-JDK static field that the synthetic, KEEP_SYNTHETIC `java/lang/String` does not
+// declare), which surfaces as the CLI runtime error `constant pool index 0 is not a valid
+// Fieldref` (the `InvalidFieldref { index: 0 }` blocker). That is a separate lane (String
+// real-layout / KEEP_SYNTHETIC allowlist), the SAME frontier pinned by
+// `crates/duke-interpreter/tests/classloader_bootstrap_frontier.rs`. Out of scope here.
+// If either boot advances past this, re-observe and update.
+const REAL_JDK_FRONTIER: &str = "constant pool index 0 is not a valid Fieldref";
+
+// Markers of the OLD raw panic that this fix eliminates. None of these must appear.
+const RAW_PANIC_MARKERS: &[&str] = &["index out of bounds", "execution.rs", "panicked at"];
+
+fn run_fixture_real_jdk(jar: &str) -> Output {
+    let jar_path = spring_boot_fixture(jar);
+    assert!(
+        jar_path.exists(),
+        "fixture jar should be committed at {}",
+        jar_path.display()
+    );
+    Command::new(env!("CARGO_BIN_EXE_duke"))
+        .arg("--real-jdk")
+        .arg("-jar")
+        .arg(&jar_path)
+        // Guarantee the layout-coherence guard is in its default OFF mode: the graceful
+        // outcome must hold WITHOUT opting into DUKE_LAYOUT_CHECK.
+        .env_remove("DUKE_LAYOUT_CHECK")
+        .output()
+        .unwrap_or_else(|err| panic!("run duke --real-jdk -jar on {jar}: {err}"))
+}
+
+fn combined_output(output: &Output) -> String {
+    let mut combined = String::from_utf8_lossy(&output.stdout).into_owned();
+    combined.push_str(&String::from_utf8_lossy(&output.stderr));
+    combined
+}
+
+/// Assert the shared invariant for a `--real-jdk` fixture run: no raw `index out of bounds`
+/// panic, and boot is pinned at `REAL_JDK_FRONTIER`.
+fn assert_no_url_panic_and_pinned(jar: &str) {
+    if jdk_modules_path().is_none() {
+        eprintln!("skipping {jar} --real-jdk pin: no JDK jimage available");
+        return;
+    }
+
+    let output = run_fixture_real_jdk(jar);
+    let combined = combined_output(&output);
+
+    for marker in RAW_PANIC_MARKERS {
+        assert!(
+            !combined.contains(marker),
+            "the java/net/URL layout fix must eliminate the raw Rust panic, but output for \
+             {jar} still contains {marker:?}:\n{combined}"
+        );
+    }
+
+    assert!(
+        combined.contains(REAL_JDK_FRONTIER),
+        "expected {jar} under --real-jdk to be pinned at the current first blocker \
+         ({REAL_JDK_FRONTIER:?}); if it moved, re-observe and update this pin. Output:\n{combined}"
+    );
+}
+
+/// PIN: the ladder fixture under `--real-jdk` no longer panics on the `java/net/URL`
+/// layout, and stays at the `String.COMPACT_STRINGS` real-layout frontier (past the now-
+/// cleared `System.getProperties()` system-properties wall).
+#[test]
+fn spring_boot_ladder_real_jdk_no_url_panic_and_pinned() {
+    assert_no_url_panic_and_pinned(LADDER_JAR);
+}
+
+/// PIN: the app fixture under `--real-jdk` no longer panics on the `java/net/URL`
+/// layout, and stays at the `String.COMPACT_STRINGS` real-layout frontier (past the now-
+/// cleared `System.getProperties()` system-properties wall).
+#[test]
+fn spring_boot_app_real_jdk_no_url_panic_and_pinned() {
+    assert_no_url_panic_and_pinned(APP_JAR);
+}

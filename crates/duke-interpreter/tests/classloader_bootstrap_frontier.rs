@@ -68,12 +68,14 @@ impl ClassLoader for ArcLoader {
 /// Drive the slf4j smoke under real-JDK shadow and return the rendered result
 /// (`Ok(())` if it ran to completion, or the `{err:?}` rendering of the first blocker).
 fn run_slf4j_real_jdk_shadow() -> Result<(), String> {
-    // llvm-cov's `-C instrument-coverage` inflates every stack frame, and the real
-    // JDK bootstrap graph this branch drives deepens interpreter recursion enough to
-    // overflow the default ~2 MB libtest thread. Run the driver on a thread with
-    // explicit headroom so it survives instrumentation. Everything is built inside
-    // the closure, so there are no captured non-`Send` locals to move.
+    // llvm-cov's `-C instrument-coverage` inflates every stack frame, and the deep
+    // real-JDK bootstrap recursion this driver exercises overflows the default
+    // test-harness thread stack only under that instrumentation. Run the driver on a
+    // thread with explicit headroom so it survives coverage builds. The whole body is
+    // built inside the inner fn, so there are no captured non-`Send` locals to move,
+    // and a panic/assert inside still propagates via `join()`.
     std::thread::Builder::new()
+        .name("real-jdk-frontier-driver".to_string())
         .stack_size(64 * 1024 * 1024)
         .spawn(run_slf4j_real_jdk_shadow_inner)
         .expect("spawn frontier driver")

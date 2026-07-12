@@ -2122,3 +2122,397 @@ pub(crate) fn native_concurrent_hashmap_for_each(
     }
     Ok(None)
 }
+
+// ---------------------------------------------------------------------------
+// java/util/concurrent/CopyOnWriteArrayList
+//
+// Synthetic thread-unsafe stand-in for `CopyOnWriteArrayList`. Mirrors the
+// `java/util/ArrayList` storage convention exactly (fields[0] = size as
+// `Slot::Int`, fields[1..] = elements), which lets the shared list iterator
+// (`duke/util/ArrayListIterator`, via `native_arraylist_iterator`) operate on
+// a CoWAL instance without modification. Single-threaded execution means the
+// copy-on-write snapshot semantics collapse to plain in-place mutation.
+// ---------------------------------------------------------------------------
+
+/// Native: `CopyOnWriteArrayList.<init>()V` — initializes with size = 0.
+pub(crate) fn native_cowal_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
+    Ok(None)
+}
+
+/// Native: `CopyOnWriteArrayList.add(Object)Z` — appends element, returns true.
+pub(crate) fn native_cowal_add(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let element = extract_slot_arg(args, 1);
+    let obj = heap.get_mut(this_ref)?;
+    match obj.fields.first_mut() {
+        Some(Slot::Int(sz)) => *sz += 1,
+        _ => return Err(Error::NullPointerException),
+    }
+    obj.fields.push(element);
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `CopyOnWriteArrayList.addIfAbsent(Object)Z` — appends the element and
+/// returns true only if no equal element is already present; otherwise leaves
+/// the list unchanged and returns false. Uses the same equality convention as
+/// `ArrayList.contains`.
+pub(crate) fn native_cowal_add_if_absent(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let element = extract_slot_arg(args, 1);
+    for slot in heap.get(this_ref)?.fields.iter().skip(1) {
+        if slots_equal(slot, &element, heap) {
+            return Ok(Some(Slot::Int(0)));
+        }
+    }
+    let obj = heap.get_mut(this_ref)?;
+    match obj.fields.first_mut() {
+        Some(Slot::Int(sz)) => *sz += 1,
+        _ => return Err(Error::NullPointerException),
+    }
+    obj.fields.push(element);
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `CopyOnWriteArrayList.get(I)Object` — returns element at index.
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_cowal_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let idx = extract_int_arg(args, 1)? as usize;
+    let obj = heap.get(this_ref)?;
+    obj.fields.get(idx + 1).map_or_else(
+        || {
+            Err(Error::JavaException {
+                class_name: "java/lang/IndexOutOfBoundsException".to_string(),
+            })
+        },
+        |slot| Ok(Some(*slot)),
+    )
+}
+
+/// Native: `CopyOnWriteArrayList.size()I`
+pub(crate) fn native_cowal_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(sz)) => Ok(Some(Slot::Int(*sz))),
+        _ => Ok(Some(Slot::Int(0))),
+    }
+}
+
+/// Native: `CopyOnWriteArrayList.contains(Object)Z`
+pub(crate) fn native_cowal_contains(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target = extract_slot_arg(args, 1);
+    let mut found = false;
+    for slot in heap.get(this_ref)?.fields.iter().skip(1) {
+        if slots_equal(slot, &target, heap) {
+            found = true;
+            break;
+        }
+    }
+    Ok(Some(Slot::Int(i32::from(found))))
+}
+
+/// Native: `CopyOnWriteArrayList.isEmpty()Z` — returns true if size is 0.
+pub(crate) fn native_cowal_is_empty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let is_empty = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(sz)) => *sz == 0,
+        _ => true,
+    };
+    Ok(Some(Slot::Int(i32::from(is_empty))))
+}
+// ---------------------------------------------------------------------------
+// java/util/concurrent/LinkedBlockingQueue
+//
+// Synthetic FIFO queue backed by the ArrayList storage convention
+// (fields[0] = size as `Slot::Int`, fields[1..] = elements, front at index 1).
+// Single-threaded execution collapses the blocking semantics: `put`/`offer`
+// always succeed (unbounded), and `take`/`poll` return the head or null when
+// empty. The optional bounded-capacity constructor argument is accepted and
+// ignored (treated as effectively unbounded).
+// ---------------------------------------------------------------------------
+
+/// Native: `LinkedBlockingQueue.<init>()V` — initializes an empty queue.
+pub(crate) fn native_lbq_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
+    Ok(None)
+}
+
+/// Native: `LinkedBlockingQueue.<init>(I)V` — capacity ignored; empty queue.
+pub(crate) fn native_lbq_init_capacity(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
+    Ok(None)
+}
+
+/// Shared tail-append used by add/offer/put: appends `element`, bumps size,
+/// returns the new size for callers that need it.
+fn lbq_enqueue(heap: &mut duke_gc::Heap, this_ref: u64, element: Slot) -> Result<()> {
+    let obj = heap.get_mut(this_ref)?;
+    match obj.fields.first_mut() {
+        Some(Slot::Int(sz)) => *sz += 1,
+        _ => return Err(Error::NullPointerException),
+    }
+    obj.fields.push(element);
+    Ok(())
+}
+
+/// Shared head-removal used by poll/take/remove: removes and returns the front
+/// element, or `None` when the queue is empty.
+fn lbq_dequeue(heap: &mut duke_gc::Heap, this_ref: u64) -> Result<Option<Slot>> {
+    let obj = heap.get_mut(this_ref)?;
+    let size = match obj.fields.first() {
+        Some(Slot::Int(sz)) => *sz,
+        _ => 0,
+    };
+    if size <= 0 || obj.fields.len() < 2 {
+        return Ok(None);
+    }
+    let front = obj.fields.remove(1);
+    obj.fields[0] = Slot::Int(size - 1);
+    Ok(Some(front))
+}
+
+/// Native: `LinkedBlockingQueue.add(Object)Z` — appends, returns true.
+pub(crate) fn native_lbq_add(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let element = extract_slot_arg(args, 1);
+    lbq_enqueue(heap, this_ref, element)?;
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `LinkedBlockingQueue.offer(Object)Z` — appends, returns true (unbounded).
+pub(crate) fn native_lbq_offer(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let element = extract_slot_arg(args, 1);
+    lbq_enqueue(heap, this_ref, element)?;
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `LinkedBlockingQueue.put(Object)V` — appends (never blocks; unbounded).
+pub(crate) fn native_lbq_put(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let element = extract_slot_arg(args, 1);
+    lbq_enqueue(heap, this_ref, element)?;
+    Ok(None)
+}
+
+/// Native: `LinkedBlockingQueue.poll()Object` — removes/returns head, or null.
+pub(crate) fn native_lbq_poll(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(
+        lbq_dequeue(heap, this_ref)?.unwrap_or(Slot::Reference(None)),
+    ))
+}
+
+/// Native: `LinkedBlockingQueue.take()Object` — removes/returns head. In a
+/// single-threaded VM there is no producer to wait for, so an empty queue
+/// yields null rather than blocking forever.
+pub(crate) fn native_lbq_take(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(
+        lbq_dequeue(heap, this_ref)?.unwrap_or(Slot::Reference(None)),
+    ))
+}
+
+/// Native: `LinkedBlockingQueue.peek()Object` — returns head without removing, or null.
+pub(crate) fn native_lbq_peek(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get(this_ref)?;
+    let front = match obj.fields.first() {
+        Some(Slot::Int(sz)) if *sz > 0 => obj.fields.get(1).copied(),
+        _ => None,
+    };
+    Ok(Some(front.unwrap_or(Slot::Reference(None))))
+}
+
+/// Native: `LinkedBlockingQueue.size()I`
+pub(crate) fn native_lbq_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(sz)) => Ok(Some(Slot::Int(*sz))),
+        _ => Ok(Some(Slot::Int(0))),
+    }
+}
+
+/// Native: `LinkedBlockingQueue.isEmpty()Z`
+pub(crate) fn native_lbq_is_empty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let is_empty = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(sz)) => *sz == 0,
+        _ => true,
+    };
+    Ok(Some(Slot::Int(i32::from(is_empty))))
+}
+
+/// Native: `LinkedBlockingQueue.remainingCapacity()I` — reports `Integer.MAX_VALUE`
+/// (this synthetic queue is effectively unbounded).
+pub(crate) fn native_lbq_remaining_capacity(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let _this_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Int(i32::MAX)))
+}
+
+/// Shared drain: removes up to `max` elements from the queue and appends each to
+/// the target collection via its `add(Object)Z`; returns the number transferred.
+fn lbq_drain_into(
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+    this_ref: u64,
+    target_ref: u64,
+    max: i32,
+) -> Result<Option<Slot>> {
+    let target_class = heap.get(target_ref)?.class_name.clone();
+    let mut count: i32 = 0;
+    while count < max {
+        let Some(elem) = lbq_dequeue(heap, this_ref)? else {
+            break;
+        };
+        ops.invoke(
+            heap,
+            output,
+            &target_class,
+            "add",
+            "(Ljava/lang/Object;)Z",
+            vec![Slot::Reference(Some(target_ref)), elem],
+        )?;
+        count += 1;
+    }
+    Ok(Some(Slot::Int(count)))
+}
+
+/// Native: `LinkedBlockingQueue.drainTo(Collection)I` — drains every available
+/// element into the target collection, returning the count transferred.
+pub(crate) fn native_lbq_drain_to(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target_ref = extract_ref_arg(args, 1)?;
+    lbq_drain_into(heap, output, ops, this_ref, target_ref, i32::MAX)
+}
+
+/// Native: `LinkedBlockingQueue.drainTo(Collection, int)I` — drains up to
+/// `maxElements` into the target collection, returning the count transferred.
+pub(crate) fn native_lbq_drain_to_max(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target_ref = extract_ref_arg(args, 1)?;
+    let max = extract_int_arg(args, 2)?;
+    lbq_drain_into(heap, output, ops, this_ref, target_ref, max)
+}
+
+/// Native: `LinkedBlockingQueue.clear()V` — removes all elements.
+pub(crate) fn native_lbq_clear(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get_mut(this_ref)?;
+    obj.fields.truncate(1);
+    obj.fields[0] = Slot::Int(0);
+    Ok(None)
+}
