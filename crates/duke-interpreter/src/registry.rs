@@ -42,6 +42,15 @@ const KEEP_SYNTHETIC: &[&str] = &[
     // the real `Unsafe.<clinit>` (registerNatives + UnsafeConstants) from running
     // and lets real java.util.concurrent bytecode use our offset-encoding model.
     "jdk/internal/misc/Unsafe",
+    // `URL` objects are minted and consumed by synthetic natives (e.g.
+    // `allocate_string_backed_object`) that build 1-slot, spec-backed instances and
+    // already implement URL semantics (toExternalForm/getPath/openStream/...). Making
+    // URL "fully real" would require migrating those native allocation routes to build
+    // real 13-field URL objects and run the real URL/URLStreamHandler constructors — a
+    // large blast radius. Keeping URL synthetic (like its siblings above) keeps the
+    // allocation-and-bytecode cluster in one layout regime: real bytecode never indexes
+    // the real `handler` slot on a synthetically-allocated 1-slot object.
+    "java/net/URL",
 ];
 
 fn class_internal_name_fragment(name: &str) -> &str {
