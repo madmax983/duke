@@ -33037,6 +33037,100 @@ fn linkage_uncaught_ncdfe_surfaces_as_java_exception_of_correct_type() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Honest-dispatch lane: catchable NoSuchMethodError (JVMS 5.4.3.3). Making
+// lenient method dispatch honest means a call to a method on an unresolvable
+// class now throws a *catchable* NoSuchMethodError instead of the former silent
+// soft-fail (which popped args + `this` and continued without pushing a return
+// value, corrupting the operand stack).
+//
+// Fixture: tests/fixtures/NoSuchMethodProbes.java — its `MissingMethods` helper
+// is compiled but intentionally NOT committed, so it is unresolvable at run time.
+// `new MissingMethods()` emits `invokespecial MissingMethods.<init>()V` against
+// the unloadable class, which the interpreter reports as a NoSuchMethodError.
+// ---------------------------------------------------------------------------
+
+/// Run a no-arg `static int` probe on the `NoSuchMethodProbes` fixture, returning
+/// the raw execution result so tests can inspect uncaught errors.
+fn run_no_such_method_probe_result(method_name: &str) -> Result<Option<Slot>> {
+    let ctx = load_class_context("NoSuchMethodProbes.class");
+    let entry_class = ctx.class_name.clone();
+    let mut registry = ClassRegistry::new();
+    registry.register(ctx);
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let loader = fixtures_loader();
+    let mut out: Vec<u8> = Vec::new();
+    execute_class_to_completion(
+        &mut registry,
+        loader,
+        &mut heap,
+        &mut out,
+        &entry_class,
+        method_name,
+        "()I",
+        &[],
+    )
+}
+
+#[test]
+fn nsme_missing_method_is_catchable_with_owner_method_descriptor_message() {
+    // probe returns 1 iff a catchable NoSuchMethodError is caught AND its detail
+    // message names the owner class, the method, and the descriptor.
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "NoSuchMethodProbes.class",
+            "probeCatchNoSuchMethodError",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn nsme_catchable_as_incompatible_class_change_error() {
+    // NoSuchMethodError extends IncompatibleClassChangeError (JVMS 5.4.3.3).
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "NoSuchMethodProbes.class",
+            "probeCatchIncompatibleClassChangeError",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn nsme_catchable_as_linkage_error_superclass() {
+    // IncompatibleClassChangeError extends LinkageError.
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "NoSuchMethodProbes.class",
+            "probeCatchLinkageError",
+            "()I"
+        ),
+        1
+    );
+}
+
+#[test]
+fn nsme_catchable_as_throwable_root() {
+    assert_eq!(
+        run_bootstrap_int_completion("NoSuchMethodProbes.class", "probeCatchThrowable", "()I"),
+        1
+    );
+}
+
+#[test]
+fn nsme_uncaught_surfaces_as_java_exception_of_correct_type() {
+    match run_no_such_method_probe_result("uncaughtNoSuchMethod") {
+        Err(Error::JavaException { class_name }) => {
+            assert_eq!(class_name, "java/lang/NoSuchMethodError");
+        }
+        other => panic!("expected uncaught NoSuchMethodError JavaException, got {other:?}"),
+    }
+}
+
 #[test]
 fn clinit_throwing_error_propagates_unwrapped() {
     // A <clinit> that throws an Error surfaces that Error as-is (not wrapped in
