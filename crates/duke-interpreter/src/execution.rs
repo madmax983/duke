@@ -179,7 +179,8 @@ fn layout_coherence_check(
     clippy::single_match_else,
     clippy::float_cmp,
     clippy::items_after_statements,
-    clippy::used_underscore_binding
+    clippy::used_underscore_binding,
+    clippy::large_stack_frames
 )]
 pub fn run_execution(
     state: &mut ExecutionState,
@@ -3192,29 +3193,8 @@ pub fn run_execution(
                             && let Some(lambda_info) = registry.get_lambda(&actual_class).cloned()
                             && callee_name == lambda_info.sam_method
                         {
-                            // Lambda path: collect args + this into a Vec<Slot>.
-                            // PERF: Pre-allocate args and populate backwards to avoid intermediate .collect() and .reverse() allocs.
-
-                            let mut callee_args = vec![Slot::Int(0); arg_count];
-
-                            for i in (0..arg_count).rev() {
-                                callee_args[i] = frame.pop()?;
-                            }
-                            let this_slot = frame.pop()?;
-                            callee_args.insert(0, this_slot);
-                            let this_ref = match &callee_args[0] {
-                                Slot::Reference(Some(r)) => *r,
-                                _ => return Err(Error::NullPointerException),
-                            };
-                            let obj = heap.get(this_ref)?;
-                            // ⚡ Bolt: Pre-allocate vector capacity to avoid multiple reallocations during push/extend
-                            let mut impl_args: Vec<Slot> = Vec::with_capacity(
-                                lambda_info.captured_count + callee_args.len() - 1,
-                            );
-                            for i in 0..lambda_info.captured_count {
-                                impl_args.push(obj.fields[i]);
-                            }
-                            impl_args.extend(callee_args[1..].iter().copied());
+                            let impl_args =
+                                build_lambda_args(frame, heap, arg_count, &lambda_info)?;
 
                             let _ = registry.ensure_loaded_from(
                                 &lambda_info.impl_class,
@@ -3660,4 +3640,32 @@ pub fn run_execution(
 
         *idx += 1;
     }
+}
+
+fn build_lambda_args(
+    frame: &mut Frame,
+    heap: &duke_gc::Heap,
+    arg_count: usize,
+    lambda_info: &crate::registry::LambdaInfo,
+) -> Result<Vec<Slot>> {
+    let mut callee_args = vec![Slot::Int(0); arg_count];
+
+    for i in (0..arg_count).rev() {
+        callee_args[i] = frame.pop()?;
+    }
+    let this_slot = frame.pop()?;
+    callee_args.insert(0, this_slot);
+    let this_ref = match &callee_args[0] {
+        Slot::Reference(Some(r)) => *r,
+        _ => return Err(Error::NullPointerException),
+    };
+    let obj = heap.get(this_ref)?;
+    // ⚡ Bolt: Pre-allocate vector capacity to avoid multiple reallocations during push/extend
+    let mut impl_args: Vec<Slot> =
+        Vec::with_capacity(lambda_info.captured_count + callee_args.len() - 1);
+    for i in 0..lambda_info.captured_count {
+        impl_args.push(obj.fields[i]);
+    }
+    impl_args.extend(callee_args[1..].iter().copied());
+    Ok(impl_args)
 }
