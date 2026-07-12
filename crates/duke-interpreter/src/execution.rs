@@ -1593,15 +1593,18 @@ pub fn run_execution(
                 };
                 let target_class_key =
                     registry.class_key_from_source(&target_class, Some(current_class.as_str()));
-                let target_was_loaded = registry.ensure_loaded_from(
-                    &target_class,
-                    Some(current_class.as_str()),
-                    loader,
-                )?;
-                if !target_was_loaded && !registry.contains(&target_class_key) {
-                    // `new` of a class that cannot be resolved is a linkage failure.
-                    throw_no_class_def_found!(target_class);
-                }
+                registry.ensure_loaded_from(&target_class, Some(current_class.as_str()), loader)?;
+                // NOTE: `new` on an *unresolvable* class is deliberately NOT turned
+                // into a NoClassDefFoundError here. Unlike the other opcode sites
+                // (invokestatic / get(field|static) / put(field|static)), which
+                // previously produced a *fatal* `Error::ClassNotFound`, the `new`
+                // path historically "limps" — it allocates a zero-field object for
+                // an unmodelled class and lets execution continue. A great deal of
+                // Duke's real-jar boot progress depends on that limp (e.g. Spring
+                // Boot references unmodelled `java.util.concurrent` types via
+                // `new`). Converting it to a throw regresses that progress, so we
+                // keep the legacy behaviour. A failing <clinit> is still routed
+                // catchably below.
                 route_class_init_result!(ensure_initialized(
                     registry,
                     loader,
