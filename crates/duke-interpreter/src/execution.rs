@@ -63,32 +63,29 @@ fn apply_shadow_override(
 /// On an incoherent access it emits an unmistakable `[layout-coherence]` diagnostic. In
 /// [`LayoutCheckMode::Fail`] mode it additionally returns an error to abort the access;
 /// in [`LayoutCheckMode::Warn`] mode it returns `Ok(())` so execution continues.
+/// Emit the rich `[layout-coherence] INCOHERENT ...` diagnostic to stderr.
+///
+/// Sole formatter for the diagnostic, shared by both the mode-gated
+/// [`layout_coherence_check`] (which reports in-bounds regime mismatches) and the
+/// unconditional bounds guard in the `getfield`/`putfield` opcode arms (which fires on
+/// an out-of-bounds slot regardless of `DUKE_LAYOUT_CHECK`). Keeping a single formatter
+/// guarantees both paths produce byte-identical output.
 #[allow(clippy::too_many_arguments)]
-fn layout_coherence_check(
+fn emit_layout_coherence_diagnostic(
     registry: &ClassRegistry,
-    heap: &duke_gc::Heap,
-    obj_ref: u64,
     resolving_class_key: &str,
+    object_class: &str,
     field_name: &str,
     slot: usize,
+    actual_slots: usize,
     accessing_class: &str,
     accessing_method: &str,
     op: &str,
-) -> Result<()> {
+) {
     // Strip any provenance suffix (`internal_name\0source`) for display.
     fn frag(name: &str) -> &str {
         name.split_once('\0').map_or(name, |(n, _)| n)
     }
-    let obj = heap.get(obj_ref)?;
-    let object_class = obj.class_name.as_str();
-    let actual_slots = obj.fields.len();
-
-    // Single decision point, shared with the unit tests (see `is_layout_incoherent`).
-    // Common path: coherent access → cheap early return, no string formatting.
-    if !registry.is_layout_incoherent(resolving_class_key, object_class, slot, actual_slots) {
-        return Ok(());
-    }
-
     let resolving_shadowed = registry.is_shadowed(resolving_class_key);
     let object_shadowed = registry.is_shadowed(object_class);
     let hard_oob = slot >= actual_slots;
@@ -128,6 +125,53 @@ fn layout_coherence_check(
         olabel = object_label,
         actual_slots = actual_slots,
         bounds = bounds,
+    );
+}
+
+/// Resolve the (best-effort) source name of the method at `method_idx` in `current_class`,
+/// for use in layout-coherence diagnostics. Falls back to `<unknown>` when the class or
+/// method cannot be resolved.
+fn current_method_name(registry: &ClassRegistry, current_class: &str, method_idx: usize) -> String {
+    registry
+        .get(current_class)
+        .ok()
+        .and_then(|ctx| ctx.methods.get(method_idx))
+        .map_or("<unknown>", |m| m.name.as_str())
+        .to_string()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn layout_coherence_check(
+    registry: &ClassRegistry,
+    heap: &duke_gc::Heap,
+    obj_ref: u64,
+    resolving_class_key: &str,
+    field_name: &str,
+    slot: usize,
+    accessing_class: &str,
+    accessing_method: &str,
+    op: &str,
+) -> Result<()> {
+    let obj = heap.get(obj_ref)?;
+    let object_class = obj.class_name.as_str();
+    let actual_slots = obj.fields.len();
+
+    // Single decision point, shared with the unit tests (see `is_layout_incoherent`).
+    // Common path: coherent access → cheap early return, no string formatting.
+    if !registry.is_layout_incoherent(resolving_class_key, object_class, slot, actual_slots) {
+        return Ok(());
+    }
+
+    emit_layout_coherence_diagnostic(
+        registry,
+        resolving_class_key,
+        object_class,
+        field_name,
+        slot,
+        actual_slots,
+        accessing_class,
+        accessing_method,
+        op,
     );
 
     if registry.layout_check_mode() == LayoutCheckMode::Fail {
@@ -1661,17 +1705,43 @@ pub fn run_execution(
                 let r = frame.pop_ref()?;
                 ensure_field_owner_loaded!(target_class, target_class_key);
                 let fidx = field_slot_idx(registry, &target_class_key, &field_name)?;
-                // Layout-coherence guard: hard no-op unless DUKE_LAYOUT_CHECK is set AND
-                // real-JDK shadow mode is on (both cheap checks short-circuit when off).
+                // Unconditional layout-coherence bounds guard. Even when
+                // DUKE_LAYOUT_CHECK is Off/Warn, an out-of-bounds field slot must NEVER
+                // reach the raw `fields[fidx]` index below (which would be a bare Rust
+                // `index out of bounds` panic). A half-migrated object graph — real
+                // bytecode indexing a slot past a synthetically-allocated object — is
+                // surfaced here as the loud `[layout-coherence]` diagnostic plus a
+                // graceful runtime error, in every mode.
+                {
+                    let obj = heap.get(r)?;
+                    let actual_slots = obj.fields.len();
+                    if fidx >= actual_slots {
+                        let object_class = obj.class_name.clone();
+                        let method_name = current_method_name(registry, current_class, *method_idx);
+                        emit_layout_coherence_diagnostic(
+                            registry,
+                            &target_class_key,
+                            &object_class,
+                            &field_name,
+                            fidx,
+                            actual_slots,
+                            current_class,
+                            &method_name,
+                            "getfield",
+                        );
+                        return Err(Error::FieldOutOfBounds {
+                            index: fidx,
+                            length: actual_slots,
+                        });
+                    }
+                }
+                // Mode-gated guard: richer regime-mismatch reporting for in-bounds
+                // accesses. Hard no-op unless DUKE_LAYOUT_CHECK is set AND real-JDK shadow
+                // mode is on (both cheap checks short-circuit when off).
                 if registry.real_jdk_shadow_enabled()
                     && registry.layout_check_mode() != LayoutCheckMode::Off
                 {
-                    let method_name = registry
-                        .get(current_class)
-                        .ok()
-                        .and_then(|ctx| ctx.methods.get(*method_idx))
-                        .map_or("<unknown>", |m| m.name.as_str())
-                        .to_string();
+                    let method_name = current_method_name(registry, current_class, *method_idx);
                     layout_coherence_check(
                         registry,
                         heap,
@@ -1698,17 +1768,41 @@ pub fn run_execution(
                 let r = frame.pop_ref()?;
                 ensure_field_owner_loaded!(target_class, target_class_key);
                 let fidx = field_slot_idx(registry, &target_class_key, &field_name)?;
-                // Layout-coherence guard: hard no-op unless DUKE_LAYOUT_CHECK is set AND
-                // real-JDK shadow mode is on (both cheap checks short-circuit when off).
+                // Unconditional layout-coherence bounds guard (mirrors `getfield`). The
+                // write below (`heap.write_field`) already returns a graceful error on an
+                // out-of-bounds slot, but silently — with no diagnostic. Fire the loud
+                // `[layout-coherence]` diagnostic here first, in every mode, so a
+                // half-migrated object graph is never masked.
+                {
+                    let obj = heap.get(r)?;
+                    let actual_slots = obj.fields.len();
+                    if fidx >= actual_slots {
+                        let object_class = obj.class_name.clone();
+                        let method_name = current_method_name(registry, current_class, *method_idx);
+                        emit_layout_coherence_diagnostic(
+                            registry,
+                            &target_class_key,
+                            &object_class,
+                            &field_name,
+                            fidx,
+                            actual_slots,
+                            current_class,
+                            &method_name,
+                            "putfield",
+                        );
+                        return Err(Error::FieldOutOfBounds {
+                            index: fidx,
+                            length: actual_slots,
+                        });
+                    }
+                }
+                // Mode-gated guard: richer regime-mismatch reporting for in-bounds
+                // accesses. Hard no-op unless DUKE_LAYOUT_CHECK is set AND real-JDK shadow
+                // mode is on (both cheap checks short-circuit when off).
                 if registry.real_jdk_shadow_enabled()
                     && registry.layout_check_mode() != LayoutCheckMode::Off
                 {
-                    let method_name = registry
-                        .get(current_class)
-                        .ok()
-                        .and_then(|ctx| ctx.methods.get(*method_idx))
-                        .map_or("<unknown>", |m| m.name.as_str())
-                        .to_string();
+                    let method_name = current_method_name(registry, current_class, *method_idx);
                     layout_coherence_check(
                         registry,
                         heap,
