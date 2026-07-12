@@ -53,16 +53,20 @@ fn jdk_modules_path() -> Option<PathBuf> {
 const APP_JAR: &str = "duke-spring-boot-app-3.5.12.jar";
 const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 
-// Current `--real-jdk` frontier (re-observed 2026-07-12, after `java/net/URL` was added
-// to KEEP_SYNTHETIC). With URL coherent again, both fixtures boot past the former
-// `java/net/URL` getfield layout panic and land on the real-JDK system-properties
-// bootstrap wall: `jdk/internal/util/StaticProperty.<clinit>` calls
-// `System.getProperties()`, whose synthetic `java/lang/System` does not yet implement
-// (system-properties / real-JDK shadow lane — the same frontier pinned by
-// `crates/duke-interpreter/tests/classloader_bootstrap_frontier.rs`). Out of scope here.
+// Current `--real-jdk` frontier (re-observed 2026-07-12, after the properties-hashtable
+// lane landed a synthetic `java/lang/System.getProperties()` native). With URL coherent
+// (KEEP_SYNTHETIC) both fixtures boot past the former `java/net/URL` getfield layout panic;
+// they then cleared the real-JDK system-properties bootstrap wall now that
+// `System.getProperties()` materializes a live, real-layout `java/util/Properties` object
+// graph (allocate + real `<init>` + real `setProperty`), so `StaticProperty.<clinit>`
+// advances past it. The wall now falls on a real `getstatic java/lang/String.COMPACT_STRINGS`
+// (a real-JDK static field that the synthetic, KEEP_SYNTHETIC `java/lang/String` does not
+// declare), which surfaces as the CLI runtime error `constant pool index 0 is not a valid
+// Fieldref` (the `InvalidFieldref { index: 0 }` blocker). That is a separate lane (String
+// real-layout / KEEP_SYNTHETIC allowlist), the SAME frontier pinned by
+// `crates/duke-interpreter/tests/classloader_bootstrap_frontier.rs`. Out of scope here.
 // If either boot advances past this, re-observe and update.
-const REAL_JDK_FRONTIER: &str =
-    "method not found: java/lang/System.getProperties()Ljava/util/Properties;";
+const REAL_JDK_FRONTIER: &str = "constant pool index 0 is not a valid Fieldref";
 
 // Markers of the OLD raw panic that this fix eliminates. None of these must appear.
 const RAW_PANIC_MARKERS: &[&str] = &["index out of bounds", "execution.rs", "panicked at"];
@@ -118,14 +122,16 @@ fn assert_no_url_panic_and_pinned(jar: &str) {
 }
 
 /// PIN: the ladder fixture under `--real-jdk` no longer panics on the `java/net/URL`
-/// layout, and stays at the system-properties bootstrap frontier.
+/// layout, and stays at the `String.COMPACT_STRINGS` real-layout frontier (past the now-
+/// cleared `System.getProperties()` system-properties wall).
 #[test]
 fn spring_boot_ladder_real_jdk_no_url_panic_and_pinned() {
     assert_no_url_panic_and_pinned(LADDER_JAR);
 }
 
 /// PIN: the app fixture under `--real-jdk` no longer panics on the `java/net/URL`
-/// layout, and stays at the system-properties bootstrap frontier.
+/// layout, and stays at the `String.COMPACT_STRINGS` real-layout frontier (past the now-
+/// cleared `System.getProperties()` system-properties wall).
 #[test]
 fn spring_boot_app_real_jdk_no_url_panic_and_pinned() {
     assert_no_url_panic_and_pinned(APP_JAR);
