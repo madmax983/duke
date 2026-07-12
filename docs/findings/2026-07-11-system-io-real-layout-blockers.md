@@ -332,6 +332,117 @@ real-JDK gate tests green.
 
 ---
 
+## 9. Stage-b update (2026-07-12) — the file-write floor: real `FileOutputStream` constructs AND writes
+
+Stage (b) down-payment: the honest native floor for the file-output layer under
+`DUKE_REAL_JDK=1`, taking the chain from "`FileOutputStream.<clinit>` completes"
+(§8) to "a **real** `FileOutputStream` CONSTRUCTS and WRITES". Probed empirically
+with the same throwaway removal of `FileOutputStream` from `KEEP_SYNTHETIC` (see
+"Reproduction" below); **the probe was reverted** — the allowlist is unchanged
+(still 10 members). The natives are additive and dormant while `FileOutputStream`
+stays synthetic.
+
+### MILESTONE ACHIEVED — `new FileOutputStream(FileDescriptor.out)` writes to stdout
+
+With `FileOutputStream` shadowed by real JDK bytecode, this fixture:
+
+```java
+FileOutputStream fos = new FileOutputStream(FileDescriptor.out);
+fos.write("DUKEFDWRITE\n".getBytes());
+fos.flush();
+```
+
+now **constructs and writes** under `DUKE_REAL_JDK=1`, printing `DUKEFDWRITE`
+and exiting 0. Before this wave it died at
+`method not found: java/io/FileOutputStream.<init>(Ljava/io/FileDescriptor;)V`
+(synthetic FOS) or, with FOS shadowed, at `java/lang/InternalError`
+("JavaLangAccess not setup") inside `Blocker.<clinit>`.
+
+### Chain cleared (the FD/stdout write path)
+
+1. `new FileOutputStream(FileDescriptor.out)` — real `<init>` runs; `FileDescriptor`
+   is already built (§8), `FileOutputStream.<clinit>` completes (§8).
+2. `fos.write(byte[])@0` → `FD_ACCESS.getAppend(fd)` (real `FileDescriptor$1`, §8). ✓
+3. `write@13` → `Blocker.begin()` forces `Blocker.<clinit>`, which asserts
+   `SharedSecrets.getJavaLangAccess() != null` → previously threw
+   `InternalError: "JavaLangAccess not setup"`. **[fixed: placeholder JLA seeded]**
+4. `Blocker.begin()` body — because Duke seeds `VM.isBooted() == true` (`jdk_internal.rs`),
+   it takes the full path and calls `JavaLangAccess.currentCarrierThread()`.
+   **[native added → `Thread.currentThread()`]** The result is not a
+   `jdk/internal/misc/CarrierThread`, so `begin()` returns `-1` and `Blocker.end(-1)`
+   is a no-op — correct platform-thread behavior.
+5. `write@23` → native `FileOutputStream.writeBytes([BIIZ)V`. **[native added]**
+   Resolves `this.fd.fd` (real object graph) → routes `fd==1` to the interpreter
+   stdout sink, `fd==2` to host stderr.
+
+### Natives / hooks landed (all honest, dormant while FOS stays synthetic)
+
+Handlers in `native/jdk_internal.rs`; registration in the `stdlib.rs`
+`java.lang.invoke / SharedSecrets foundation` block.
+
+| Native / hook | Descriptor | Behavior |
+|---------------|-----------|----------|
+| `java/io/FileOutputStream.initIDs` | `()V` | no-op jfieldID cache **+** installs the placeholder `SharedSecrets.javaLangAccess` (the guaranteed pre-write seam) |
+| `java/io/FileOutputStream.writeBytes` | `([BIIZ)V` | leaf write: `this.fd.fd` → stdout(1)/stderr(2); unsupported fd → `IOException` |
+| `jdk/internal/access/JavaLangAccess.currentCarrierThread` | `()Ljava/lang/Thread;` | `Thread.currentThread()` (platform thread is its own carrier; not a `CarrierThread`) |
+| `java/io/UnixFileSystem.initIDs` | `()V` | no-op (unblocks the `File`/`FileSystem` layer for the path-based chain) |
+
+The placeholder `JavaLangAccess`: `Blocker.<clinit>` only reads `JLA` as a
+non-null boot-sanity check (the invariant the real JDK sets in
+`System.initPhase1`, which Duke — `System` on `KEEP_SYNTHETIC` — never runs). A
+zero-field placeholder object of class `jdk/internal/access/JavaLangAccess`
+satisfies it honestly; the one method `Blocker.begin()` actually invokes
+(`currentCarrierThread`) is now answered by a registered native. Any *other* real
+`JavaLangAccess` method call surfaces as a legible method-not-found wall against
+`jdk/internal/access/JavaLangAccess`, not silent corruption.
+
+5 direct-dispatch unit tests pin these contracts (`tests.rs`): `writeBytes` stdout
+routing, `writeBytes` unsupported-fd `IOException`, `initIDs` JLA install,
+`initIDs` idempotence (plus the pre-existing `initIDs`/`getHandle`/`getAppend`).
+
+### VERBATIM next wall — the path-based chain (`new FileOutputStream(String)`)
+
+The FD/stdout milestone is **complete** (no wall — it writes). The remaining
+stage-b frontier is the **path-based** stream (`new FileOutputStream(path)`),
+which constructs a `java/io/File` → `UnixFileSystem`. With
+`UnixFileSystem.initIDs()V` now a no-op native, `UnixFileSystem.<clinit>`
+completes and `UnixFileSystem.<init>` runs, dying at:
+
+```
+duke: trace sun/security/action/GetPropertyAction::privilegedGetProperties@6 invokestatic
+duke: runtime error: method not found: java/lang/System.getProperties()Ljava/util/Properties;
+```
+
+`UnixFileSystem.<init>` reads the platform path/case-sensitivity properties via
+`GetPropertyAction.privilegedGetProperties()` → `System.getProperties()`. This is
+the **same cross-lane system-properties wall** the ClassLoader-bootstrap lane is
+already pinned behind (`tests/classloader_bootstrap_frontier.rs`,
+`MethodNotFound { name: "java/lang/System.getProperties", descriptor:
+"()Ljava/util/Properties;" }`): under the shadow flag `java/util/Properties` is
+itself shadowed by real `Hashtable` bytecode, so satisfying it requires a live,
+well-formed shadowed `Properties`/`Hashtable` graph during bootstrap — a
+cross-lane refactor (recall §3, "bytecode wins for shadowed classes"), out of
+scope for the file lane. The leaf **path** natives (`open0`, real-fd `writeBytes`,
+`close0`) are therefore **not yet reachable** — `UnixFileSystem.<init>` dies before
+any file is opened — and were intentionally NOT added speculatively.
+
+### Reproduction (throwaway probe, then revert)
+
+1. In `crates/duke-interpreter/src/registry.rs`, remove `"java/io/FileOutputStream"`
+   from `KEEP_SYNTHETIC`. Rebuild.
+2. `DUKE_REAL_JDK=1 duke run FosFdProbe.class` (constructs `new
+   FileOutputStream(FileDescriptor.out)`, writes, flushes) → prints `DUKEFDWRITE`,
+   exit 0. `DUKE_TRACE_EXEC=1` shows `writeBytes` reached.
+3. `DUKE_REAL_JDK=1 duke run FosPathProbe.class` (path-based) → hits the
+   `System.getProperties()` wall above.
+4. **Revert step 1.** Allowlist back to 10.
+
+**Allowlist delta: none.** `KEEP_SYNTHETIC` remains 10 members. Tests 3083 → 3087
+(+4). fmt/clippy clean, HelloWorld exit 0 flag-on (`DUKE_REAL_JDK=1
+DUKE_LAYOUT_CHECK=fail`) and flag-off, real-JDK gate tests green.
+
+---
+
 ## Summary
 
 Phase 1 is an investigation plus a scaffolding down-payment. The single most

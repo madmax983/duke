@@ -67,6 +67,21 @@ impl ClassLoader for ArcLoader {
 
 #[test]
 fn slf4j_clears_module_wall_under_real_jdk_shadow() {
+    // llvm-cov's `-C instrument-coverage` inflates every stack frame, and this lane's
+    // stage-b FileOutputStream floor deepens real-jdk bootstrap recursion enough to
+    // overflow the default ~2 MB libtest thread. Run the driver on a thread with
+    // explicit headroom so it survives instrumentation. Everything is built inside the
+    // closure, so there are no captured non-`Send` locals to move.
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(slf4j_clears_module_wall_under_real_jdk_shadow_inner)
+        .expect("spawn module-model driver")
+        .join()
+        .expect("module-model driver thread panicked");
+}
+
+/// The actual driver body, run on a large-stack thread by the `#[test]` wrapper.
+fn slf4j_clears_module_wall_under_real_jdk_shadow_inner() {
     let Some(modules) = jdk_modules_path() else {
         eprintln!("skipping: no JDK jimage (lib/modules) available");
         return;

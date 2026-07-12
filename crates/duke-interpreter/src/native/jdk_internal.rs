@@ -350,3 +350,152 @@ pub(crate) fn native_file_descriptor_get_append(
 ) -> Result<Option<Slot>> {
     Ok(Some(Slot::Int(0)))
 }
+
+/// `jdk/internal/access/SharedSecrets`, `.javaLangAccess` field name.
+const SHARED_SECRETS: &str = "jdk/internal/access/SharedSecrets";
+const JAVA_LANG_ACCESS_FIELD: &str = "javaLangAccess";
+
+/// Ensure `SharedSecrets.javaLangAccess` is non-null before the file-write path
+/// first reaches `jdk/internal/misc/Blocker`.
+///
+/// `Blocker.<clinit>` reads `SharedSecrets.getJavaLangAccess()` into its private
+/// `JLA` field and asserts it is non-null — throwing `InternalError:
+/// "JavaLangAccess not setup"` otherwise. The real JDK establishes that invariant
+/// early in `System.initPhase1`, which calls `System.setJavaLangAccess(...)` with
+/// the `java.lang.System$…` implementation. Duke keeps `java/lang/System` on the
+/// `KEEP_SYNTHETIC` allowlist and never runs that boot sequence, so the field
+/// stays null and every `FileOutputStream.write(...)` — which brackets its native
+/// I/O in `Blocker.begin()`/`Blocker.end(...)` — would die in `Blocker.<clinit>`.
+///
+/// `Blocker` never invokes a `JavaLangAccess` method: `JLA` is read only as the
+/// non-null boot-sanity check above (`begin`/`end` use `CarrierThread`, not
+/// `JLA`). A minimal placeholder therefore satisfies the invariant honestly — and
+/// if a future path does call a real `JavaLangAccess` method on it, that surfaces
+/// as a legible method-not-found wall against `jdk/internal/access/JavaLangAccess`
+/// rather than silent corruption. Idempotent: if the field is already installed
+/// (e.g. a prior stream), this is a no-op.
+fn ensure_java_lang_access_installed(
+    heap: &mut duke_gc::Heap,
+    ops: &mut dyn CallbackOps,
+) -> Result<()> {
+    ops.ensure_loaded(SHARED_SECRETS)?;
+    if matches!(
+        ops.read_static_field(SHARED_SECRETS, JAVA_LANG_ACCESS_FIELD)?,
+        Slot::Reference(Some(_))
+    ) {
+        return Ok(());
+    }
+    let jla = heap.allocate("jdk/internal/access/JavaLangAccess".to_string(), 0);
+    ops.write_static_field(
+        SHARED_SECRETS,
+        JAVA_LANG_ACCESS_FIELD,
+        Slot::Reference(Some(jla)),
+    )
+}
+
+/// Native: `java/io/FileOutputStream.initIDs()V`.
+///
+/// The opening instruction of the real `FileOutputStream.<clinit>` (forced once by
+/// `Unsafe.ensureClassInitialized`, see [`native_unsafe_ensure_class_initialized`]).
+/// Like every other `initIDs`, `HotSpot` uses it only to cache jfieldIDs, which Duke
+/// resolves positionally — so there is nothing to cache. Duke additionally uses
+/// this guaranteed pre-write seam to install the placeholder `JavaLangAccess`
+/// ([`ensure_java_lang_access_installed`]): `FileOutputStream.<clinit>` already
+/// loaded `SharedSecrets` at its `@0` `getJavaIOFileDescriptorAccess()` call, and
+/// always completes before any instance's `write(...)` reaches `Blocker`.
+pub(crate) fn native_file_output_stream_init_ids(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    ensure_java_lang_access_installed(heap, ops)?;
+    Ok(None)
+}
+
+/// Native: `java/io/FileOutputStream.writeBytes([BIIZ)V`.
+///
+/// The leaf write native for the real-layout `FileOutputStream`. Real
+/// `FileOutputStream.write(byte[])` computes the append flag, brackets the call in
+/// `Blocker.begin()`/`end()`, and invokes this native with `(bytes, off, len,
+/// append)`. Duke resolves the target file descriptor honestly from the object
+/// graph: `this.fd` (a real `java/io/FileDescriptor`) → its `fd` int. The standard
+/// descriptors built in `FileDescriptor.<clinit>` carry `fd == 1` (`out`) and
+/// `fd == 2` (`err`), which Duke routes to the interpreter's stdout sink and the
+/// host stderr respectively. Path-backed descriptors (opened via `open0`, not yet
+/// wired) are not modelled here yet and surface as an explicit unsupported-fd wall.
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+pub(crate) fn native_real_file_output_stream_write_bytes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let array_ref = extract_ref_arg(args, 1)?;
+    let offset = extract_int_arg(args, 2)?;
+    let len = extract_int_arg(args, 3)?;
+
+    let fd = file_output_stream_fd(heap, ops, this_ref)?;
+
+    // Slice the byte array positionally (each element is a `Slot::Int` byte).
+    if offset < 0 || len < 0 {
+        return Err(Error::JavaException {
+            class_name: "java/lang/IndexOutOfBoundsException".to_string(),
+        });
+    }
+    let (offset, len) = (offset as usize, len as usize);
+    let fields = &heap.get(array_ref)?.fields;
+    if offset > fields.len() || len > fields.len().saturating_sub(offset) {
+        return Err(Error::JavaException {
+            class_name: "java/lang/IndexOutOfBoundsException".to_string(),
+        });
+    }
+    let bytes: Vec<u8> = fields[offset..offset + len]
+        .iter()
+        .map(|slot| match slot {
+            Slot::Int(v) => *v as u8,
+            _ => 0,
+        })
+        .collect();
+
+    match fd {
+        1 => {
+            out.write_all(&bytes).ok();
+        }
+        2 => {
+            use std::io::Write as _;
+            std::io::stderr().write_all(&bytes).ok();
+        }
+        _ => {
+            // Path-backed descriptors (opened via `open0`) are not modelled yet;
+            // only the standard stdout/stderr descriptors are wired.
+            return Err(Error::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            });
+        }
+    }
+    Ok(None)
+}
+
+/// Read `this.fd.fd` (the OS descriptor int) from a real-layout `FileOutputStream`.
+fn file_output_stream_fd(
+    heap: &duke_gc::Heap,
+    ops: &mut dyn CallbackOps,
+    this_ref: u64,
+) -> Result<i32> {
+    let fd_desc = ops.read_instance_field(heap, this_ref, "java/io/FileOutputStream", "fd")?;
+    let Slot::Reference(Some(fd_ref)) = fd_desc else {
+        return Err(Error::JavaException {
+            class_name: "java/io/IOException".to_string(),
+        });
+    };
+    match ops.read_instance_field(heap, fd_ref, "java/io/FileDescriptor", "fd")? {
+        Slot::Int(v) => Ok(v),
+        _ => Err(Error::JavaException {
+            class_name: "java/io/IOException".to_string(),
+        }),
+    }
+}
