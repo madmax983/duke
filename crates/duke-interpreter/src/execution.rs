@@ -2283,14 +2283,21 @@ pub fn run_execution(
                             }
                             None => {
                                 if !class_was_loaded {
-                                    // Unloadable target — preserve legacy soft-fail behavior.
-                                    let arg_count = parse_arg_count(&callee_desc);
-                                    for _ in 0..arg_count {
-                                        frame.pop()?;
-                                    }
-                                    frame.pop()?; // pop `this`
-                                    *idx += 1;
-                                    continue;
+                                    // Unloadable target: the method cannot be
+                                    // resolved. Throw a *catchable*
+                                    // NoSuchMethodError instead of the former
+                                    // silent soft-fail, which popped args + `this`
+                                    // and continued without pushing a return value
+                                    // — corrupting the operand stack for non-void
+                                    // descriptors (surfaced downstream as
+                                    // "operand stack underflow").
+                                    let msg = format!(
+                                        "{}.{callee_name}{callee_desc}",
+                                        registry.internal_name_for_class(
+                                            callee_class_key.as_str()
+                                        )
+                                    );
+                                    throw_no_such_method!(msg);
                                 }
                                 return Err(Error::MethodNotFound {
                                     name: format!(
@@ -3527,8 +3534,13 @@ pub fn run_execution(
                         if !registry.contains(&actual_class)
                             && !registry.contains(&callee_class_key)
                         {
-                            *idx += 1;
-                            continue;
+                            // Neither the runtime receiver class nor the declared
+                            // interface owner is loaded: the method cannot be
+                            // resolved. Throw a *catchable* NoSuchMethodError
+                            // rather than the former no-op fallthrough (which
+                            // didn't even pop args, corrupting the operand stack).
+                            let msg = format!("{actual_class}.{callee_name}{callee_desc}");
+                            throw_no_such_method!(msg);
                         }
                         return Err(Error::MethodNotFound {
                             name: format!("{actual_class}.{callee_name}"),
