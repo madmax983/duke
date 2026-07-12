@@ -4949,6 +4949,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         ),
         ("java/lang/AssertionError", "java/lang/Error"),
         ("java/util/ServiceConfigurationError", "java/lang/Error"),
+        // Linkage errors (JVMS 5.4/5.5): thrown when execution-time class
+        // resolution or class initialisation fails. Registered here (with their
+        // Throwable `<init>` natives) so bytecode can allocate them and, more
+        // importantly, so `catch (LinkageError)` / `catch (Throwable)` in real
+        // library code (e.g. commons-logging's Log4jApiLogFactory fallback)
+        // match a synthesised NoClassDefFoundError via the super-class chain.
+        ("java/lang/LinkageError", "java/lang/Error"),
+        ("java/lang/NoClassDefFoundError", "java/lang/LinkageError"),
+        (
+            "java/lang/ExceptionInInitializerError",
+            "java/lang/LinkageError",
+        ),
     ] {
         let ctx = ClassContext {
             class_name: name.to_string(),
