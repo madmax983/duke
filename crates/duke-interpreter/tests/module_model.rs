@@ -67,17 +67,19 @@ impl ClassLoader for ArcLoader {
 
 #[test]
 fn slf4j_clears_module_wall_under_real_jdk_shadow() {
-    // llvm-cov's `-C instrument-coverage` inflates every stack frame, and this lane's
-    // stage-b FileOutputStream floor deepens real-jdk bootstrap recursion enough to
-    // overflow the default ~2 MB libtest thread. Run the driver on a thread with
-    // explicit headroom so it survives instrumentation. Everything is built inside the
-    // closure, so there are no captured non-`Send` locals to move.
+    // llvm-cov's `-C instrument-coverage` inflates every stack frame, and the deep
+    // real-JDK bootstrap recursion this driver exercises overflows the default
+    // test-harness thread stack only under that instrumentation (SIGABRT). Run the
+    // driver on a thread with explicit headroom so it survives coverage builds. The
+    // whole body is built inside the inner fn, so there are no captured non-`Send`
+    // locals to move, and a panic/assert inside still propagates via `join()`.
     std::thread::Builder::new()
+        .name("real-jdk-frontier-driver".to_string())
         .stack_size(64 * 1024 * 1024)
         .spawn(slf4j_clears_module_wall_under_real_jdk_shadow_inner)
-        .expect("spawn module-model driver")
+        .expect("spawn frontier driver")
         .join()
-        .expect("module-model driver thread panicked");
+        .expect("frontier driver thread panicked");
 }
 
 /// The actual driver body, run on a large-stack thread by the `#[test]` wrapper.
