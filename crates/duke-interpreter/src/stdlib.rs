@@ -12427,6 +12427,36 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     };
     registry.register(date_time_formatter_ctx);
 
+    // Minimal-for-boot DateTimeFormatter natives. logback's `CachingDateFormatter`
+    // builds a pattern formatter (`ofPattern`), binds it to a zone/locale
+    // (`withZone`/`withLocale` — no-ops under duke's UTC-only, fixed en-US model),
+    // then formats an `Instant` via `format(TemporalAccessor)`. See the pattern
+    // engine and simplifications documented in native/java_time.rs.
+    registry.natives_mut().register(
+        "java/time/format/DateTimeFormatter",
+        "ofPattern",
+        "(Ljava/lang/String;)Ljava/time/format/DateTimeFormatter;",
+        native_datetimeformatter_of_pattern,
+    );
+    registry.natives_mut().register(
+        "java/time/format/DateTimeFormatter",
+        "withZone",
+        "(Ljava/time/ZoneId;)Ljava/time/format/DateTimeFormatter;",
+        native_datetimeformatter_with_zone,
+    );
+    registry.natives_mut().register(
+        "java/time/format/DateTimeFormatter",
+        "withLocale",
+        "(Ljava/util/Locale;)Ljava/time/format/DateTimeFormatter;",
+        native_datetimeformatter_with_locale,
+    );
+    registry.natives_mut().register(
+        "java/time/format/DateTimeFormatter",
+        "format",
+        "(Ljava/time/temporal/TemporalAccessor;)Ljava/lang/String;",
+        native_datetimeformatter_format,
+    );
+
     let localdate_ctx = ClassContext {
         class_name: "java/time/LocalDate".to_string(),
         super_class: Some("java/lang/Object".to_string()),
