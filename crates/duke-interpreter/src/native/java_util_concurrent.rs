@@ -2316,9 +2316,9 @@ fn lbq_dequeue(heap: &mut duke_gc::Heap, this_ref: u64) -> Result<Option<Slot>> 
     if size <= 0 || obj.fields.len() < 2 {
         return Ok(None);
     }
-    let head = obj.fields.remove(1);
+    let front = obj.fields.remove(1);
     obj.fields[0] = Slot::Int(size - 1);
-    Ok(Some(head))
+    Ok(Some(front))
 }
 
 /// Native: `LinkedBlockingQueue.add(Object)Z` — appends, returns true.
@@ -2397,11 +2397,11 @@ pub(crate) fn native_lbq_peek(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let obj = heap.get(this_ref)?;
-    let head = match obj.fields.first() {
+    let front = match obj.fields.first() {
         Some(Slot::Int(sz)) if *sz > 0 => obj.fields.get(1).copied(),
         _ => None,
     };
-    Ok(Some(head.unwrap_or(Slot::Reference(None))))
+    Ok(Some(front.unwrap_or(Slot::Reference(None))))
 }
 
 /// Native: `LinkedBlockingQueue.size()I`
@@ -2433,7 +2433,7 @@ pub(crate) fn native_lbq_is_empty(
     Ok(Some(Slot::Int(i32::from(is_empty))))
 }
 
-/// Native: `LinkedBlockingQueue.remainingCapacity()I` — reports Integer.MAX_VALUE
+/// Native: `LinkedBlockingQueue.remainingCapacity()I` — reports `Integer.MAX_VALUE`
 /// (this synthetic queue is effectively unbounded).
 pub(crate) fn native_lbq_remaining_capacity(
     args: &[Slot],
