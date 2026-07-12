@@ -13995,11 +13995,58 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     // `ensureClassInitialized`) each open with the native `initIDs()V`. HotSpot uses
     // it only to cache jfieldIDs; Duke resolves fields positionally, so it is a
     // no-op. The rest of each `<clinit>` runs as real bytecode.
-    for class in ["java/io/FileDescriptor", "java/io/FileOutputStream"] {
-        registry
-            .natives_mut()
-            .register(class, "initIDs", "()V", native_io_init_ids_noop);
-    }
+    registry.natives_mut().register(
+        "java/io/FileDescriptor",
+        "initIDs",
+        "()V",
+        native_io_init_ids_noop,
+    );
+    // Path-based `new FileOutputStream(path)` constructs a `java/io/File`, whose
+    // `File.<clinit>` reaches `UnixFileSystem.<clinit>@0 invokestatic initIDs:()V`.
+    // Same story: HotSpot caches jfieldIDs there; Duke resolves positionally, so a
+    // no-op. This unblocks the `File`/`FileSystem` layer for the path-based stream
+    // chain (the stdout/stderr descriptor path does not touch it).
+    registry.natives_mut().register(
+        "java/io/UnixFileSystem",
+        "initIDs",
+        "()V",
+        native_io_init_ids_noop,
+    );
+    // `FileOutputStream.initIDs` additionally installs the placeholder
+    // `SharedSecrets.javaLangAccess` so the later `FileOutputStream.write(...)` ->
+    // `Blocker.<clinit>` boot-sanity check ("JavaLangAccess not setup") passes. This
+    // is the guaranteed pre-write seam: `FileOutputStream.<clinit>` already loaded
+    // `SharedSecrets` (at its `getJavaIOFileDescriptorAccess()` call) and completes
+    // before any instance write reaches `Blocker`.
+    registry.natives_mut().register_callback(
+        "java/io/FileOutputStream",
+        "initIDs",
+        "()V",
+        native_file_output_stream_init_ids,
+    );
+    // The real-layout `FileOutputStream.write(byte[])` leaf: resolves the OS
+    // descriptor from `this.fd.fd` and routes stdout (1)/stderr (2). `append` (arg 4)
+    // is ignored for the standard descriptors, which are never opened in append mode.
+    registry.natives_mut().register_callback(
+        "java/io/FileOutputStream",
+        "writeBytes",
+        "([BIIZ)V",
+        native_real_file_output_stream_write_bytes,
+    );
+    // `FileOutputStream.write(...)` brackets its native I/O in `Blocker.begin()`,
+    // which — because Duke seeds `VM.isBooted() == true` — reaches
+    // `JavaLangAccess.currentCarrierThread()` (dispatched on the placeholder JLA
+    // installed by `FileOutputStream.initIDs`). Duke has no virtual threads, so the
+    // current platform thread is its own carrier: return `Thread.currentThread()`.
+    // It is not a `jdk/internal/misc/CarrierThread`, so `Blocker.begin()` takes the
+    // `-1` (no-compensation) branch and `Blocker.end(-1)` is a no-op — the correct
+    // behavior for a plain platform thread.
+    registry.natives_mut().register(
+        "jdk/internal/access/JavaLangAccess",
+        "currentCarrierThread",
+        "()Ljava/lang/Thread;",
+        native_thread_current_thread,
+    );
     // The real `FileDescriptor(int)` constructor seeds `handle`/`append` from these
     // natives. `getHandle` is -1 on unix (Windows-only concept); `getAppend` is
     // false for the standard descriptors built in `<clinit>`.

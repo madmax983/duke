@@ -69,10 +69,10 @@ impl ClassLoader for ArcLoader {
 /// (`Ok(())` if it ran to completion, or the `{err:?}` rendering of the first blocker).
 fn run_slf4j_real_jdk_shadow() -> Result<(), String> {
     // llvm-cov's `-C instrument-coverage` inflates every stack frame, and the real
-    // Properties graph this branch materializes deepens interpreter recursion enough
-    // to overflow the default ~8 MB test-harness thread. Run the driver on a thread
-    // with explicit headroom so it survives instrumentation. Everything is built
-    // inside the closure, so there are no captured non-`Send` locals to move.
+    // JDK bootstrap graph this branch drives deepens interpreter recursion enough to
+    // overflow the default ~2 MB libtest thread. Run the driver on a thread with
+    // explicit headroom so it survives instrumentation. Everything is built inside
+    // the closure, so there are no captured non-`Send` locals to move.
     std::thread::Builder::new()
         .stack_size(64 * 1024 * 1024)
         .spawn(run_slf4j_real_jdk_shadow_inner)

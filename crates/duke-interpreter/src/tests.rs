@@ -33239,3 +33239,248 @@ fn native_file_descriptor_get_append_is_false() {
     .unwrap();
     assert_eq!(ret, Slot::Int(0), "getAppend == false");
 }
+
+// ── Stage-b file-layer floor: `FileOutputStream.writeBytes` / `initIDs` JLA seed ──
+//
+// These natives are dormant while `FileOutputStream` stays on `KEEP_SYNTHETIC`
+// (real-layout `FileOutputStream` is only loaded when the allowlist drops it). The
+// direct-dispatch tests below pin their contracts against bit-rot, mirroring the
+// `initIDs`/`getHandle`/`getAppend` tests above.
+
+/// A `CallbackOps` mock that models a real-layout `FileOutputStream -> fd
+/// FileDescriptor -> fd int` object graph and records static-field writes.
+struct FileStreamOps {
+    /// `this.fd` (a `FileDescriptor` reference), returned for `FileOutputStream.fd`.
+    fd_descriptor_ref: u64,
+    /// The `int` OS descriptor, returned for `FileDescriptor.fd`.
+    fd_value: i32,
+    /// Current value of `SharedSecrets.javaLangAccess` (starts null).
+    java_lang_access: Slot,
+    /// Records `(class, field, value)` static writes.
+    static_writes: Vec<(String, String, Slot)>,
+    /// Records `ensure_loaded` calls.
+    loaded: Vec<String>,
+}
+
+impl CallbackOps for FileStreamOps {
+    fn invoke(
+        &mut self,
+        _heap: &mut duke_gc::Heap,
+        _output: &mut dyn Write,
+        _class: &str,
+        _method: &str,
+        _descriptor: &str,
+        _args: Vec<Slot>,
+    ) -> Result<Option<Slot>> {
+        Ok(None)
+    }
+
+    fn ensure_loaded(&mut self, class: &str) -> Result<()> {
+        self.loaded.push(class.to_string());
+        Ok(())
+    }
+
+    fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+        unreachable!("file-stream natives must not inspect classes")
+    }
+
+    fn read_instance_field(
+        &mut self,
+        _heap: &duke_gc::Heap,
+        object_ref: u64,
+        declaring_class: &str,
+        field_name: &str,
+    ) -> Result<Slot> {
+        match (declaring_class, field_name) {
+            ("java/io/FileOutputStream", "fd") => Ok(Slot::Reference(Some(self.fd_descriptor_ref))),
+            ("java/io/FileDescriptor", "fd") => {
+                assert_eq!(
+                    object_ref, self.fd_descriptor_ref,
+                    "fd read on the descriptor"
+                );
+                Ok(Slot::Int(self.fd_value))
+            }
+            other => unreachable!("unexpected instance-field read: {other:?}"),
+        }
+    }
+
+    fn read_static_field(&mut self, class: &str, field_name: &str) -> Result<Slot> {
+        assert_eq!(
+            (class, field_name),
+            ("jdk/internal/access/SharedSecrets", "javaLangAccess")
+        );
+        Ok(self.java_lang_access)
+    }
+
+    fn write_static_field(&mut self, class: &str, field_name: &str, value: Slot) -> Result<()> {
+        self.static_writes
+            .push((class.to_string(), field_name.to_string(), value));
+        if class == "jdk/internal/access/SharedSecrets" && field_name == "javaLangAccess" {
+            self.java_lang_access = value;
+        }
+        Ok(())
+    }
+}
+
+/// `FileOutputStream.writeBytes([BIIZ)` resolves `this.fd.fd`, and for the stdout
+/// descriptor (`fd == 1`) writes the `[offset, offset+len)` slice of the byte
+/// array to the interpreter output sink.
+#[test]
+fn native_real_file_output_stream_write_bytes_routes_stdout() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+
+    // byte[] = { 'H','E','L','L','O' }; write the middle three (offset 1, len 3).
+    let array_ref = heap.allocate("[B".to_string(), 5);
+    for (i, b) in (*b"HELLO").into_iter().enumerate() {
+        heap.get_mut(array_ref).unwrap().fields[i] = Slot::Int(i32::from(b));
+    }
+    let this_ref = heap.allocate("java/io/FileOutputStream".to_string(), 1);
+    let fd_ref = heap.allocate("java/io/FileDescriptor".to_string(), 3);
+
+    let mut ops = FileStreamOps {
+        fd_descriptor_ref: fd_ref,
+        fd_value: 1,
+        java_lang_access: Slot::Reference(None),
+        static_writes: Vec::new(),
+        loaded: Vec::new(),
+    };
+
+    let ret = native_real_file_output_stream_write_bytes(
+        &[
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(array_ref)),
+            Slot::Int(1),
+            Slot::Int(3),
+            Slot::Int(0),
+        ],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(ret, None, "writeBytes returns void");
+    assert_eq!(sink, b"ELL", "stdout descriptor writes the requested slice");
+}
+
+/// Writing to a descriptor that is neither stdout (1) nor stderr (2) — a
+/// path-backed `open0` fd, not yet modelled — surfaces an honest `IOException`
+/// rather than silently succeeding.
+#[test]
+fn native_real_file_output_stream_write_bytes_unsupported_fd_errors() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+
+    let array_ref = heap.allocate("[B".to_string(), 1);
+    heap.get_mut(array_ref).unwrap().fields[0] = Slot::Int(42);
+    let this_ref = heap.allocate("java/io/FileOutputStream".to_string(), 1);
+    let fd_ref = heap.allocate("java/io/FileDescriptor".to_string(), 3);
+
+    let mut ops = FileStreamOps {
+        fd_descriptor_ref: fd_ref,
+        fd_value: 99,
+        java_lang_access: Slot::Reference(None),
+        static_writes: Vec::new(),
+        loaded: Vec::new(),
+    };
+
+    let err = native_real_file_output_stream_write_bytes(
+        &[
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(array_ref)),
+            Slot::Int(0),
+            Slot::Int(1),
+            Slot::Int(0),
+        ],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+        &mut ops,
+    )
+    .unwrap_err();
+
+    match err {
+        Error::JavaException { class_name } => {
+            assert_eq!(class_name, "java/io/IOException");
+        }
+        other => panic!("expected IOException, got {other:?}"),
+    }
+    assert!(
+        sink.is_empty(),
+        "no bytes written to an unsupported descriptor"
+    );
+}
+
+/// `FileOutputStream.initIDs()` installs a non-null placeholder
+/// `SharedSecrets.javaLangAccess` (satisfying the `Blocker.<clinit>` boot check)
+/// when the field is null, and loads `SharedSecrets` first.
+#[test]
+fn native_file_output_stream_init_ids_installs_java_lang_access() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+
+    let mut ops = FileStreamOps {
+        fd_descriptor_ref: 0,
+        fd_value: 0,
+        java_lang_access: Slot::Reference(None),
+        static_writes: Vec::new(),
+        loaded: Vec::new(),
+    };
+
+    let ret = native_file_output_stream_init_ids(
+        &[],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(ret, None, "initIDs returns void");
+    assert!(
+        ops.loaded
+            .contains(&"jdk/internal/access/SharedSecrets".to_string()),
+        "SharedSecrets must be ensured loaded before its static is written"
+    );
+    assert_eq!(ops.static_writes.len(), 1, "exactly one static write");
+    let (class, field, value) = &ops.static_writes[0];
+    assert_eq!(class, "jdk/internal/access/SharedSecrets");
+    assert_eq!(field, "javaLangAccess");
+    assert!(
+        matches!(value, Slot::Reference(Some(_))),
+        "a non-null JavaLangAccess placeholder is installed"
+    );
+}
+
+/// `initIDs()` is idempotent: when `SharedSecrets.javaLangAccess` is already
+/// installed, it does not overwrite it (no static write).
+#[test]
+fn native_file_output_stream_init_ids_is_idempotent() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+    let existing = heap.allocate("jdk/internal/access/JavaLangAccess".to_string(), 0);
+
+    let mut ops = FileStreamOps {
+        fd_descriptor_ref: 0,
+        fd_value: 0,
+        java_lang_access: Slot::Reference(Some(existing)),
+        static_writes: Vec::new(),
+        loaded: Vec::new(),
+    };
+
+    native_file_output_stream_init_ids(
+        &[],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+        &mut ops,
+    )
+    .unwrap();
+
+    assert!(
+        ops.static_writes.is_empty(),
+        "an already-installed JavaLangAccess must not be overwritten"
+    );
+}
