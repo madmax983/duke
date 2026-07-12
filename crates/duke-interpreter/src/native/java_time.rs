@@ -1563,3 +1563,431 @@ pub(crate) fn native_zoneid_get_id(
     let sr = heap.allocate_string(id);
     Ok(Some(Slot::Reference(Some(sr))))
 }
+
+// ---------------------------------------------------------------------------
+// java.time.format.DateTimeFormatter (minimal-for-boot)
+//
+// logback's `ch.qos.logback.core.util.CachingDateFormatter` builds a
+// pattern-based formatter via `DateTimeFormatter.ofPattern(String)`, binds it to
+// a zone/locale (`withZone`/`withLocale`), then formats an `Instant` through
+// `format(TemporalAccessor)`. Duke models the formatter as a thin synthetic
+// holder whose `string_value` carries the pattern string (or, for the ISO
+// constant instances registered in stdlib, the constant's name). A small pure
+// pattern engine (`format_with_pattern`) renders broken-down UTC wall-clock
+// fields into text. This deliberately does not model a real
+// `DateTimeFormatterBuilder`/CLDR: it is minimal-for-boot.
+// ---------------------------------------------------------------------------
+
+/// Broken-down UTC wall-clock fields fed to [`format_with_pattern`].
+///
+/// Duke is UTC-only (see the `ZoneId` natives), so these are always the UTC
+/// wall-clock components of the underlying temporal.
+struct BrokenDownTime {
+    year: i64,
+    month: u32,
+    day: u32,
+    hour: u32,
+    minute: u32,
+    second: u32,
+    nano: u32,
+}
+
+/// en-US short month names, indexed by `month - 1`.
+const SHORT_MONTH_NAMES: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+/// en-US full month names, indexed by `month - 1`.
+const LONG_MONTH_NAMES: [&str; 12] = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
+
+/// Map an ISO-constant formatter name to an equivalent pattern string.
+///
+/// The three static `DateTimeFormatter` constants registered in stdlib store
+/// their name (not a pattern) in `string_value`. This is a deliberate
+/// simplification: duke renders each via a fixed equivalent pattern rather than
+/// the full ISO-8601 formatting rules. Any other value is treated as a literal
+/// pattern and returned unchanged.
+fn iso_constant_to_pattern(name: &str) -> String {
+    match name {
+        "ISO_INSTANT" => "yyyy-MM-dd'T'HH:mm:ss.SSSXXX".to_string(),
+        "ISO_LOCAL_DATE" => "yyyy-MM-dd".to_string(),
+        "ISO_LOCAL_DATE_TIME" => "yyyy-MM-dd'T'HH:mm:ss".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Append the decimal `digits` to `out`, zero-padded on the left to at least
+/// `width` characters.
+fn push_left_zero_padded(out: &mut String, digits: &str, width: usize) {
+    for _ in digits.len()..width {
+        out.push('0');
+    }
+    out.push_str(digits);
+}
+
+/// Append `value` to `out`, zero-padded on the left to at least `width` digits.
+fn push_zero_padded(out: &mut String, value: u32, width: usize) {
+    push_left_zero_padded(out, &value.to_string(), width);
+}
+
+/// Render one run of `count` identical pattern letters into `out`.
+///
+/// Supports the subset documented on [`format_with_pattern`]. Any unrecognized
+/// letter is emitted verbatim (`count` copies), never panicking.
+fn append_pattern_field(out: &mut String, letter: char, count: usize, dt: &BrokenDownTime) {
+    match letter {
+        // year: zero-padded to at least `count` digits.
+        'y' | 'u' => push_left_zero_padded(out, &dt.year.to_string(), count),
+        'M' | 'L' => match count {
+            3 => out.push_str(month_name(&SHORT_MONTH_NAMES, dt.month)),
+            n if n >= 4 => out.push_str(month_name(&LONG_MONTH_NAMES, dt.month)),
+            _ => push_zero_padded(out, dt.month, count),
+        },
+        'd' => push_zero_padded(out, dt.day, count),
+        // hour-of-day 0..=23.
+        'H' => push_zero_padded(out, dt.hour, count),
+        // clock-hour 1..=12.
+        'h' => {
+            let clock = if dt.hour.is_multiple_of(12) {
+                12
+            } else {
+                dt.hour % 12
+            };
+            push_zero_padded(out, clock, count);
+        }
+        'm' => push_zero_padded(out, dt.minute, count),
+        's' => push_zero_padded(out, dt.second, count),
+        // fraction-of-second: value = nano / 10^(9 - count), zero-padded to count.
+        'S' => {
+            let digits = count.min(9);
+            let exp = u32::try_from(9 - digits).unwrap_or(0);
+            let frac = dt.nano / 10u32.pow(exp);
+            push_zero_padded(out, frac, digits);
+            for _ in digits..count {
+                out.push('0');
+            }
+        }
+        // AM/PM marker (en-US).
+        'a' => out.push_str(if dt.hour < 12 { "AM" } else { "PM" }),
+        // zone-offset: duke is UTC-only, so the offset is always zero, which the
+        // java.time X-family renders as `Z`.
+        'X' => out.push('Z'),
+        // zone name: always UTC in duke.
+        'z' | 'v' | 'V' => out.push_str("UTC"),
+        // Unrecognized letter: emit the raw letters literally.
+        _ => {
+            for _ in 0..count {
+                out.push(letter);
+            }
+        }
+    }
+}
+
+/// Look up an en-US month name, falling back to an empty string for out-of-range
+/// month numbers (defensive; callers pass `1..=12`).
+fn month_name(names: &[&'static str; 12], month: u32) -> &'static str {
+    usize::try_from(month)
+        .ok()
+        .and_then(|m| m.checked_sub(1))
+        .and_then(|idx| names.get(idx).copied())
+        .unwrap_or("")
+}
+
+/// Pure pattern-formatting engine for the `DateTimeFormatter` subset duke supports.
+///
+/// Supported pattern letters (Java `DateTimeFormatter` semantics, en-US, UTC):
+/// * `y`/`u` — year, zero-padded to the letter count.
+/// * `M`/`L` — month: `M`/`MM` numeric (padded); `MMM` short name; `MMMM`+ full name.
+/// * `d`/`dd` — day-of-month (padded).
+/// * `H`/`HH` — hour-of-day 0..=23 (padded); `h`/`hh` — clock-hour 1..=12 (padded).
+/// * `m`/`mm` — minute; `s`/`ss` — second.
+/// * `S`… — fraction-of-second; for count `n`, `nano / 10^(9-n)` padded to `n` (`SSS` = millis).
+/// * `a` — AM/PM (en-US).
+/// * `X`/`XX`/`XXX` — zone-offset; always `Z` under duke's zero (UTC) offset.
+/// * `z`/`zzzz` — zone name → `UTC`.
+/// * `'…'` — literal text; `''` → a literal `'`.
+/// * Any non-letter character is a literal.
+///
+/// Unrecognized letters are emitted verbatim rather than raising an error.
+fn format_with_pattern(pattern: &str, dt: &BrokenDownTime) -> String {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '\'' {
+            i += 1;
+            // `''` outside a quoted run is a literal single quote.
+            if i < chars.len() && chars[i] == '\'' {
+                out.push('\'');
+                i += 1;
+                continue;
+            }
+            // Quoted literal: consume to the closing quote, `''` inside → `'`.
+            while i < chars.len() {
+                if chars[i] == '\'' {
+                    if i + 1 < chars.len() && chars[i + 1] == '\'' {
+                        out.push('\'');
+                        i += 2;
+                        continue;
+                    }
+                    i += 1;
+                    break;
+                }
+                out.push(chars[i]);
+                i += 1;
+            }
+            continue;
+        }
+        if c.is_ascii_alphabetic() {
+            let mut count = 1;
+            while i + count < chars.len() && chars[i + count] == c {
+                count += 1;
+            }
+            append_pattern_field(&mut out, c, count, dt);
+            i += count;
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
+/// Build [`BrokenDownTime`] from the temporal object referenced by `temporal_ref`.
+///
+/// Recognizes duke's synthetic `Instant`, `LocalDateTime`, and `LocalDate`.
+fn broken_down_time_from_ref(heap: &duke_gc::Heap, temporal_ref: u64) -> Result<BrokenDownTime> {
+    let class_name = heap.get(temporal_ref)?.class_name.clone();
+    match class_name.as_str() {
+        "java/time/Instant" => {
+            let (seconds, nanos) = instant_parts_from_ref(heap, temporal_ref)?;
+            let (year, month, day, hour, minute, second) =
+                epoch_seconds_to_datetime_parts(seconds);
+            Ok(BrokenDownTime {
+                year: i64::from(year),
+                month,
+                day,
+                hour: u32::try_from(hour).unwrap_or(0),
+                minute: u32::try_from(minute).unwrap_or(0),
+                second: u32::try_from(second).unwrap_or(0),
+                nano: u32::try_from(nanos).unwrap_or(0),
+            })
+        }
+        "java/time/LocalDateTime" => {
+            let (epoch_day, hour, minute, second, nano) =
+                localdatetime_components_from_ref(heap, temporal_ref)?;
+            let (year, month, day) = epoch_days_to_ymd(epoch_day);
+            Ok(BrokenDownTime {
+                year: i64::from(year),
+                month,
+                day,
+                hour: u32::try_from(hour).unwrap_or(0),
+                minute: u32::try_from(minute).unwrap_or(0),
+                second: u32::try_from(second).unwrap_or(0),
+                nano: u32::try_from(nano).unwrap_or(0),
+            })
+        }
+        "java/time/LocalDate" => {
+            let epoch_day = match heap.get(temporal_ref)?.fields.first() {
+                Some(Slot::Int(v)) => *v,
+                _ => 0,
+            };
+            let (year, month, day) = epoch_days_to_ymd(epoch_day);
+            Ok(BrokenDownTime {
+                year: i64::from(year),
+                month,
+                day,
+                hour: 0,
+                minute: 0,
+                second: 0,
+                nano: 0,
+            })
+        }
+        _ => Err(class_cast_error()),
+    }
+}
+
+/// Native: `DateTimeFormatter.ofPattern(String) -> DateTimeFormatter` (static).
+///
+/// Allocates a fresh synthetic formatter carrying the pattern string in its
+/// `string_value`.
+pub(crate) fn native_datetimeformatter_of_pattern(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let pattern = extract_string_arg_value(args, 0, heap)?;
+    let r = heap.allocate("java/time/format/DateTimeFormatter".to_string(), 0);
+    heap.get_mut(r)?.string_value = Some(pattern);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `DateTimeFormatter.withZone(ZoneId) -> DateTimeFormatter` (instance).
+///
+/// Returns `this` unchanged. This is honest because duke is UTC-only (see the
+/// `ZoneId` natives): a zone-bound formatter and an unbound one produce identical
+/// output under UTC, so there is nothing to bind.
+pub(crate) fn native_datetimeformatter_with_zone(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let _zone = extract_ref_arg(args, 1)?;
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `DateTimeFormatter.withLocale(Locale) -> DateTimeFormatter` (instance).
+///
+/// Returns `this` unchanged. This is honest because duke's `Locale` is a fixed
+/// en-US default (see the `Locale` natives), the same locale this formatter
+/// already renders with, so there is nothing to change.
+pub(crate) fn native_datetimeformatter_with_locale(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let _locale = extract_ref_arg(args, 1)?;
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
+
+/// Native: `DateTimeFormatter.format(TemporalAccessor) -> String` (instance).
+///
+/// Reads the formatter's pattern (or ISO-constant name) from `this.string_value`,
+/// extracts the temporal's broken-down UTC fields, and renders them via
+/// [`format_with_pattern`].
+pub(crate) fn native_datetimeformatter_format(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let temporal_ref = extract_ref_arg(args, 1)?;
+    let pattern_source = heap.get(this_ref)?.string_value.clone().unwrap_or_default();
+    let pattern = iso_constant_to_pattern(&pattern_source);
+    let dt = broken_down_time_from_ref(heap, temporal_ref)?;
+    let text = format_with_pattern(&pattern, &dt);
+    let sr = heap.allocate_string(text);
+    Ok(Some(Slot::Reference(Some(sr))))
+}
+
+#[cfg(test)]
+mod datetimeformatter_pattern_tests {
+    use super::*;
+
+    fn epoch_zero() -> BrokenDownTime {
+        BrokenDownTime {
+            year: 1970,
+            month: 1,
+            day: 1,
+            hour: 0,
+            minute: 0,
+            second: 0,
+            nano: 0,
+        }
+    }
+
+    #[test]
+    fn formats_epoch_zero_date_time_millis() {
+        let dt = epoch_zero();
+        assert_eq!(
+            format_with_pattern("yyyy-MM-dd HH:mm:ss.SSS", &dt),
+            "1970-01-01 00:00:00.000"
+        );
+    }
+
+    #[test]
+    fn formats_iso_instant_equivalent_pattern() {
+        let dt = epoch_zero();
+        assert_eq!(
+            format_with_pattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", &dt),
+            "1970-01-01T00:00:00.000Z"
+        );
+    }
+
+    #[test]
+    fn formats_clock_hour_ampm_and_multi_digit_fraction() {
+        // 2026-07-11 14:05:09.123456789 UTC
+        let dt = BrokenDownTime {
+            year: 2026,
+            month: 7,
+            day: 11,
+            hour: 14,
+            minute: 5,
+            second: 9,
+            nano: 123_456_789,
+        };
+        // clock-hour 14 -> 02, PM marker, milliseconds fraction.
+        assert_eq!(
+            format_with_pattern("yyyy-MM-dd hh:mm:ss a SSS", &dt),
+            "2026-07-11 02:05:09 PM 123"
+        );
+        // six-digit (microsecond) fraction.
+        assert_eq!(format_with_pattern("SSSSSS", &dt), "123456");
+    }
+
+    #[test]
+    fn formats_month_names_and_quoted_literals() {
+        let dt = BrokenDownTime {
+            year: 2026,
+            month: 7,
+            day: 11,
+            hour: 0,
+            minute: 0,
+            second: 0,
+            nano: 0,
+        };
+        assert_eq!(format_with_pattern("MMM", &dt), "Jul");
+        assert_eq!(format_with_pattern("MMMM", &dt), "July");
+        // 'at' -> quoted literal text (the letters are NOT interpreted).
+        assert_eq!(format_with_pattern("d 'at' HH", &dt), "11 at 00");
+        // '' -> a literal single quote; embedded '' inside a quoted run -> '.
+        assert_eq!(format_with_pattern("''", &dt), "'");
+        assert_eq!(format_with_pattern("'o''clock'", &dt), "o'clock");
+    }
+
+    #[test]
+    fn midnight_clock_hour_is_twelve() {
+        let dt = epoch_zero();
+        assert_eq!(format_with_pattern("hh a", &dt), "12 AM");
+    }
+
+    #[test]
+    fn unrecognized_letters_are_emitted_verbatim() {
+        let dt = epoch_zero();
+        assert_eq!(format_with_pattern("QQ", &dt), "QQ");
+    }
+
+    #[test]
+    fn iso_constant_names_map_to_patterns() {
+        assert_eq!(iso_constant_to_pattern("ISO_LOCAL_DATE"), "yyyy-MM-dd");
+        assert_eq!(
+            iso_constant_to_pattern("ISO_LOCAL_DATE_TIME"),
+            "yyyy-MM-dd'T'HH:mm:ss"
+        );
+        assert_eq!(
+            iso_constant_to_pattern("ISO_INSTANT"),
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"
+        );
+        // A real pattern passes through unchanged.
+        assert_eq!(iso_constant_to_pattern("yyyy"), "yyyy");
+    }
+}
