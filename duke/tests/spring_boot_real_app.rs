@@ -75,15 +75,20 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //     class-resolution failure raises a catchable `NoClassDefFoundError` (a
 //     `LinkageError`) at the failing instruction instead of a fatal Rust error,
 //     so commons-logging's `catch (LinkageError)` fires and falls through to
-//     `LogFactoryImpl`. The MarkerManager rung is CLEARED. The ladder now lands
-//     on `method not found: java/util/Hashtable.computeIfAbsent(...)` — the
-//     LogFactoryImpl fallback path uses `Hashtable.computeIfAbsent`, which the
-//     synthetic `java/util/Hashtable` does not yet implement (collections lane;
-//     a `NoSuchMethodError`-territory blocker, out of the linkage-error scope).
+//     `LogFactoryImpl`. The MarkerManager rung is CLEARED. The ladder then landed
+//     on `method not found: java/util/Hashtable.computeIfAbsent(...)`, which the
+//     synthetic `java/util/Hashtable` now implements (the full Map-default family
+//     — computeIfAbsent/computeIfPresent/compute/merge/forEach/replaceAll plus
+//     putIfAbsent/getOrDefault/replace/containsValue/putAll — is registered on
+//     `java/util/Hashtable`, reusing the HashMap natives). That rung is CLEARED.
+//     The ladder now lands on `method not found:
+//     org/apache/commons/logging/impl/LogFactoryImpl.objectId(...)` — the next
+//     real blocker in commons-logging's LogFactoryImpl bootstrap (collections
+//     lane cleared; this is a different missing-method rung).
 // If either boot advances past its pin, re-observe and update.
 // See docs/findings/2026-07-10-spring-boot-real-app.md.
 const APP_BLOCKER: &str = "duke: runtime error: operand stack underflow";
-const LADDER_BLOCKER: &str = "method not found: java/util/Hashtable.computeIfAbsent(Ljava/lang/Object;Ljava/util/function/Function;)Ljava/lang/Object;";
+const LADDER_BLOCKER: &str = "method not found: org/apache/commons/logging/impl/LogFactoryImpl.objectId(Ljava/lang/Object;)Ljava/lang/String;";
 
 fn run_fixture(jar: &str) -> Output {
     let jar_path = spring_boot_fixture(jar);
@@ -162,12 +167,14 @@ fn spring_boot_app_surfaces_next_missing_capability_explicitly() {
 /// End-to-end CANARY for the commons-logging ladder fixture. Ignored until boot
 /// completes all rungs. Un-ignore when the happy path clears.
 #[test]
-#[ignore = "Blocked on missing java/util/Hashtable.computeIfAbsent(Object,Function) in the \
-            LogFactoryImpl fallback (collections lane; a NoSuchMethodError-territory blocker). \
-            The MarkerManager rung is now cleared: the interpreter linkage-error lane raises a \
-            catchable NoClassDefFoundError during Log4jApiLogFactory init that commons-logging \
-            catches and falls through on; keep ignored until the ladder fixture completes. \
-            See docs/findings/2026-07-10-spring-boot-real-app.md"]
+#[ignore = "Blocked on missing \
+            org/apache/commons/logging/impl/LogFactoryImpl.objectId(Object)String in the \
+            LogFactoryImpl bootstrap (a NoSuchMethodError-territory blocker). The \
+            Hashtable.computeIfAbsent rung is now cleared: java/util/Hashtable registers the \
+            full Map-default native family (computeIfAbsent/computeIfPresent/compute/merge/\
+            forEach/replaceAll plus putIfAbsent/getOrDefault/replace/containsValue/putAll), so \
+            the LogFactoryImpl fallback advances past it; keep ignored until the ladder fixture \
+            completes. See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_ladder_boots_end_to_end() {
     let output = run_fixture(LADDER_JAR);
     let combined = combined_output(&output);
