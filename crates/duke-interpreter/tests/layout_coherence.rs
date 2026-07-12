@@ -179,6 +179,58 @@ fn flag_off_helloworld_runs_identically() {
     );
 }
 
+/// Guard-gap regression: with `DUKE_LAYOUT_CHECK` unset (mode `Off`) and no shadow mode,
+/// an out-of-bounds `getfield` slot must surface as a GRACEFUL [`duke_runtime::Error::FieldOutOfBounds`]
+/// error — never a raw Rust `index out of bounds` panic. This exercises the unconditional
+/// bounds guard added to the `getfield` opcode arm (which fires regardless of layout-check
+/// mode), mimicking the half-migrated object graph that produced the real `java/net/URL`
+/// panic: real bytecode indexing a field slot past an under-allocated heap object.
+#[test]
+fn getfield_out_of_bounds_yields_graceful_error_not_panic_when_guard_off() {
+    let loader = DirectoryLoader::new(fixtures_dir());
+    let mut registry = ClassRegistry::new();
+    let mut heap = Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+
+    // The guard's mode gate is provably off (default configuration).
+    assert_eq!(registry.layout_check_mode(), LayoutCheckMode::Off);
+    assert!(!registry.real_jdk_shadow_enabled());
+
+    registry
+        .ensure_loaded("OobHolder", &loader)
+        .expect("load OobHolder fixture");
+    registry
+        .ensure_loaded("OobFieldProbe", &loader)
+        .expect("load OobFieldProbe fixture");
+
+    // `OobHolder` declares three int fields, so `OobHolder.c` resolves to slot 2. Hand
+    // `readC` an instance allocated with only ONE slot — an out-of-bounds access.
+    let holder = heap.allocate("OobHolder".to_string(), 1);
+
+    let mut out: Vec<u8> = Vec::new();
+    let result = execute_class_to_completion(
+        &mut registry,
+        loader,
+        &mut heap,
+        &mut out,
+        "OobFieldProbe",
+        "readC",
+        "(LOobHolder;)I",
+        &[duke_runtime::Slot::Reference(Some(holder))],
+    );
+
+    match result {
+        Err(duke_runtime::Error::FieldOutOfBounds { index, length }) => {
+            assert_eq!(index, 2, "OobHolder.c must resolve to slot 2");
+            assert_eq!(length, 1, "the under-allocated object has exactly 1 slot");
+        }
+        other => panic!(
+            "expected a graceful FieldOutOfBounds error (proving no raw index-out-of-bounds \
+             panic), got: {other:?}"
+        ),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // (c) Audit produces a non-empty candidate report without panicking
 // ---------------------------------------------------------------------------
