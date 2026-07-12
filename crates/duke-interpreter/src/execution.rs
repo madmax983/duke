@@ -498,6 +498,20 @@ pub fn run_execution(
             }};
         }
 
+        // Load the owner class of a field access, throwing a catchable
+        // NoClassDefFoundError if it could not be resolved (not loadable, not
+        // registered). Shared by get/put(field|static). `$key` must be the
+        // already-computed class key for `$class`.
+        macro_rules! ensure_field_owner_loaded {
+            ($class:expr, $key:expr) => {{
+                let owner_was_loaded =
+                    registry.ensure_loaded_from(&$class, Some(current_class.as_str()), loader)?;
+                if !owner_was_loaded && !registry.contains(&$key) {
+                    throw_no_class_def_found!($class);
+                }
+            }};
+        }
+
         // Telemetry: capture opcode name and start time before dispatch.
         // Arms that use `continue` (branches, invokes) will skip the post-match
         // recording for that iteration — timing is approximate for those opcodes.
@@ -1645,14 +1659,7 @@ pub fn run_execution(
                 let target_class_key =
                     registry.class_key_from_source(&target_class, Some(current_class.as_str()));
                 let r = frame.pop_ref()?;
-                let owner_was_loaded = registry.ensure_loaded_from(
-                    &target_class,
-                    Some(current_class.as_str()),
-                    loader,
-                )?;
-                if !owner_was_loaded && !registry.contains(&target_class_key) {
-                    throw_no_class_def_found!(target_class);
-                }
+                ensure_field_owner_loaded!(target_class, target_class_key);
                 let fidx = field_slot_idx(registry, &target_class_key, &field_name)?;
                 // Layout-coherence guard: hard no-op unless DUKE_LAYOUT_CHECK is set AND
                 // real-JDK shadow mode is on (both cheap checks short-circuit when off).
@@ -1689,14 +1696,7 @@ pub fn run_execution(
                     registry.class_key_from_source(&target_class, Some(current_class.as_str()));
                 let val = frame.pop()?;
                 let r = frame.pop_ref()?;
-                let owner_was_loaded = registry.ensure_loaded_from(
-                    &target_class,
-                    Some(current_class.as_str()),
-                    loader,
-                )?;
-                if !owner_was_loaded && !registry.contains(&target_class_key) {
-                    throw_no_class_def_found!(target_class);
-                }
+                ensure_field_owner_loaded!(target_class, target_class_key);
                 let fidx = field_slot_idx(registry, &target_class_key, &field_name)?;
                 // Layout-coherence guard: hard no-op unless DUKE_LAYOUT_CHECK is set AND
                 // real-JDK shadow mode is on (both cheap checks short-circuit when off).
@@ -1730,14 +1730,7 @@ pub fn run_execution(
                 };
                 let target_class_key =
                     registry.class_key_from_source(&target_class, Some(current_class.as_str()));
-                let owner_was_loaded = registry.ensure_loaded_from(
-                    &target_class,
-                    Some(current_class.as_str()),
-                    loader,
-                )?;
-                if !owner_was_loaded && !registry.contains(&target_class_key) {
-                    throw_no_class_def_found!(target_class);
-                }
+                ensure_field_owner_loaded!(target_class, target_class_key);
                 route_class_init_result!(ensure_initialized(
                     registry,
                     loader,
@@ -1758,14 +1751,7 @@ pub fn run_execution(
                 let target_class_key =
                     registry.class_key_from_source(&target_class, Some(current_class.as_str()));
                 let val = frame.pop()?;
-                let owner_was_loaded = registry.ensure_loaded_from(
-                    &target_class,
-                    Some(current_class.as_str()),
-                    loader,
-                )?;
-                if !owner_was_loaded && !registry.contains(&target_class_key) {
-                    throw_no_class_def_found!(target_class);
-                }
+                ensure_field_owner_loaded!(target_class, target_class_key);
                 route_class_init_result!(ensure_initialized(
                     registry,
                     loader,
