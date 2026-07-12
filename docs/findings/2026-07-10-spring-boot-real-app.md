@@ -124,6 +124,53 @@ An intermediate frontier this wave (after the `WeakReference` rung, before the
 on the ladder; the lazy-key `Class.forName` fix turned that availability probe
 catchable and advanced the ladder to the `MarkerManager` frontier above.
 
+**UPDATE (2026-07-12, dispatch-honesty lane): the app `COWArrayList.addIfAbsent`
+operand-stack-underflow rung is CLEARED, and the app frontier has advanced.**
+Two changes did it:
+
+1. **Lenient method dispatch is now honest.** The `invokespecial`/`invokevirtual`
+   shared arm (`!class_was_loaded` branch) and the `invokeinterface`
+   `None`/lambda-miss fallthrough previously popped the args (and `this`) and
+   `continue`d **without** pushing a return value — corrupting the operand stack
+   for non-void descriptors (this is exactly what surfaced downstream as the
+   logback `COWArrayList.addIfAbsent` `operand stack underflow`). Both paths now
+   throw a **catchable `java.lang.NoSuchMethodError`** whose detail message names
+   `owner.method` + descriptor (e.g.
+   `java/util/concurrent/CopyOnWriteArrayList.addIfAbsent(Ljava/lang/Object;)Z`).
+   The `IncompatibleClassChangeError → NoSuchMethodError` / `NoSuchFieldError`
+   hierarchy is registered under `LinkageError` so `catch (LinkageError)` /
+   `catch (Throwable)` match, mirroring the linkage-error lane. (The `new` opcode
+   limp and honest field resolution are untouched; the ladder's honest
+   `Hashtable.computeIfAbsent` `MethodNotFound` pin is unaffected.)
+2. **Synthetic `java/util/concurrent/CopyOnWriteArrayList`** (ArrayList storage
+   layout; `init`/`add`/`addIfAbsent`/`get`/`size`/`contains`/`isEmpty`/`iterator`)
+   now models the type logback's `COWArrayList` delegates to.
+
+With the honest throw in place, the boot then surfaced — and this lane cleared —
+several previously-swallowed super-constructor / method calls:
+
+* `java/lang/Record.<init>()V` — every record chains `super()` to
+  `java.lang.Record`, which was unregistered (so real record instantiation would
+  now throw `NoSuchMethodError`). Registered with a no-op `<init>`.
+* `java/util/concurrent/LinkedBlockingQueue` — synthetic unbounded FIFO queue
+  (`init`/`add`/`offer`/`put`/`poll`/`take`/`peek`/`size`/`isEmpty`/
+  `remainingCapacity`/`drainTo`/`clear`). Also cleared the slf4j-simple OSS canary,
+  which resolves the queue honestly now instead of swallowing its ops.
+* `java/lang/InheritableThreadLocal` — registered as a `ThreadLocal` subclass
+  reusing its single-slot natives (inheritance is a no-op single-threaded).
+
+New **app** frontier:
+
+```
+# app (duke-spring-boot-app-3.5.12.jar) — current frontier:
+duke: runtime error: method not found: java/lang/StringBuilder.append(Ljava/lang/Object;)Ljava/lang/StringBuilder;
+```
+
+`StringBuilder.append(Object)` must `String.valueOf`/`toString` its argument, so
+it needs a new `toString`-dispatching native in `native/java_lang.rs`. That is a
+**java.lang lane** blocker, out of the j.u.c./java_util/dispatch scope of this
+wave — handoff to a future wave.
+
 For history, the prior (2026-07-11) frontiers were:
 
 ```
@@ -290,7 +337,8 @@ moved to `method not found: java/time/format/DateTimeFormatter.ofPattern(String)
 | #1e `class not found: java/time/ZoneId` | native / stdlib — `java_time` (`ZoneId`) | **CLEARED (this branch)** |
 | #1e′ `class not found: java/util/Locale` | native / stdlib — `java_util` (`Locale`) | **CLEARED (this branch)** |
 | #1e″ `method not found: DateTimeFormatter.ofPattern(String)` | native / stdlib — `java_time` (`DateTimeFormatter` factory) | **CLEARED (this branch)** |
-| #1e‴ `operand stack underflow` in logback `COWArrayList.addIfAbsent` | java.util.concurrent (`CopyOnWriteArrayList`) + interpreter lenient method-dispatch | **HANDOFF — current app pin (deferred to future wave)** |
+| #1e‴ `operand stack underflow` in logback `COWArrayList.addIfAbsent` | java.util.concurrent (`CopyOnWriteArrayList`) + interpreter lenient method-dispatch | **CLEARED (2026-07-12, dispatch-honesty lane): lenient dispatch now throws catchable `NoSuchMethodError`; synthetic `CopyOnWriteArrayList` added** |
+| #1e⁗ `method not found: java/lang/StringBuilder.append(Object)` | native — `java_lang` (`StringBuilder` `append(Object)`, needs `toString` dispatch) | **HANDOFF — current app pin (deferred to a java.lang wave)** |
 | #1f `class not found: org/apache/logging/slf4j/SLF4JProvider` | class-loader — `Class.forName` availability probe (`java_lang`) | **CLEARED (this branch)** |
 | #1f′ `class not found: org/apache/logging/log4j/MarkerManager` | interpreter — class-resolution / `NoClassDefFoundError` linkage during `<clinit>` (`execution.rs` + synthetic `LinkageError` in `stdlib.rs`) | **CLEARED (2026-07-12, linkage-error lane)** |
 | #1f″ `method not found: java/util/Hashtable.computeIfAbsent(Object,Function)` | native / stdlib — `java_util` (`Hashtable`) | **HANDOFF — current ladder pin (deferred to future wave)** |
@@ -316,10 +364,12 @@ fixture:
   `spring_boot_ladder_surfaces_next_missing_capability_explicitly`. Each asserts
   the process still fails at **exactly** the current blocker. As of #1320 the
   two fixtures diverge, so the pins assert per-fixture constants. As of the end of
-  this wave (all eight rungs above cleared) they are:
-  `APP_BLOCKER = "method not found: java/time/format/DateTimeFormatter.ofPattern(Ljava/lang/String;)Ljava/time/format/DateTimeFormatter;"`
-  and (as of 2026-07-12, after the `MarkerManager` rung was cleared by the
-  linkage-error lane)
+  this wave they are (updated 2026-07-12, dispatch-honesty lane: the
+  `COWArrayList.addIfAbsent` rung cleared by honest `NoSuchMethodError` dispatch +
+  synthetic `CopyOnWriteArrayList`/`LinkedBlockingQueue`/`InheritableThreadLocal`/
+  `Record`):
+  `APP_BLOCKER = "method not found: java/lang/StringBuilder.append(Ljava/lang/Object;)Ljava/lang/StringBuilder;"`
+  and (unchanged; the `Hashtable.computeIfAbsent` ladder rung is another lane's)
   `LADDER_BLOCKER = "method not found: java/util/Hashtable.computeIfAbsent(Ljava/lang/Object;Ljava/util/function/Function;)Ljava/lang/Object;"`.
   If boot advances (or regresses) past those strings, the pin **trips**, forcing a
   re-observe and an update to this doc.

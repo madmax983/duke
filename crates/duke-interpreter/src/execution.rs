@@ -479,6 +479,25 @@ pub fn run_execution(
             }};
         }
 
+        // Throw a *catchable* java.lang.NoSuchMethodError whose detail message
+        // names the unresolved method — `owner.name` + JVM descriptor in Duke's
+        // internal (slash-form) convention, e.g.
+        // `java/util/concurrent/CopyOnWriteArrayList.addIfAbsent(Ljava/lang/Object;)Z`.
+        // Routes through the same machinery as `throw_java!`, so an enclosing
+        // `catch (NoSuchMethodError | IncompatibleClassChangeError | LinkageError
+        // | Throwable)` in the running bytecode handles it. Replaces the former
+        // silent lenient-dispatch soft-fail, which corrupted the operand stack
+        // for non-void descriptors.
+        macro_rules! throw_no_such_method {
+            ($msg:expr) => {{
+                push_pending_java_exception_message(
+                    "java/lang/NoSuchMethodError",
+                    $msg.to_string(),
+                );
+                throw_java!("java/lang/NoSuchMethodError");
+            }};
+        }
+
         // Route a class-initialisation result (from `ensure_initialized`) through
         // the currently-executing method's exception table. A failed <clinit>
         // surfaces as a catchable `Error::JavaException`; re-throwing it via
@@ -2264,14 +2283,19 @@ pub fn run_execution(
                             }
                             None => {
                                 if !class_was_loaded {
-                                    // Unloadable target — preserve legacy soft-fail behavior.
-                                    let arg_count = parse_arg_count(&callee_desc);
-                                    for _ in 0..arg_count {
-                                        frame.pop()?;
-                                    }
-                                    frame.pop()?; // pop `this`
-                                    *idx += 1;
-                                    continue;
+                                    // Unloadable target: the method cannot be
+                                    // resolved. Throw a *catchable*
+                                    // NoSuchMethodError instead of the former
+                                    // silent soft-fail, which popped args + `this`
+                                    // and continued without pushing a return value
+                                    // — corrupting the operand stack for non-void
+                                    // descriptors (surfaced downstream as
+                                    // "operand stack underflow").
+                                    let msg = format!(
+                                        "{}.{callee_name}{callee_desc}",
+                                        registry.internal_name_for_class(callee_class_key.as_str())
+                                    );
+                                    throw_no_such_method!(msg);
                                 }
                                 return Err(Error::MethodNotFound {
                                     name: format!(
@@ -3508,8 +3532,13 @@ pub fn run_execution(
                         if !registry.contains(&actual_class)
                             && !registry.contains(&callee_class_key)
                         {
-                            *idx += 1;
-                            continue;
+                            // Neither the runtime receiver class nor the declared
+                            // interface owner is loaded: the method cannot be
+                            // resolved. Throw a *catchable* NoSuchMethodError
+                            // rather than the former no-op fallthrough (which
+                            // didn't even pop args, corrupting the operand stack).
+                            let msg = format!("{actual_class}.{callee_name}{callee_desc}");
+                            throw_no_such_method!(msg);
                         }
                         return Err(Error::MethodNotFound {
                             name: format!("{actual_class}.{callee_name}"),
