@@ -289,7 +289,8 @@ moved to `method not found: java/time/format/DateTimeFormatter.ofPattern(String)
 | #1d `WeakReference.get()` underflow in commons-logging | native — `java.lang.ref` reference-object | **CLEARED (this branch)** |
 | #1e `class not found: java/time/ZoneId` | native / stdlib — `java_time` (`ZoneId`) | **CLEARED (this branch)** |
 | #1e′ `class not found: java/util/Locale` | native / stdlib — `java_util` (`Locale`) | **CLEARED (this branch)** |
-| #1e″ `method not found: DateTimeFormatter.ofPattern(String)` | native / stdlib — `java_time` (`DateTimeFormatter` factory) | **HANDOFF — current app pin (deferred to future wave)** |
+| #1e″ `method not found: DateTimeFormatter.ofPattern(String)` | native / stdlib — `java_time` (`DateTimeFormatter` factory) | **CLEARED (this branch)** |
+| #1e‴ `operand stack underflow` in logback `COWArrayList.addIfAbsent` | java.util.concurrent (`CopyOnWriteArrayList`) + interpreter lenient method-dispatch | **HANDOFF — current app pin (deferred to future wave)** |
 | #1f `class not found: org/apache/logging/slf4j/SLF4JProvider` | class-loader — `Class.forName` availability probe (`java_lang`) | **CLEARED (this branch)** |
 | #1f′ `class not found: org/apache/logging/log4j/MarkerManager` | interpreter — class-resolution / `NoClassDefFoundError` linkage during `<clinit>` (`execution.rs` + synthetic `LinkageError` in `stdlib.rs`) | **CLEARED (2026-07-12, linkage-error lane)** |
 | #1f″ `method not found: java/util/Hashtable.computeIfAbsent(Object,Function)` | native / stdlib — `java_util` (`Hashtable`) | **HANDOFF — current ladder pin (deferred to future wave)** |
@@ -360,3 +361,75 @@ cargo clippy --workspace --all-targets
 cargo test -p duke --test spring_boot_real_app              # 2 passed / 2 ignored
 cargo test -p duke --test spring_boot_real_app -- --ignored # canaries (expected fail today)
 ```
+
+## Update (this wave): `DateTimeFormatter` cleared; app advances to a concurrent-collection underflow
+
+**App — minimal `java.time.format.DateTimeFormatter` for boot (CLEARED).**
+`crates/duke-interpreter/src/native/java_time.rs` + registration in
+`crates/duke-interpreter/src/stdlib.rs`. logback's
+`ch.qos.logback.core.util.CachingDateFormatter` builds a pattern-based formatter
+during Spring Boot startup: `ofPattern(String)` in its ctor, then `withZone(ZoneId)`
+and `withLocale(Locale)`, then per-format `Instant.ofEpochMilli(long)` +
+`format(TemporalAccessor)`. The synthetic `DateTimeFormatter` previously carried
+only the ISO constant instances (no factory), so `ofPattern` was `method not found`.
+
+Implemented four natives on `java/time/format/DateTimeFormatter`:
+
+- `ofPattern(String)` (static) — allocates a fresh synthetic formatter carrying the
+  pattern string in its `string_value`.
+- `withZone(ZoneId)` (instance) — returns `this` unchanged. **Honest** because duke
+  is UTC-only (wave-5 `ZoneId`=UTC decision): a zone-bound and an unbound formatter
+  produce identical output under UTC.
+- `withLocale(Locale)` (instance) — returns `this` unchanged. **Honest** because
+  duke's `Locale` is a fixed en-US default; there is nothing to re-bind.
+- `format(TemporalAccessor)` (instance) — reads the formatter's pattern (or ISO
+  constant name) from `string_value`, extracts the temporal's broken-down **UTC**
+  fields (`Instant` via epoch-seconds/nanos, `LocalDateTime`, `LocalDate`), and
+  renders them via a small pure pattern engine.
+
+**Pattern engine** (`format_with_pattern`, unit-tested). Supported subset (en-US,
+UTC): `y`/`u` (year, zero-padded to count); `M`/`L` (`M`/`MM` numeric, `MMM` short
+name, `MMMM`+ full name); `d` (day); `H` (hour 0–23), `h` (clock-hour 1–12);
+`m`/`s` (minute/second); `S…` (fraction-of-second, `nano / 10^(9-n)` padded to `n`,
+so `SSS` = millis); `a` (AM/PM); `X`/`XX`/`XXX` (zone-offset → always `Z` under
+duke's zero UTC offset); `z`/`zzzz` (zone name → `UTC`); single-quoted literals
+(`'T'` → `T`, `''` → `'`); any non-letter char is a literal. Unrecognized letters
+are emitted verbatim, never panicking.
+
+**Simplifications (documented in code):** UTC-only offsets (`X`→`Z`), fixed en-US
+month names / AM-PM, and the three ISO constant instances mapped to fixed
+equivalent patterns — `ISO_LOCAL_DATE` → `yyyy-MM-dd`, `ISO_LOCAL_DATE_TIME` →
+`yyyy-MM-dd'T'HH:mm:ss`, `ISO_INSTANT` → `yyyy-MM-dd'T'HH:mm:ss.SSSXXX` — rather
+than the full ISO-8601 formatting rules.
+
+**Unit tests** (`#[cfg(test)] mod datetimeformatter_pattern_tests` in
+`native/java_time.rs`): epoch-0 → `"yyyy-MM-dd HH:mm:ss.SSS"` = `"1970-01-01
+00:00:00.000"`; epoch-0 → `"yyyy-MM-dd'T'HH:mm:ss.SSSXXX"` = `"1970-01-01
+T00:00:00.000Z"`; a non-zero 2026-07-11 14:05:09.123456789 covering `hh`/`a`
+clock-hour + AM/PM and a multi-digit (`SSSSSS`) fraction; month names (`MMM`/`MMMM`);
+quoted literals and `''`; midnight clock-hour = `12 AM`; unrecognized `QQ` verbatim;
+and the ISO-constant → pattern mapping.
+
+**Rung cleared:** `#1e″` — `method not found:
+java/time/format/DateTimeFormatter.ofPattern(...)`.
+
+**New app frontier (HANDOFF).** With the formatter working, boot advances and now
+lands on `duke: runtime error: operand stack underflow` — the app's only output.
+Traced (`DUKE_TRACE_EXEC=1`) to logback's
+`ch/qos/logback/core/util/COWArrayList.addIfAbsent`: at offset 5 it calls
+`java/util/concurrent/CopyOnWriteArrayList.addIfAbsent(Ljava/lang/Object;)Z` and at
+offset 8 `pop`s the boolean. Duke has **no** synthetic `CopyOnWriteArrayList`; it
+resolves the class leniently (the `new`/`invokespecial <init>()V` are silently
+absorbed, and the `addIfAbsent` `invokevirtual` returns **void** instead of pushing
+a boolean), so the following `pop` underflows the operand stack. Note this surfaces
+as a generic interpreter runtime error, **not** a clean `method not found` — the
+lenient dispatch swallows the missing method.
+
+**Ownership assessment: owned-elsewhere (not java.time).** The gap is a synthetic
+`java/util/concurrent/CopyOnWriteArrayList` (`addIfAbsent`/`add`/`remove` returning
+their `boolean` results) and/or a stricter method-dispatch that raises
+`method not found` rather than silently returning void for an unregistered method.
+That is the **java.util.concurrent / interpreter lenient-dispatch lane**, outside
+the java.time family, so it is pinned rather than fixed here.
+`APP_BLOCKER` is now `"duke: runtime error: operand stack underflow"`.
+`LADDER_BLOCKER` is unchanged (`"class not found: org/apache/logging/log4j/MarkerManager"`).
