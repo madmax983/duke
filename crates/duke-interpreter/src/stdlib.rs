@@ -6733,6 +6733,80 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_arraylist_iter_next,
     );
 
+    // java/util/concurrent/CopyOnWriteArrayList — synthetic list that mirrors the
+    // ArrayList storage layout (fields[0] = size, fields[1..] = elements), so the
+    // shared ArrayListIterator native works on it unchanged. Single-threaded
+    // execution collapses copy-on-write semantics to plain in-place mutation.
+    let cowal_ctx = ClassContext {
+        class_name: "java/util/concurrent/CopyOnWriteArrayList".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec![
+            "java/util/List".to_string(),
+            "java/util/Collection".to_string(),
+            "java/lang/Iterable".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(cowal_ctx);
+    registry.natives_mut().register(
+        "java/util/concurrent/CopyOnWriteArrayList",
+        "<init>",
+        "()V",
+        native_cowal_init,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/CopyOnWriteArrayList",
+        "add",
+        "(Ljava/lang/Object;)Z",
+        native_cowal_add,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/CopyOnWriteArrayList",
+        "addIfAbsent",
+        "(Ljava/lang/Object;)Z",
+        native_cowal_add_if_absent,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/CopyOnWriteArrayList",
+        "get",
+        "(I)Ljava/lang/Object;",
+        native_cowal_get,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/CopyOnWriteArrayList",
+        "size",
+        "()I",
+        native_cowal_size,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/CopyOnWriteArrayList",
+        "contains",
+        "(Ljava/lang/Object;)Z",
+        native_cowal_contains,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/CopyOnWriteArrayList",
+        "isEmpty",
+        "()Z",
+        native_cowal_is_empty,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/CopyOnWriteArrayList",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        native_arraylist_iterator,
+    );
+
     // java/util/Arrays — static array utilities
     let arrays_ctx = ClassContext {
         class_name: "java/util/Arrays".to_string(),

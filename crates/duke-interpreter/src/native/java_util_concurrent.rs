@@ -2122,3 +2122,139 @@ pub(crate) fn native_concurrent_hashmap_for_each(
     }
     Ok(None)
 }
+
+// ---------------------------------------------------------------------------
+// java/util/concurrent/CopyOnWriteArrayList
+//
+// Synthetic thread-unsafe stand-in for `CopyOnWriteArrayList`. Mirrors the
+// `java/util/ArrayList` storage convention exactly (fields[0] = size as
+// `Slot::Int`, fields[1..] = elements), which lets the shared list iterator
+// (`duke/util/ArrayListIterator`, via `native_arraylist_iterator`) operate on
+// a CoWAL instance without modification. Single-threaded execution means the
+// copy-on-write snapshot semantics collapse to plain in-place mutation.
+// ---------------------------------------------------------------------------
+
+/// Native: `CopyOnWriteArrayList.<init>()V` — initializes with size = 0.
+pub(crate) fn native_cowal_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
+    Ok(None)
+}
+
+/// Native: `CopyOnWriteArrayList.add(Object)Z` — appends element, returns true.
+pub(crate) fn native_cowal_add(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let element = extract_slot_arg(args, 1);
+    let obj = heap.get_mut(this_ref)?;
+    match obj.fields.first_mut() {
+        Some(Slot::Int(sz)) => *sz += 1,
+        _ => return Err(Error::NullPointerException),
+    }
+    obj.fields.push(element);
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `CopyOnWriteArrayList.addIfAbsent(Object)Z` — appends the element and
+/// returns true only if no equal element is already present; otherwise leaves
+/// the list unchanged and returns false. Uses the same equality convention as
+/// `ArrayList.contains`.
+pub(crate) fn native_cowal_add_if_absent(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let element = extract_slot_arg(args, 1);
+    for slot in heap.get(this_ref)?.fields.iter().skip(1) {
+        if slots_equal(slot, &element, heap) {
+            return Ok(Some(Slot::Int(0)));
+        }
+    }
+    let obj = heap.get_mut(this_ref)?;
+    match obj.fields.first_mut() {
+        Some(Slot::Int(sz)) => *sz += 1,
+        _ => return Err(Error::NullPointerException),
+    }
+    obj.fields.push(element);
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `CopyOnWriteArrayList.get(I)Object` — returns element at index.
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_cowal_get(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let idx = extract_int_arg(args, 1)? as usize;
+    let obj = heap.get(this_ref)?;
+    obj.fields.get(idx + 1).map_or_else(
+        || {
+            Err(Error::JavaException {
+                class_name: "java/lang/IndexOutOfBoundsException".to_string(),
+            })
+        },
+        |slot| Ok(Some(*slot)),
+    )
+}
+
+/// Native: `CopyOnWriteArrayList.size()I`
+pub(crate) fn native_cowal_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(sz)) => Ok(Some(Slot::Int(*sz))),
+        _ => Ok(Some(Slot::Int(0))),
+    }
+}
+
+/// Native: `CopyOnWriteArrayList.contains(Object)Z`
+pub(crate) fn native_cowal_contains(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target = extract_slot_arg(args, 1);
+    let mut found = false;
+    for slot in heap.get(this_ref)?.fields.iter().skip(1) {
+        if slots_equal(slot, &target, heap) {
+            found = true;
+            break;
+        }
+    }
+    Ok(Some(Slot::Int(i32::from(found))))
+}
+
+/// Native: `CopyOnWriteArrayList.isEmpty()Z` — returns true if size is 0.
+pub(crate) fn native_cowal_is_empty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let is_empty = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(sz)) => *sz == 0,
+        _ => true,
+    };
+    Ok(Some(Slot::Int(i32::from(is_empty))))
+}
