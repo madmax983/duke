@@ -84,21 +84,40 @@ frontiers**:
 duke: runtime error: method not found: java/time/format/DateTimeFormatter.ofPattern(Ljava/lang/String;)Ljava/time/format/DateTimeFormatter;
 
 # ladder (duke-spring-boot-ladder-3.5.12.jar) — final frontier:
-duke: runtime error: class not found: org/apache/logging/log4j/MarkerManager
+duke: runtime error: method not found: java/util/Hashtable.computeIfAbsent(Ljava/lang/Object;Ljava/util/function/Function;)Ljava/lang/Object;
 ```
 
 The **app** frontier is now logback's `CachingDateFormatter` calling
 `DateTimeFormatter.ofPattern(String)` — the synthetic `DateTimeFormatter` carries
 only the ISO constant instances, not the `ofPattern` factory (java.time formatter
-lane; handoff to a future wave). The **ladder** frontier is a missing
-`org/apache/logging/log4j/MarkerManager` reached while initializing
-`Log4jApiLogFactory` (its `<clinit>` calls `MarkerManager.getMarker`): a real JVM
-raises a **catchable `NoClassDefFoundError`** (a `LinkageError`) that
-commons-logging catches and falls through on. Duke has no synthetic
-`NoClassDefFoundError`/`LinkageError` and surfaces class-resolution failures during
-bytecode execution as fatal errors — a distinct interpreter class-resolution /
-linkage-error rung **deferred to a future wave** (do not conflate with the missing
-class itself). Both are handoffs to other lanes.
+lane; handoff to a future wave).
+
+**UPDATE (2026-07-12, linkage-error lane): the `MarkerManager` rung is CLEARED.**
+The interpreter now models real JVM linkage-error semantics. The previous ladder
+frontier — a missing `org/apache/logging/log4j/MarkerManager` reached while
+initializing `Log4jApiLogFactory` (its `<clinit>` calls `MarkerManager.getMarker`)
+— now raises a **catchable `java.lang.NoClassDefFoundError`** (a `LinkageError`)
+at the failing `invokestatic`, instead of a fatal Rust `class not found` error.
+commons-logging's `catch (LinkageError)` fires and falls through to
+`LogFactoryImpl`, exactly as on a real JVM. The ladder now advances one rung
+further and lands on `method not found: java/util/Hashtable.computeIfAbsent(...)`
+— the `LogFactoryImpl` fallback uses `Hashtable.computeIfAbsent`, which the
+synthetic `java/util/Hashtable` does not yet implement (collections lane; a
+`NoSuchMethodError`-territory blocker, handoff to a future wave).
+
+How the linkage-error lane works: synthetic `java/lang/LinkageError`,
+`NoClassDefFoundError` and `ExceptionInInitializerError` are registered as `Error`
+subtypes so `catch (LinkageError)`/`catch (Throwable)` match; execution-time
+class-resolution failures at `invokestatic` / `get(field|static)` /
+`put(field|static)` throw a catchable `NoClassDefFoundError` (internal-name detail
+message) routed through the running method's exception table; and `<clinit>`
+failures get JVMS 5.5 erroneous-class semantics (erroneous class re-throws
+`NoClassDefFoundError`; an `Error`-typed clinit failure propagates unwrapped — the
+ladder case; an `Exception`-typed failure is wrapped in
+`ExceptionInInitializerError`). The `new` opcode deliberately keeps its legacy
+"limp" for unmodelled classes (it never produced a fatal error), so real-jar boot
+progress that relies on limping past unmodelled `java.util.concurrent` types is
+preserved.
 
 An intermediate frontier this wave (after the `WeakReference` rung, before the
 `Class.forName` probe fix) was `class not found: org/apache/logging/slf4j/SLF4JProvider`
@@ -158,8 +177,9 @@ under the default synthetic-stdlib path).
 | **1e′** | `class not found: java/util/Locale` — app, after 1e cleared. logback timestamp formatting. | Synthetic `java.util` surface incomplete — `java/util/Locale` is not registered. | **CLEARED here** — minimal synthetic `Locale` (fixed en-US default; `getDefault`/`getLanguage`/`getCountry`/`toString`). | native / stdlib — `java_util` (`Locale`) |
 | **1e″** | `method not found: java/time/format/DateTimeFormatter.ofPattern(Ljava/lang/String;)Ljava/time/format/DateTimeFormatter;` — app, after 1e′ cleared. logback `CachingDateFormatter` builds a pattern formatter. | Synthetic `DateTimeFormatter` carries only the ISO constant instances, not the `ofPattern(String)` factory. | **OBSERVED — current app pin. HANDOFF** to java.time formatter lane (deferred to future wave). | native / stdlib — `java_time` (`DateTimeFormatter`) |
 | **1f** | `class not found: org/apache/logging/slf4j/SLF4JProvider` — ladder, after 1d cleared. | The log4j-to-slf4j binding's `SLF4JProvider` is not resolvable — a logging-backend provider class discovered via the SLF4J `ServiceLoader`/provider mechanism is missing from the classpath resolution path. | **CLEARED here** — lazy-key 3-arg `Class.forName` makes the availability probe catchable. | class-loader — `Class.forName` availability probe (`java_lang`) |
-| **1f′** | `class not found: org/apache/logging/log4j/MarkerManager` — ladder, after 1f cleared. `Log4jApiLogFactory.<clinit>` calls `MarkerManager.getMarker`. | A real JVM raises a catchable `NoClassDefFoundError` (`LinkageError`) here that commons-logging catches; duke has no synthetic `NoClassDefFoundError`/`LinkageError` and surfaces class-resolution failures during execution as fatal errors. | **OBSERVED — current ladder pin. HANDOFF** to interpreter class-resolution / linkage-error lane (deferred to future wave). | interpreter — class-resolution / `LinkageError` |
-| **2** | `--real-jdk` probe: getfield slot 10 out of bounds on a `java/net/URL` allocated with 1 slot where real `URL` bytecode expects 13 (`crates/duke-interpreter/src/execution.rs:1600`). | Synthetic-vs-real **object-layout coherence** boundary: `java/net/URL` is allocated synthetically (1 slot) but real `URL` bytecode indexes its full 13-field layout. | **INFERRED** (seen only under `--real-jdk`, past blocker #1) | native / stdlib object-layout — `java_net` (`URL`) |
+| **1f′** | `class not found: org/apache/logging/log4j/MarkerManager` — ladder, after 1f cleared. `Log4jApiLogFactory.<clinit>` calls `MarkerManager.getMarker`. | A real JVM raises a catchable `NoClassDefFoundError` (`LinkageError`) here that commons-logging catches; duke had no synthetic `NoClassDefFoundError`/`LinkageError` and surfaced class-resolution failures during execution as fatal errors. | **CLEARED (2026-07-12, linkage-error lane)** — synthetic `LinkageError`/`NoClassDefFoundError`/`ExceptionInInitializerError` registered; execution-time class-resolution failures at `invokestatic`/`get(field\|static)`/`put(field\|static)` throw a catchable `NoClassDefFoundError`; `<clinit>` failures get JVMS 5.5 erroneous-class semantics. commons-logging's `catch (LinkageError)` now fires. | interpreter — class-resolution / `LinkageError` (**this lane**) |
+| **1f″** | `method not found: java/util/Hashtable.computeIfAbsent(Ljava/lang/Object;Ljava/util/function/Function;)Ljava/lang/Object;` — ladder, after 1f′ cleared. The `LogFactoryImpl` fallback (reached via the `catch (LinkageError)` fall-through) calls `Hashtable.computeIfAbsent`. | Synthetic `java/util/Hashtable` does not implement the `computeIfAbsent(Object,Function)` default method. | **OBSERVED — current ladder pin. HANDOFF** to collections lane (`NoSuchMethodError` territory, deferred to future wave). | native / stdlib — `java_util` (`Hashtable`) |
+| **2** | `--real-jdk` probe: getfield slot 10 out of bounds on an object allocated with 1 slot where real bytecode expects a larger layout (`crates/duke-interpreter/src/execution.rs`, Getfield handler `heap.get(r)?.fields[fidx]`; originally observed on `java/net/URL`). | Synthetic-vs-real **object-layout coherence** boundary: the object is allocated synthetically (few slots) but real bytecode indexes its full field layout; the raw `fields[fidx]` index panics with `layout_coherence_check` disabled. | **STILL INFERRED/OPEN** (seen only under `--real-jdk`, past blocker #1; re-confirmed pre-existing on the linkage-error branch — NOT a class/field-resolution failure, so out of the linkage-error lane) | native / stdlib object-layout — `java_net` (`URL`) / real-jdk shadow lane |
 | **3** | Resource enumeration + `META-INF/spring.factories` and `META-INF/spring/…AutoConfiguration.imports` discovery returning empty/failing. | Spring's `SpringFactoriesLoader` / `ImportCandidates` walk **every** classpath entry via `ClassLoader.getResources`; requires working nested-jar resource enumeration (depends on #1). | **INFERRED** | java_util + classloader/registry (resource enumeration) |
 | **4** | Heavy `java.lang.reflect` use during auto-configuration: `Constructor.newInstance`, `Method.invoke`, annotation reads, `Class.forName` fan-out. | `SpringApplication.run` instantiates and wires beans almost entirely reflectively; annotation metadata is read via reflection/ASM. | **INFERRED** | reflect (`java_lang_reflect`) + `java_lang` (`Class`) |
 | **5** | `java.util` collections/streams volume: `Map`/`Set`/`List`, `Stream`, `Optional`, `ConcurrentHashMap`, `EnumMap` under the bean factory. | Spring's environment/bean machinery leans on the full collections + streams surface with real iteration/ordering semantics. | **INFERRED** | java_util |
@@ -220,13 +240,19 @@ identity key **eagerly** (with `?`) alongside the load attempt; for an absent
 class the key lookup itself raises `ClassNotFound`, propagating a **fatal** error
 before the not-found result could be mapped to a catchable
 `ClassNotFoundException`. Fix: compute the key lazily, only on a successful load.
-New ladder frontier: `class not found: org/apache/logging/log4j/MarkerManager`,
+New ladder frontier (at the time): `class not found: org/apache/logging/log4j/MarkerManager`,
 reached while initializing `Log4jApiLogFactory` (its `<clinit>` calls
 `MarkerManager.getMarker`). A real JVM raises a **catchable `NoClassDefFoundError`**
-(a `LinkageError`) that commons-logging catches and falls through on; duke has no
-synthetic `NoClassDefFoundError`/`LinkageError` and surfaces class-resolution
-failures during bytecode execution as fatal errors. That is a distinct
-interpreter class-resolution / linkage-error rung (handoff).
+(a `LinkageError`) that commons-logging catches and falls through on.
+
+**Ladder — linkage-error semantics; `MarkerManager` rung CLEARED (2026-07-12).**
+The interpreter now raises a catchable `NoClassDefFoundError` (a `LinkageError`)
+at execution-time class-resolution failures (`invokestatic`/`get(field|static)`/
+`put(field|static)`) and gives `<clinit>` failures JVMS 5.5 erroneous-class
+semantics, so commons-logging's `catch (LinkageError)` around `Log4jApiLogFactory`
+init fires and falls through to `LogFactoryImpl`. New ladder frontier:
+`method not found: java/util/Hashtable.computeIfAbsent(...)` (collections lane
+handoff — the `LogFactoryImpl` fallback path).
 
 **App — minimal `java.time.ZoneId` for boot (CLEARED).**
 `crates/duke-interpreter/src/native/java_time.rs` + registration in
@@ -265,8 +291,9 @@ moved to `method not found: java/time/format/DateTimeFormatter.ofPattern(String)
 | #1e′ `class not found: java/util/Locale` | native / stdlib — `java_util` (`Locale`) | **CLEARED (this branch)** |
 | #1e″ `method not found: DateTimeFormatter.ofPattern(String)` | native / stdlib — `java_time` (`DateTimeFormatter` factory) | **HANDOFF — current app pin (deferred to future wave)** |
 | #1f `class not found: org/apache/logging/slf4j/SLF4JProvider` | class-loader — `Class.forName` availability probe (`java_lang`) | **CLEARED (this branch)** |
-| #1f′ `class not found: org/apache/logging/log4j/MarkerManager` | interpreter — class-resolution / `NoClassDefFoundError` linkage during `<clinit>` (`execution.rs` + synthetic `LinkageError` in `stdlib.rs`) | **HANDOFF — current ladder pin (deferred to future wave)** |
-| #2 `java/net/URL` layout coherence | native / stdlib object-layout — `java_net` (`URL`) | inferred |
+| #1f′ `class not found: org/apache/logging/log4j/MarkerManager` | interpreter — class-resolution / `NoClassDefFoundError` linkage during `<clinit>` (`execution.rs` + synthetic `LinkageError` in `stdlib.rs`) | **CLEARED (2026-07-12, linkage-error lane)** |
+| #1f″ `method not found: java/util/Hashtable.computeIfAbsent(Object,Function)` | native / stdlib — `java_util` (`Hashtable`) | **HANDOFF — current ladder pin (deferred to future wave)** |
+| #2 `java/net/URL` layout coherence (real-jdk getfield slot 10 panic) | native / stdlib object-layout — `java_net` (`URL`) / real-jdk shadow lane | inferred/open |
 | #3 `spring.factories` / `AutoConfiguration.imports` resource enumeration | java_util + classloader/registry | inferred |
 | #4 reflective bean instantiation / annotations | reflect (`java_lang_reflect`) + `java_lang` (`Class`) | inferred |
 | #5 collections / streams volume | java_util | inferred |
@@ -290,8 +317,9 @@ fixture:
   two fixtures diverge, so the pins assert per-fixture constants. As of the end of
   this wave (all eight rungs above cleared) they are:
   `APP_BLOCKER = "method not found: java/time/format/DateTimeFormatter.ofPattern(Ljava/lang/String;)Ljava/time/format/DateTimeFormatter;"`
-  and
-  `LADDER_BLOCKER = "class not found: org/apache/logging/log4j/MarkerManager"`.
+  and (as of 2026-07-12, after the `MarkerManager` rung was cleared by the
+  linkage-error lane)
+  `LADDER_BLOCKER = "method not found: java/util/Hashtable.computeIfAbsent(Ljava/lang/Object;Ljava/util/function/Function;)Ljava/lang/Object;"`.
   If boot advances (or regresses) past those strings, the pin **trips**, forcing a
   re-observe and an update to this doc.
 
