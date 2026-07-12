@@ -2444,3 +2444,75 @@ pub(crate) fn native_lbq_remaining_capacity(
     let _this_ref = extract_ref_arg(args, 0)?;
     Ok(Some(Slot::Int(i32::MAX)))
 }
+
+/// Shared drain: removes up to `max` elements from the queue and appends each to
+/// the target collection via its `add(Object)Z`; returns the number transferred.
+fn lbq_drain_into(
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+    this_ref: u64,
+    target_ref: u64,
+    max: i32,
+) -> Result<Option<Slot>> {
+    let target_class = heap.get(target_ref)?.class_name.clone();
+    let mut count: i32 = 0;
+    while count < max {
+        let Some(elem) = lbq_dequeue(heap, this_ref)? else {
+            break;
+        };
+        ops.invoke(
+            heap,
+            output,
+            &target_class,
+            "add",
+            "(Ljava/lang/Object;)Z",
+            vec![Slot::Reference(Some(target_ref)), elem],
+        )?;
+        count += 1;
+    }
+    Ok(Some(Slot::Int(count)))
+}
+
+/// Native: `LinkedBlockingQueue.drainTo(Collection)I` — drains every available
+/// element into the target collection, returning the count transferred.
+pub(crate) fn native_lbq_drain_to(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target_ref = extract_ref_arg(args, 1)?;
+    lbq_drain_into(heap, output, ops, this_ref, target_ref, i32::MAX)
+}
+
+/// Native: `LinkedBlockingQueue.drainTo(Collection, int)I` — drains up to
+/// `maxElements` into the target collection, returning the count transferred.
+pub(crate) fn native_lbq_drain_to_max(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let target_ref = extract_ref_arg(args, 1)?;
+    let max = extract_int_arg(args, 2)?;
+    lbq_drain_into(heap, output, ops, this_ref, target_ref, max)
+}
+
+/// Native: `LinkedBlockingQueue.clear()V` — removes all elements.
+pub(crate) fn native_lbq_clear(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get_mut(this_ref)?;
+    obj.fields.truncate(1);
+    obj.fields[0] = Slot::Int(0);
+    Ok(None)
+}

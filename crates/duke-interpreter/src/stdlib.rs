@@ -6940,6 +6940,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()I",
         native_lbq_remaining_capacity,
     );
+    registry.natives_mut().register_callback(
+        "java/util/concurrent/LinkedBlockingQueue",
+        "drainTo",
+        "(Ljava/util/Collection;)I",
+        native_lbq_drain_to,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/concurrent/LinkedBlockingQueue",
+        "drainTo",
+        "(Ljava/util/Collection;I)I",
+        native_lbq_drain_to_max,
+    );
+    registry.natives_mut().register(
+        "java/util/concurrent/LinkedBlockingQueue",
+        "clear",
+        "()V",
+        native_lbq_clear,
+    );
 
     // java/util/Arrays — static array utilities
     let arrays_ctx = ClassContext {
