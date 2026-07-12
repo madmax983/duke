@@ -1477,6 +1477,94 @@ pub(crate) fn native_system_get_property_with_default(
     );
     Ok(Some(result))
 }
+/// Snapshot of the system properties Duke models, consistent with
+/// `system_property_value` (the same key/value source backing `System.getProperty`).
+///
+/// Overrides installed via `System.setProperty` take precedence and may introduce
+/// keys beyond the standard set.
+fn system_properties_snapshot() -> Vec<(String, String)> {
+    const STANDARD_KEYS: &[&str] = &[
+        "java.version",
+        "java.io.tmpdir",
+        "file.separator",
+        "path.separator",
+        "line.separator",
+        "user.dir",
+        "user.home",
+        "os.name",
+        "os.arch",
+    ];
+    let mut seen = std::collections::HashSet::new();
+    let mut props = Vec::new();
+    {
+        let overrides = system_property_overrides()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (key, value) in overrides.iter() {
+            if seen.insert(key.clone()) {
+                props.push((key.clone(), value.clone()));
+            }
+        }
+    }
+    for &key in STANDARD_KEYS {
+        if seen.contains(key) {
+            continue;
+        }
+        if let Some(value) = system_property_value(key) {
+            seen.insert(key.to_string());
+            props.push((key.to_string(), value));
+        }
+    }
+    props
+}
+/// Native: `System.getProperties()Ljava/util/Properties;`.
+///
+/// Under the real-jdk shadow, `java/util/Properties` (and its `Hashtable`
+/// ancestor) execute real JDK bytecode — bytecode wins over registered natives —
+/// so this cannot return a synthetic-layout shim (the half-migration trap). It
+/// materializes a genuine, well-formed `Properties` object graph: ensure the
+/// class is initialized, allocate a real-layout instance, run its real
+/// `<init>()V`, then populate it via real `setProperty` invocations. The key set
+/// is kept consistent with `System.getProperty` (`system_property_value`). The
+/// same path also works in synthetic mode, where it drives the synthetic
+/// `Properties` natives instead.
+pub(crate) fn native_system_get_properties(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    ops.ensure_class_initialized(heap, output, "java/util/Properties")?;
+    let properties_ref = ops.allocate_instance(heap, output, "java/util/Properties")?;
+    ops.invoke(
+        heap,
+        output,
+        "java/util/Properties",
+        "<init>",
+        "()V",
+        vec![Slot::Reference(Some(properties_ref))],
+    )?;
+
+    for (key, value) in system_properties_snapshot() {
+        let key_ref = heap.allocate_string(key);
+        let value_ref = heap.allocate_string(value);
+        ops.invoke(
+            heap,
+            output,
+            "java/util/Properties",
+            "setProperty",
+            "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;",
+            vec![
+                Slot::Reference(Some(properties_ref)),
+                Slot::Reference(Some(key_ref)),
+                Slot::Reference(Some(value_ref)),
+            ],
+        )?;
+    }
+
+    Ok(Some(Slot::Reference(Some(properties_ref))))
+}
 /// Native: `System.getSecurityManager()SecurityManager` - Duke runs without a security manager.
 #[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_system_get_security_manager(

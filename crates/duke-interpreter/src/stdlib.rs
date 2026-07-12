@@ -3283,6 +3283,14 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;",
         native_system_set_property,
     );
+    // getProperties() must materialize a live Properties object graph (allocate +
+    // real <init> + setProperty), so it needs CallbackOps → register_callback.
+    registry.natives_mut().register_callback(
+        "java/lang/System",
+        "getProperties",
+        "()Ljava/util/Properties;",
+        native_system_get_properties,
+    );
     registry.natives_mut().register(
         "java/lang/System",
         "getSecurityManager",
@@ -6950,11 +6958,73 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             native_hashmap_entry_set as NativeHandler,
         ),
         ("clear", "()V", native_hashmap_clear as NativeHandler),
+        (
+            "putIfAbsent",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_put_if_absent as NativeHandler,
+        ),
+        (
+            "getOrDefault",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_get_or_default as NativeHandler,
+        ),
+        (
+            "replace",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_replace as NativeHandler,
+        ),
+        (
+            "containsValue",
+            "(Ljava/lang/Object;)Z",
+            native_hashmap_contains_value as NativeHandler,
+        ),
+        (
+            "putAll",
+            "(Ljava/util/Map;)V",
+            native_hashmap_put_all as NativeHandler,
+        ),
     ] {
         registry
             .natives_mut()
             .register("java/util/Hashtable", method, descriptor, handler);
     }
+    // Map-default callback natives (invoke Java lambdas) — must use register_callback.
+    registry.natives_mut().register_callback(
+        "java/util/Hashtable",
+        "computeIfAbsent",
+        "(Ljava/lang/Object;Ljava/util/function/Function;)Ljava/lang/Object;",
+        native_hashmap_compute_if_absent,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/Hashtable",
+        "computeIfPresent",
+        "(Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_hashmap_compute_if_present,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/Hashtable",
+        "compute",
+        "(Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_hashmap_compute,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/Hashtable",
+        "merge",
+        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_hashmap_merge,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/Hashtable",
+        "forEach",
+        "(Ljava/util/function/BiConsumer;)V",
+        native_hashmap_for_each,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/Hashtable",
+        "replaceAll",
+        "(Ljava/util/function/BiFunction;)V",
+        native_hashmap_replace_all,
+    );
 
     // java/util/Properties — String-keyed map with optional defaults chain.
     // Layout: fields[0] inherited Hashtable size, fields[1] defaults, fields[2..] key/value pairs.
