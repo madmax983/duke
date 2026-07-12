@@ -4280,6 +4280,17 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(class_loader_ctx);
+    // Real-JDK shadow bootstrap: `java/lang/ClassLoader` is not on KEEP_SYNTHETIC, so
+    // under the flag the real JDK-21 ClassLoader classfile loads and its `<clinit>`
+    // runs. Its first act is a private static `registerNatives()V` (genuinely `native`
+    // in the JDK, no bytecode). Without a native, the interpreter runs the empty body
+    // off its end (`FellOffEnd`). This no-op satisfies the hook so `<clinit>` proceeds.
+    registry.natives_mut().register(
+        "java/lang/ClassLoader",
+        "registerNatives",
+        "()V",
+        native_class_loader_register_natives,
+    );
     registry.natives_mut().register(
         "java/lang/ClassLoader",
         "registerAsParallelCapable",

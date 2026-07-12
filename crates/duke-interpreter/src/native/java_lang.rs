@@ -922,6 +922,22 @@ pub(crate) fn native_class_loader_register_as_parallel_capable(
 ) -> Result<Option<Slot>> {
     Ok(Some(Slot::Int(1)))
 }
+/// Native: `java/lang/ClassLoader.registerNatives()V` — a private static hook the
+/// real JDK `ClassLoader.<clinit>` invokes first to wire up its JNI natives. Under
+/// `real_jdk_shadow` the real `ClassLoader` classfile loads and its `<clinit>` runs;
+/// this method is genuinely `native` in the JDK (no bytecode body), so Duke must
+/// supply a native or the interpreter runs off the empty method body (`FellOffEnd`).
+/// Duke registers each `ClassLoader` native explicitly, so there is nothing to wire —
+/// this is a no-op returning void.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_class_loader_register_natives(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(None)
+}
 pub(crate) fn native_class_get_protection_domain(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
