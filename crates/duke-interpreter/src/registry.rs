@@ -416,7 +416,12 @@ pub struct ReflectedClassInfo {
 }
 /// A registry managing loaded classes, their initialization state, and associated native methods.
 pub struct ClassRegistry {
-    classes: HashMap<String, ClassContext>,
+    /// Loaded classes keyed by their provenance-qualified identity key. The key is an
+    /// interned [`Arc<str>`] so registry keys and cached class names on the dispatch hot
+    /// path share a single allocation (see [`Self::intern_key`]). Hashing/equality is by
+    /// string contents, so the `\0loader:`/`\0code:` provenance-suffix key identity is
+    /// preserved byte-for-byte and `.get(&str)` lookups keep working via `Borrow<str>`.
+    classes: HashMap<Arc<str>, ClassContext>,
     natives: NativeRegistry,
     /// Tracks which classes have had their `<clinit>` run.
     initialized: HashSet<String>,
@@ -630,6 +635,21 @@ impl ClassRegistry {
         self.classes.contains_key(class)
             && !self.class_code_sources.contains_key(class)
             && !self.class_runtime_loaders.contains_key(class)
+    }
+
+    /// Intern a class identity key into a shared [`Arc<str>`].
+    ///
+    /// If a class is already registered under `key`, returns a cheap `Arc` clone of the
+    /// registry's existing key so cached class names on the dispatch hot path share the
+    /// registry's single allocation. Otherwise allocates a fresh `Arc<str>` from `key`.
+    ///
+    /// This is a representation change only: `key` must already be a fully-computed class
+    /// identity key (provenance suffix included) — see [`Self::class_key_from_provenance`].
+    #[must_use]
+    pub(crate) fn intern_key(&self, key: &str) -> Arc<str> {
+        self.classes
+            .get_key_value(key)
+            .map_or_else(|| Arc::from(key), |(existing, _)| Arc::clone(existing))
     }
 
     /// Compute the deterministic class identity key for a class reference under explicit provenance.
@@ -1018,7 +1038,7 @@ impl ClassRegistry {
             self.shadowed_classes.push(ctx.class_name);
             return;
         }
-        self.classes.insert(ctx.class_name.clone(), ctx);
+        self.classes.insert(Arc::from(ctx.class_name.as_str()), ctx);
     }
 
     /// Whether `class` (any provenance-keyed form) is a synthetic class that was
@@ -1064,7 +1084,7 @@ impl ClassRegistry {
                 let _ = self.ensure_loaded_from(&current, Some(start_class), loader);
                 current = self.class_key_from_source(&current, Some(start_class));
             }
-            let ctx = self.classes.get(&current)?;
+            let ctx = self.classes.get(current.as_str())?;
             if let Some(idx) = ctx
                 .methods
                 .iter()
@@ -1083,7 +1103,7 @@ impl ClassRegistry {
                 }
                 // Abstract override — keep walking supers for a concrete body.
             }
-            let super_class = self.classes.get(&current)?.super_class.clone();
+            let super_class = self.classes.get(current.as_str())?.super_class.clone();
             current = super_class?;
         }
     }
@@ -1242,7 +1262,7 @@ impl ClassRegistry {
     ) -> Result<bool> {
         let internal_name = class_internal_name_fragment(name).to_string();
         let class_key = self.class_key_from_provenance(&internal_name, code_source, runtime_loader);
-        if self.classes.contains_key(&class_key) {
+        if self.classes.contains_key(class_key.as_str()) {
             // Do not record provenance onto plain bootstrap classes. They are
             // loader-agnostic singletons (`java/lang/System`, `java/lang/ClassLoader`,
             // ...): `class_key_from_provenance` deliberately returns their plain key
@@ -1290,7 +1310,7 @@ impl ClassRegistry {
         ctx.class_name.clone_from(&class_key);
         ctx.super_class = resolved_super_class;
         ctx.interfaces = resolved_interfaces;
-        self.classes.insert(class_key.clone(), ctx);
+        self.classes.insert(Arc::from(class_key.as_str()), ctx);
         if let Some(path) = code_source {
             self.class_code_sources
                 .insert(class_key.clone(), path.to_string());
@@ -1325,7 +1345,7 @@ impl ClassRegistry {
             .classes
             .keys()
             .filter(|class| self.internal_name_for_class(class) == internal_name)
-            .cloned()
+            .map(ToString::to_string)
             .collect();
         match matches.as_slice() {
             [] => Err(Error::ClassNotFound {
