@@ -3004,13 +3004,20 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
 
     // Register java/lang/String ClassContext (empty — instance methods are native).
+    // EXP-A shim: declare the real-JDK `COMPACT_STRINGS:Z` static (initialized
+    // true, mirroring String.<clinit> `iconst_1; putstatic COMPACT_STRINGS`) so
+    // real bytecode doing `getstatic java/lang/String.COMPACT_STRINGS` resolves.
     let string_ctx = ClassContext {
         class_name: "java/lang/String".to_string(),
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: Vec::new(),
-        static_fields: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "COMPACT_STRINGS".to_string(),
+            descriptor: "Z".to_string(),
+            is_static: true,
+        }],
+        static_fields: vec![Slot::Int(1)],
         instance_field_count: 0,
         interfaces: vec![
             "java/lang/Comparable".to_string(),

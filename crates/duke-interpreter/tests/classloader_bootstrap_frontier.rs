@@ -135,15 +135,20 @@ fn slf4j_real_jdk_shadow_classloader_frontier_pin() {
     // `System.getProperties()`. That method now materializes a live, real-layout
     // `java/util/Properties` object graph (allocate + real `<init>` + real
     // `setProperty` under the shadow flag), so `StaticProperty.<clinit>` advances
-    // past it and reads the returned properties. The wall now falls on a real
-    // `getstatic java/lang/String.COMPACT_STRINGS` (a real-JDK static field that the
-    // synthetic, KEEP_SYNTHETIC `java/lang/String` does not declare), which surfaces
-    // as `InvalidFieldref { index: 0 }`. That is a separate lane (String real-layout /
-    // KEEP_SYNTHETIC allowlist), out of scope for the system-properties lane.
+    // past it and reads the returned properties. With the synthetic String now
+    // declaring the real-JDK `COMPACT_STRINGS:Z` static (init true, mirroring
+    // String.<clinit> `iconst_1; putstatic COMPACT_STRINGS`), the former
+    // `getstatic java/lang/String.COMPACT_STRINGS` fieldref wall is cleared and real
+    // String bytecode advances into `String.coder()`, an instance method the
+    // synthetic KEEP_SYNTHETIC `java/lang/String` does not provide as a native, which
+    // surfaces as `MethodNotFound { name: "java/lang/String.coder", descriptor: "()B" }`.
+    // That is a separate lane (String real-layout / KEEP_SYNTHETIC allowlist), out of
+    // scope for the system-properties lane.
     //
     // When a native pushes the wall past this point, re-run with `-- --nocapture`,
     // read the new verbatim blocker above, and update this substring to lock it in.
-    const EXPECTED_FRONTIER: &str = "InvalidFieldref { index: 0 }";
+    const EXPECTED_FRONTIER: &str =
+        "MethodNotFound { name: \"java/lang/String.coder\", descriptor: \"()B\" }";
 
     let rendered = match run_slf4j_real_jdk_shadow() {
         Ok(()) => {
