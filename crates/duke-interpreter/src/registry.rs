@@ -430,7 +430,7 @@ pub struct ClassRegistry {
     /// `NoClassDefFoundError` rather than re-running the initialiser.
     erroneous: HashSet<String>,
     /// Lambda proxy class name → metadata.
-    lambdas: HashMap<String, LambdaInfo>,
+    lambdas: HashMap<String, Box<LambdaInfo>>,
     /// Monotonic counter for generating unique lambda class names.
     lambda_counter: u64,
     /// Default code source path used for lightweight ``ProtectionDomain`` emulation.
@@ -500,7 +500,7 @@ impl ClassRegistry {
         }
     }
 
-    pub(crate) fn register_lambda(&mut self, info: LambdaInfo) -> String {
+    pub(crate) fn register_lambda(&mut self, info: Box<LambdaInfo>) -> String {
         let name = format!("$$Lambda${}", self.lambda_counter);
         self.lambda_counter += 1;
         self.lambdas.insert(name.clone(), info);
@@ -508,7 +508,7 @@ impl ClassRegistry {
     }
 
     pub(crate) fn get_lambda(&self, class_name: &str) -> Option<&LambdaInfo> {
-        self.lambdas.get(class_name)
+        self.lambdas.get(class_name).map(std::convert::AsRef::as_ref)
     }
 
     /// Checks if a class has been successfully initialized (its `<clinit>` method has completed).

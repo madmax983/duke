@@ -85,3 +85,6 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+**Box large stack struct LambdaInfo**
+**Learning:** `LambdaInfo` in `crates/duke-interpreter/src/registry.rs` is 160 bytes. Passing it by value and storing it directly in a `HashMap` caused a `clippy::large_stack_frames` warning because `run_execution` is a very deep and complex function, allocating over 500KB on the stack.
+**Action:** Change the map to `HashMap<String, Box<LambdaInfo>>` and pass `Box<LambdaInfo>` through APIs like `register_lambda` to reduce stack allocations and fix the clippy warning without suppressing it.

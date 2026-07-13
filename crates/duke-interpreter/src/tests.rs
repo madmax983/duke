@@ -9271,7 +9271,7 @@ fn interpreter_callback_ops_can_invoke_registered_lambda_classes() {
         |_args, _heap, _out, _control| Ok(Some(Slot::Int(42))),
     );
 
-    let lambda_class = registry.register_lambda(LambdaInfo {
+    let lambda_class = registry.register_lambda(Box::new(LambdaInfo {
         impl_class: "duke/test/LambdaHelper".to_string(),
         impl_method: "answer".to_string(),
         impl_desc: "()I".to_string(),
@@ -9280,7 +9280,7 @@ fn interpreter_callback_ops_can_invoke_registered_lambda_classes() {
         sam_desc: "()I".to_string(),
         sam_interface: "java/util/function/IntSupplier".to_string(),
         captured_count: 0,
-    });
+    }));
     let lambda_ref = heap.allocate(lambda_class.clone(), 0);
     let loader = fixtures_loader();
     let mut out: Vec<u8> = Vec::new();
@@ -9320,7 +9320,7 @@ fn interpreter_callback_ops_can_invoke_registered_virtual_lambda_classes() {
         },
     );
 
-    let lambda_class = registry.register_lambda(LambdaInfo {
+    let lambda_class = registry.register_lambda(Box::new(LambdaInfo {
         impl_class: "duke/test/LambdaTarget".to_string(),
         impl_method: "increment".to_string(),
         impl_desc: "(I)I".to_string(),
@@ -9329,7 +9329,7 @@ fn interpreter_callback_ops_can_invoke_registered_virtual_lambda_classes() {
         sam_desc: "(I)I".to_string(),
         sam_interface: "java/util/function/IntUnaryOperator".to_string(),
         captured_count: 1,
-    });
+    }));
     let target_ref = heap.allocate("duke/test/LambdaTarget".to_string(), 0);
     let lambda_ref = heap.allocate(lambda_class.clone(), 1);
     heap.get_mut(lambda_ref).unwrap().fields[0] = Slot::Reference(Some(target_ref));
@@ -10823,8 +10823,8 @@ fn class_registry_register_lambda_increments_counter() {
         sam_interface: "java/lang/Runnable".to_string(),
         captured_count: 0,
     };
-    let n0 = reg.register_lambda(info.clone());
-    let n1 = reg.register_lambda(info);
+    let n0 = reg.register_lambda(Box::new(info.clone()));
+    let n1 = reg.register_lambda(Box::new(info));
     assert_ne!(n0, n1, "each lambda gets a distinct name");
     assert!(n0.contains('0'), "first lambda name contains '0'");
     assert!(n1.contains('1'), "second lambda name contains '1'");

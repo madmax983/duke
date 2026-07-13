@@ -225,6 +225,7 @@ fn layout_coherence_check(
     clippy::items_after_statements,
     clippy::used_underscore_binding
 )]
+#[allow(clippy::large_stack_frames)]
 pub fn run_execution(
     state: &mut ExecutionState,
     registry: &mut ClassRegistry,
@@ -3033,7 +3034,7 @@ pub fn run_execution(
                         sam_interface,
                         captured_count,
                     };
-                    let lambda_class = registry.register_lambda(lambda_info);
+                    let lambda_class = registry.register_lambda(Box::new(lambda_info));
 
                     let r = heap.allocate(lambda_class, captured_count);
                     for (i, slot) in captured_args.into_iter().enumerate() {
