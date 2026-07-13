@@ -4291,6 +4291,29 @@ pub(crate) fn native_sb_append_char(
     }
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
+/// Native: `StringBuilder.append(Ljava/lang/Object;)Ljava/lang/StringBuilder;`
+/// Appends `String.valueOf(obj)` — i.e. `obj.toString()`, or the literal
+/// `"null"` when the argument is null. Mirrors `native_string_value_of_object`
+/// by rendering the heap object via `heap_object_to_string` (the same
+/// toString-dispatch precedent used by `String.valueOf(Object)` and
+/// `PrintStream.println(Object)`).
+pub(crate) fn native_sb_append_object(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let append_str = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => heap_object_to_string(heap.get(*r)?, *r),
+        _ => "null".to_string(),
+    };
+    let obj = heap.get_mut(this_ref)?;
+    if let Some(ref mut buf) = obj.string_value {
+        buf.push_str(&append_str);
+    }
+    Ok(Some(Slot::Reference(Some(this_ref))))
+}
 /// Native: `StringBuilder.toString()Ljava/lang/String;`
 pub(crate) fn native_sb_tostring(
     args: &[Slot],
@@ -4731,6 +4754,90 @@ pub(crate) fn native_string_index_of_char(
                     .as_deref()
                     .map(|s| s[..byte_pos].chars().count())
             })
+        });
+    let result = idx.and_then(|i| i32::try_from(i).ok()).unwrap_or(-1);
+    Ok(Some(Slot::Int(result)))
+}
+/// Native: `String.indexOf(int, int)I` — first occurrence of char (as Unicode
+/// code point) at or after `fromIndex`. A negative `fromIndex` is treated as 0;
+/// indices are counted in chars, matching `native_string_index_of_char`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub(crate) fn native_string_index_of_char_from(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let ch = char::from_u32(extract_int_arg(args, 1)? as u32).unwrap_or('\0');
+    let from = extract_int_arg(args, 2).unwrap_or(0).max(0) as usize;
+    let idx = heap
+        .get(this_ref)?
+        .string_value
+        .as_deref()
+        .and_then(|s| {
+            s.chars()
+                .enumerate()
+                .skip(from)
+                .find(|(_, c)| *c == ch)
+                .map(|(i, _)| i)
+        });
+    let result = idx.and_then(|i| i32::try_from(i).ok()).unwrap_or(-1);
+    Ok(Some(Slot::Int(result)))
+}
+/// Native: `String.lastIndexOf(int)I` — last occurrence of char (as Unicode code
+/// point); indices are counted in chars, matching `native_string_index_of_char`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub(crate) fn native_string_last_index_of_char(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let ch = char::from_u32(extract_int_arg(args, 1)? as u32).unwrap_or('\0');
+    let idx = heap
+        .get(this_ref)?
+        .string_value
+        .as_deref()
+        .and_then(|s| {
+            s.chars()
+                .enumerate()
+                .filter(|(_, c)| *c == ch)
+                .map(|(i, _)| i)
+                .last()
+        });
+    let result = idx.and_then(|i| i32::try_from(i).ok()).unwrap_or(-1);
+    Ok(Some(Slot::Int(result)))
+}
+/// Native: `String.lastIndexOf(int, int)I` — last occurrence of char (as Unicode
+/// code point) at or before `fromIndex`. A negative `fromIndex` yields -1; indices
+/// are counted in chars, matching `native_string_index_of_char`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub(crate) fn native_string_last_index_of_char_from(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let ch = char::from_u32(extract_int_arg(args, 1)? as u32).unwrap_or('\0');
+    let from = extract_int_arg(args, 2)?;
+    if from < 0 {
+        return Ok(Some(Slot::Int(-1)));
+    }
+    let from = from as usize;
+    let idx = heap
+        .get(this_ref)?
+        .string_value
+        .as_deref()
+        .and_then(|s| {
+            s.chars()
+                .enumerate()
+                .take(from + 1)
+                .filter(|(_, c)| *c == ch)
+                .map(|(i, _)| i)
+                .last()
         });
     let result = idx.and_then(|i| i32::try_from(i).ok()).unwrap_or(-1);
     Ok(Some(Slot::Int(result)))
@@ -5289,6 +5396,20 @@ pub(crate) fn native_reference_clear(
     let this_ref = extract_ref_arg(args, 0)?;
     heap.get_mut(this_ref)?.fields[0] = Slot::Reference(None);
     Ok(None)
+}
+
+/// `java/lang/ref/ReferenceQueue.poll()Ljava/lang/ref/Reference;` — always returns
+/// null. Duke's Reference model is non-collecting (see the block header above), so
+/// no reference is ever enqueued; a map that drains its queue simply observes it
+/// empty, which matches the "nothing has been GC'd" world Duke presents.
+pub(crate) fn native_reference_queue_poll(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let _ = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Reference(None)))
 }
 
 // ─── java.lang.Module — minimal unnamed-module model ─────────────────────────

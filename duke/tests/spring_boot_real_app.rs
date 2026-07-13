@@ -59,12 +59,35 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //     then surfaced — and this lane cleared — several previously-swallowed rungs:
 //     `java/lang/Record.<init>` (now registered), a synthetic
 //     `java/util/concurrent/LinkedBlockingQueue` (FIFO queue with drainTo/clear),
-//     and `java/lang/InheritableThreadLocal` (ThreadLocal subclass). The app now
-//     lands on `method not found: java/lang/StringBuilder.append(Ljava/lang/
-//     Object;)Ljava/lang/StringBuilder;` — the StringBuilder `append(Object)`
-//     overload (which must String.valueOf/`toString` its argument) is not yet a
-//     native. That is a java.lang lane blocker (a new toString-dispatching native
-//     in native/java_lang.rs), out of the j.u.c./java_util/dispatch scope here.
+//     and `java/lang/InheritableThreadLocal` (ThreadLocal subclass). The
+//     `StringBuilder.append(Object)` rung is now CLEARED: a new
+//     `native_sb_append_object` appends `String.valueOf(arg)` by rendering the
+//     argument through `heap_object_to_string` — the same toString-dispatch
+//     precedent `String.valueOf(Object)` and `PrintStream.println(Object)` use.
+//     The app then climbed a run of shallow java.lang/java.util rungs, all
+//     CLEARED this session: `String.indexOf(II)I`, `String.lastIndexOf(I)I` and
+//     `String.lastIndexOf(II)I` (char-index natives); synthetic
+//     `java/util/LinkedHashSet`, `java/util/WeakHashMap` and
+//     `java/util/IdentityHashMap` (reuse the HashSet / HashMap native families —
+//     Duke's map key comparison is already identity-based for general objects, so
+//     IdentityHashMap is faithful); a synthetic `java/util/AbstractMap` with a
+//     no-op `<init>` (jar-loaded map subclasses chain super() to it); the
+//     initial-capacity `<init>(I)V`/`(IF)V` constructors on HashMap/HashSet/
+//     LinkedHashSet (capacity hint ignored); `HashSet.addAll(Collection)`,
+//     `Collections.addAll(Collection, Object[])` and
+//     `Collections.newSetFromMap(Map)` (returns a fresh field-backed HashSet,
+//     matching the empty-map contract); and a non-collecting
+//     `java/lang/ref/ReferenceQueue` (no-op `<init>`, `poll()` always null) plus
+//     the two-arg `WeakReference(referent, queue)` constructor. The app now boots
+//     far enough to fail inside a *reflectively-invoked* method, so the visible
+//     first blocker is an uncaught `java/lang/reflect/InvocationTargetException`
+//     (reflection wraps the target throwable and discards its class). Instrumenting
+//     the wrap shows the underlying cause is `NoClassDefFoundError:
+//     java/util/EnumSet`; registering EnumSet only uncovers a deeper
+//     `ExceptionInInitializerError` from an enum/config static initializer that
+//     uses EnumSet's Class-typed factories (`noneOf`/`allOf`/`range`, which need
+//     enum-constant reflection and ordinal bit-set storage). That is a real
+//     subsystem, not a shallow method mirror, so the app is pinned here.
 //   * LADDER cleared the commons-logging `LogFactory.newStandardFactory`
 //     `Class.forName("...SLF4JProvider", false, cl)` availability probe: the
 //     3-arg `Class.forName` native was eagerly computing the class key (which
@@ -89,8 +112,9 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //     lane cleared; this is a different missing-method rung).
 // If either boot advances past its pin, re-observe and update.
 // See docs/findings/2026-07-10-spring-boot-real-app.md.
-const APP_BLOCKER: &str =
-    "method not found: java/lang/StringBuilder.append(Ljava/lang/Object;)Ljava/lang/StringBuilder;";
+// Root cause (visible only via instrumentation of the reflection wrap):
+// `NoClassDefFoundError: java/util/EnumSet`, then `ExceptionInInitializerError`.
+const APP_BLOCKER: &str = "java exception: java/lang/reflect/InvocationTargetException";
 const LADDER_BLOCKER: &str = "method not found: org/apache/commons/logging/impl/LogFactoryImpl.objectId(Ljava/lang/Object;)Ljava/lang/String;";
 
 fn run_fixture(jar: &str) -> Output {
@@ -120,14 +144,17 @@ fn combined_output(output: &Output) -> String {
 /// End-to-end CANARY for the real Spring Boot app fixture. Ignored until boot
 /// reaches the started-application line. Un-ignore when the happy path clears.
 #[test]
-#[ignore = "Blocked on 'method not found: java/lang/StringBuilder.append(Ljava/lang/Object;)\
-            Ljava/lang/StringBuilder;' — the StringBuilder append(Object) overload is not yet a \
-            native (a java.lang lane blocker: it must String.valueOf/toString its argument). \
-            The logback COWArrayList.addIfAbsent operand-stack-underflow rung is now cleared by \
-            honest method dispatch (catchable NoSuchMethodError) plus a synthetic \
-            CopyOnWriteArrayList/LinkedBlockingQueue/InheritableThreadLocal/Record; keep ignored \
-            until the Spring Boot app boot completes. \
-            See docs/findings/2026-07-10-spring-boot-real-app.md"]
+#[ignore = "Blocked on an uncaught java/lang/reflect/InvocationTargetException whose underlying \
+            cause (visible only via instrumentation of the reflection wrap) is \
+            NoClassDefFoundError: java/util/EnumSet, which in turn uncovers an \
+            ExceptionInInitializerError from an enum/config static initializer using EnumSet's \
+            Class-typed factories (noneOf/allOf/range) — a real enum-reflection/ordinal-bitset \
+            subsystem, not a shallow method mirror. The StringBuilder append(Object) rung plus a \
+            run of shallow java.lang/java.util rungs (String.indexOf(II)/lastIndexOf(I)/(II); \
+            synthetic LinkedHashSet/WeakHashMap/IdentityHashMap/AbstractMap; capacity ctors on \
+            HashMap/HashSet; HashSet.addAll; Collections.addAll/newSetFromMap; non-collecting \
+            ReferenceQueue) are now cleared; keep ignored until the Spring Boot app boot \
+            completes. See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_app_boots_end_to_end() {
     let output = run_fixture(APP_JAR);
     let combined = combined_output(&output);

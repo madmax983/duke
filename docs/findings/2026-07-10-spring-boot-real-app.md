@@ -483,3 +483,92 @@ That is the **java.util.concurrent / interpreter lenient-dispatch lane**, outsid
 the java.time family, so it is pinned rather than fixed here.
 `APP_BLOCKER` is now `"duke: runtime error: operand stack underflow"`.
 `LADDER_BLOCKER` is unchanged (`"class not found: org/apache/logging/log4j/MarkerManager"`).
+
+---
+
+## Session 2026-07-13 — `StringBuilder.append(Object)` + a run of shallow java.lang/java.util APP rungs
+
+**Mission:** implement `java/lang/StringBuilder.append(Ljava/lang/Object;)Ljava/lang/StringBuilder;`, then climb as many shallow APP rungs as possible.
+
+**toString-dispatch mechanism (the crux of `append(Object)`).** Real
+`StringBuilder.append(Object o)` == `append(String.valueOf(o))` == `"null"` when
+`o == null`, else `o.toString()`. Calling a Java `toString()` from native code
+would need interpreter re-entry — but Duke has an existing precedent that does
+**not** re-enter: the free function `heap_object_to_string(&HeapObject, u64)` in
+`native/common.rs`. It renders String / boxed primitives (Integer/Long/Double/
+Float/Boolean/Character) / Class / UUID directly from the heap object, falling
+back to `class@hex`. `String.valueOf(Object)` (`native_string_value_of_object`)
+and `PrintStream.println(Object)`/`print(Object)` all use it. The new
+`native_sb_append_object` **mirrors `native_string_value_of_object` exactly**:
+null → append literal `"null"`; otherwise append `heap_object_to_string(...)`;
+return `this`. No forbidden file was edited (all `native/*.rs` are `include!`d
+into one module, so the helper is directly callable from `java_lang.rs`).
+
+**Rungs cleared this session (each a small native mirroring existing ones):**
+- `java/lang/StringBuilder.append(Ljava/lang/Object;)Ljava/lang/StringBuilder;`
+  — `native_sb_append_object` (toString dispatch via `heap_object_to_string`).
+- `java/lang/String.indexOf(II)I` — `native_string_index_of_char_from`.
+- `java/lang/String.lastIndexOf(I)I` — `native_string_last_index_of_char`.
+- `java/lang/String.lastIndexOf(II)I` — `native_string_last_index_of_char_from`.
+  (All char-index natives mirror `native_string_index_of_char`; indices counted
+  in chars, consistent with the existing char `indexOf`.)
+- `java/util/LinkedHashSet` — synthetic class reusing the entire `HashSet` native
+  family + the shared `duke/util/HashSetIterator`. Duke's HashSet already stores
+  elements in insertion order (a flat field list), so insertion-ordered iteration
+  is automatic. `<init>()V/(I)V/(IF)V`, add/addAll/contains/remove/size/isEmpty/
+  iterator/toArray/stream all registered.
+- `java/util/WeakHashMap` — synthetic class reusing the full `HashMap` native
+  family (incl. the Map-default callback family), exactly like `Hashtable` does.
+  Duke does not model GC-driven key eviction, so it behaves as a plain HashMap —
+  the same documented simplification pattern.
+- `java/util/IdentityHashMap` — synthetic class reusing the `HashMap` native
+  family, incl. the `<init>(I)V` capacity ctor. This is *faithful*, not just a
+  simplification: Duke's shared map key comparison (`slots_equal`) already
+  compares general object keys by **identity** (`ra == rb`), only falling back to
+  value equality for String/Class/UUID/boxed keys, which IdentityHashMap is not
+  used with in these bootstraps.
+- `java/util/AbstractMap` — synthetic class with a no-op `<init>()V`
+  (`native_object_init`). A real map class loaded from the jar chains its `<init>`
+  to `AbstractMap.<init>()V`; the synthetic super lets that `super()` resolve.
+- `java/util/HashMap.<init>(I)V` and `(IF)V`, `java/util/HashSet.<init>(I)V` and
+  `(IF)V`, `java/util/LinkedHashSet.<init>(I)V` and `(IF)V` — capacity/loadFactor
+  hints ignored, all mapped to the existing no-arg init native.
+- `java/util/HashSet.addAll(Ljava/util/Collection;)Z` — `native_hashset_add_all`
+  (pulls elements via the source's `toArray()`, mirroring
+  `native_hashset_init_from_collection`; routes each through `native_hashset_add`
+  for dedup; returns whether the set changed). Also registered on LinkedHashSet.
+- `java/util/Collections.addAll(Ljava/util/Collection;[Ljava/lang/Object;)Z` —
+  `native_collections_add_all` (invokes `add(Object)` on the target collection
+  for each array element, so any Collection impl works).
+- `java/util/Collections.newSetFromMap(Ljava/util/Map;)Ljava/util/Set;` —
+  `native_collections_new_set_from_map`. `newSetFromMap`'s contract requires the
+  supplied map to be empty, so the returned set starts empty; Duke returns a
+  fresh field-backed `HashSet` (same non-observable-backing-type simplification
+  as WeakHashMap).
+- `java/lang/ref/ReferenceQueue` — non-collecting stub: no-op `<init>()V`,
+  `poll()` always returns null (Duke never enqueues, matching its existing
+  non-collecting Reference model). Plus the two-arg
+  `WeakReference(referent, ReferenceQueue)` constructor (queue accepted +
+  ignored, referent stored via `native_reference_init`).
+
+**New APP frontier (HANDOFF — a real subsystem, pinned not fixed).** After the
+rungs above, the app boots far enough to fail *inside a reflectively-invoked
+method*. `native_reflect_method_invoke` catches the target's `JavaException` and
+re-throws it as `InvocationTargetException`, **discarding the cause's class name**,
+so the only visible output is the generic
+`duke: runtime error: java exception: java/lang/reflect/InvocationTargetException`.
+Temporarily instrumenting that catch arm (peeking the uncaught-exception ref's
+detail message via `take_uncaught_java_exception_ref`) revealed the underlying
+cause: `NoClassDefFoundError: java/util/EnumSet`. Registering an empty synthetic
+`java/util/EnumSet` only uncovers a deeper `ExceptionInInitializerError` from an
+enum/config static initializer that uses EnumSet's Class-typed factories
+(`noneOf`/`allOf`/`range`/`of`, which need enum-constant reflection and
+ordinal-based bit-set storage). That is a genuine subsystem — enum reflection +
+EnumSet ordinal semantics — not a one-function mirror, so the app is pinned here.
+All instrumentation was reverted; `reflect.rs` is byte-for-byte unchanged.
+
+`APP_BLOCKER` is now `"java exception: java/lang/reflect/InvocationTargetException"`
+(root cause `NoClassDefFoundError: java/util/EnumSet`, then
+`ExceptionInInitializerError`, both documented in the test).
+`LADDER_BLOCKER` is unchanged
+(`"method not found: org/apache/commons/logging/impl/LogFactoryImpl.objectId(Ljava/lang/Object;)Ljava/lang/String;"`).

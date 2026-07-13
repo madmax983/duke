@@ -4249,6 +4249,58 @@ pub(crate) fn native_properties_to_string(
     let string_ref = heap.allocate_string(rendered);
     Ok(Some(Slot::Reference(Some(string_ref))))
 }
+/// Native: `Collections.newSetFromMap(Map)Set` — returns a set backed by the
+/// given map. `Map.newSetFromMap`'s contract requires the supplied map to be
+/// empty, so the backing storage starts empty; Duke returns a fresh field-backed
+/// `HashSet`, which preserves insertion order and supports the full Set surface.
+/// This is the same simplification Duke already applies for `WeakHashMap`
+/// (backing type is not observable through the returned view in normal usage).
+pub(crate) fn native_collections_new_set_from_map(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    // The map argument is required (NPE on null) but, per the empty-map
+    // precondition, its contents do not seed the returned set.
+    let _map_ref = extract_ref_arg(args, 0)?;
+    let set_ref = heap.allocate("java/util/HashSet".to_string(), 1);
+    native_hashset_init(&[Slot::Reference(Some(set_ref))], heap, out, control)?;
+    Ok(Some(Slot::Reference(Some(set_ref))))
+}
+/// Native: `Collections.addAll(Collection, Object[])Z` — adds every array element
+/// to the target collection by invoking its `add(Object)` (so it works for any
+/// Collection impl). Returns 1 if the collection changed.
+pub(crate) fn native_collections_add_all(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let collection_ref = extract_ref_arg(args, 0)?;
+    let collection_class = heap.get(collection_ref)?.class_name.clone();
+    let elements: Vec<Slot> = match extract_slot_arg(args, 1) {
+        Slot::Reference(Some(array_ref)) => heap.get(array_ref)?.fields.clone(),
+        Slot::Reference(None) => return Err(Error::NullPointerException),
+        _ => Vec::new(),
+    };
+    let mut modified = false;
+    for element in elements {
+        let added = ops.invoke(
+            heap,
+            output,
+            &collection_class,
+            "add",
+            "(Ljava/lang/Object;)Z",
+            vec![Slot::Reference(Some(collection_ref)), element],
+        )?;
+        if matches!(added, Some(Slot::Int(1))) {
+            modified = true;
+        }
+    }
+    Ok(Some(Slot::Int(i32::from(modified))))
+}
 pub(crate) fn native_set_of(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -4343,6 +4395,62 @@ pub(crate) fn native_hashset_init_from_collection(
         )?;
     }
     Ok(None)
+}
+/// Native: `HashSet.addAll(Collection)Z` — adds every element of the source
+/// collection, skipping duplicates. Returns 1 if the set changed. Elements are
+/// pulled via the source's `toArray()` (mirroring `native_hashset_init_from_collection`),
+/// so any Collection works; each element is routed through `native_hashset_add`
+/// for dedup.
+pub(crate) fn native_hashset_add_all(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    output: &mut dyn Write,
+    control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let mut this_ref = extract_ref_arg(args, 0)?;
+    let collection_ref = extract_ref_arg(args, 1)?;
+
+    let collection_class = heap.get(collection_ref)?.class_name.clone();
+    let elements: Vec<Slot> = if collection_class == "java/util/HashSet" {
+        heap.get(collection_ref)?
+            .fields
+            .iter()
+            .skip(1)
+            .copied()
+            .collect()
+    } else {
+        let array_slot = ops.invoke(
+            heap,
+            output,
+            &collection_class,
+            "toArray",
+            "()[Ljava/lang/Object;",
+            vec![Slot::Reference(Some(collection_ref))],
+        )?;
+        let Some(Slot::Reference(Some(array_ref))) = array_slot else {
+            return Err(Error::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
+        };
+        patch_forwarded_ref_if_needed(heap, &mut this_ref);
+        heap.get(array_ref)?.fields.clone()
+    };
+
+    let mut modified = false;
+    for element in elements {
+        let added = native_hashset_add(
+            &[Slot::Reference(Some(this_ref)), element],
+            heap,
+            output,
+            control,
+        )?;
+        if matches!(added, Some(Slot::Int(1))) {
+            modified = true;
+        }
+    }
+    Ok(Some(Slot::Int(i32::from(modified))))
 }
 /// Native: `HashSet.add(Object)Z` — adds element if not already present.
 /// Returns 1 if added, 0 if element was already in the set.
