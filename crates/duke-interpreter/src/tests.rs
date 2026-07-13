@@ -33776,3 +33776,435 @@ fn is_assignable_from_matches_loader_qualified_interface() {
         "an unrelated class must not be assignable to Iface"
     );
 }
+
+// ===========================================================================
+// Static field / class-init superclass-chain resolution (JVMS §5.4.3.2 / §5.5)
+//
+// These mirror the invokestatic super-walk fix: `getstatic`/`putstatic` must
+// resolve an inherited static by walking the superclass chain and index the
+// DECLARING class's per-class `static_fields`, and `ensure_initialized` must
+// eagerly initialize the direct superclass before the class itself.
+// ===========================================================================
+
+/// FIX (A): `getstatic`/`putstatic` bound to a subclass must resolve a static
+/// field declared on a superclass and read/write the superclass's per-class
+/// storage. On trunk this raises `InvalidFieldref { index: 0 }`.
+#[allow(clippy::too_many_lines)]
+#[test]
+fn getstatic_resolves_inherited_static_field() {
+    use duke_classfile::CpIndex;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    // Caller CP: a Fieldref symbolically bound to the SUBCLASS `SubNoStatic`
+    // for the field `COUNTER:I` that is actually declared on the superclass.
+    //   [1]=Fieldref(class=2,nat=3) [2]=Class(name=4) [3]=NameAndType(name=5,desc=6)
+    //   [4]=Utf8("SubNoStatic") [5]=Utf8("COUNTER") [6]=Utf8("I")
+    let cp = make_cp(vec![
+        Some(CpEntry::Fieldref {
+            class_index: CpIndex(2),
+            name_and_type_index: CpIndex(3),
+        }),
+        Some(CpEntry::Class {
+            name_index: CpIndex(4),
+        }),
+        Some(CpEntry::NameAndType {
+            name_index: CpIndex(5),
+            descriptor_index: CpIndex(6),
+        }),
+        Some(CpEntry::Utf8("SubNoStatic".to_string())),
+        Some(CpEntry::Utf8("COUNTER".to_string())),
+        Some(CpEntry::Utf8("I".to_string())),
+    ]);
+
+    // readCounter()I : getstatic SubNoStatic.COUNTER ; ireturn
+    let read_instrs: Arc<[(usize, Instruction)]> = vec![
+        (0, Instruction::Getstatic(CpIndex(1))),
+        (3, Instruction::Ireturn),
+    ]
+    .into();
+    let read_method = MethodEntry {
+        name: "readCounter".to_string(),
+        descriptor: "()I".to_string(),
+        is_public: true,
+        is_static: true,
+        is_native: false,
+        is_abstract: false,
+        instructions: Arc::clone(&read_instrs),
+        max_stack: 1,
+        max_locals: 0,
+        exception_table: Vec::new(),
+        pc_to_idx: Arc::new(HashMap::from([(0, 0), (3, 1)])),
+        line_number_table: Vec::new(),
+        source_file: None,
+    };
+
+    // writeCounter(I)V : iload0 ; putstatic SubNoStatic.COUNTER ; return
+    let write_instrs: Arc<[(usize, Instruction)]> = vec![
+        (0, Instruction::Iload0),
+        (1, Instruction::Putstatic(CpIndex(1))),
+        (4, Instruction::Return),
+    ]
+    .into();
+    let write_method = MethodEntry {
+        name: "writeCounter".to_string(),
+        descriptor: "(I)V".to_string(),
+        is_public: true,
+        is_static: true,
+        is_native: false,
+        is_abstract: false,
+        instructions: Arc::clone(&write_instrs),
+        max_stack: 1,
+        max_locals: 1,
+        exception_table: Vec::new(),
+        pc_to_idx: Arc::new(HashMap::from([(0, 0), (1, 1), (4, 2)])),
+        line_number_table: Vec::new(),
+        source_file: None,
+    };
+
+    let caller_ctx = ClassContext {
+        class_name: "StaticCaller".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        interfaces: Vec::new(),
+        constant_pool: cp,
+        methods: vec![read_method, write_method],
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Classfile,
+    };
+
+    // Superclass owns the static `COUNTER:I`; its per-class storage holds 42.
+    let super_ctx = ClassContext {
+        class_name: "SuperWithStatic".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        interfaces: Vec::new(),
+        constant_pool: vec![None],
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "COUNTER".to_string(),
+            descriptor: "I".to_string(),
+            is_static: true,
+        }],
+        static_fields: vec![Slot::Int(42)],
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+
+    // Subclass declares NO static of its own — storage is empty.
+    let sub_ctx = ClassContext {
+        class_name: "SubNoStatic".to_string(),
+        super_class: Some("SuperWithStatic".to_string()),
+        interfaces: Vec::new(),
+        constant_pool: vec![None],
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    registry.register(caller_ctx);
+    registry.register(super_ctx);
+    registry.register(sub_ctx);
+    let loader = fixtures_loader();
+
+    // getstatic through the subclass ref reads the superclass's storage.
+    let mut sink: Vec<u8> = Vec::new();
+    let read = execute_class(
+        &mut registry,
+        &loader,
+        &mut heap,
+        &mut sink,
+        "StaticCaller",
+        "readCounter",
+        "()I",
+        &[],
+    )
+    .expect("getstatic of an inherited static must resolve via the super chain")
+    .expect("readCounter()I must return a value");
+    assert_eq!(
+        read,
+        Slot::Int(42),
+        "getstatic SubNoStatic.COUNTER must read the superclass's static storage"
+    );
+
+    // putstatic through the subclass ref writes into the superclass's storage.
+    execute_class(
+        &mut registry,
+        &loader,
+        &mut heap,
+        &mut sink,
+        "StaticCaller",
+        "writeCounter",
+        "(I)V",
+        &[Slot::Int(99)],
+    )
+    .expect("putstatic of an inherited static must resolve via the super chain");
+
+    // The write landed in the DECLARING class, not the subclass.
+    assert_eq!(
+        registry.get("SuperWithStatic").unwrap().static_fields[0],
+        Slot::Int(99),
+        "putstatic must write the superclass's per-class static storage"
+    );
+    assert!(
+        registry
+            .get("SubNoStatic")
+            .unwrap()
+            .static_fields
+            .is_empty(),
+        "the subclass must not gain its own static storage for an inherited field"
+    );
+
+    // Reading again observes the updated superclass value.
+    let reread = execute_class(
+        &mut registry,
+        &loader,
+        &mut heap,
+        &mut sink,
+        "StaticCaller",
+        "readCounter",
+        "()I",
+        &[],
+    )
+    .expect("re-read must succeed")
+    .expect("readCounter()I must return a value");
+    assert_eq!(
+        reread,
+        Slot::Int(99),
+        "getstatic must observe the value written through the subclass ref"
+    );
+}
+
+/// FIX (B): initializing a subclass must eagerly initialize its direct
+/// superclass FIRST (JVMS §5.5 step 7). Each `<clinit>` stamps a monotonically
+/// increasing sequence number into its own `ORDER` static; the superclass must
+/// receive the earlier number. On trunk the superclass's `<clinit>` never runs
+/// (nothing else references it), so its `ORDER` stays 0 and the assertion fails.
+#[allow(clippy::too_many_lines)]
+#[test]
+fn subclass_init_initializes_superclass_first() {
+    use duke_classfile::CpIndex;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    // A shared `Log.SEQ:I` counter (starts at 1); each <clinit> reads it into
+    // its own ORDER, then increments SEQ. Build a <clinit> body parameterized
+    // by the owning class name for the ORDER Fieldref.
+    //   CP: [1]=Fieldref Log.SEQ(class=2,nat=3) [2]=Class(4) [3]=NaT(5,6)
+    //       [4]=Utf8("Log") [5]=Utf8("SEQ") [6]=Utf8("I")
+    //       [7]=Fieldref <owner>.ORDER(class=8,nat=9) [8]=Class(10) [9]=NaT(11,6)
+    //       [10]=Utf8(<owner>) [11]=Utf8("ORDER")
+    let make_clinit_cp = |owner: &str| {
+        make_cp(vec![
+            Some(CpEntry::Fieldref {
+                class_index: CpIndex(2),
+                name_and_type_index: CpIndex(3),
+            }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(4),
+            }),
+            Some(CpEntry::NameAndType {
+                name_index: CpIndex(5),
+                descriptor_index: CpIndex(6),
+            }),
+            Some(CpEntry::Utf8("Log".to_string())),
+            Some(CpEntry::Utf8("SEQ".to_string())),
+            Some(CpEntry::Utf8("I".to_string())),
+            Some(CpEntry::Fieldref {
+                class_index: CpIndex(8),
+                name_and_type_index: CpIndex(9),
+            }),
+            Some(CpEntry::Class {
+                name_index: CpIndex(10),
+            }),
+            Some(CpEntry::NameAndType {
+                name_index: CpIndex(11),
+                descriptor_index: CpIndex(6),
+            }),
+            Some(CpEntry::Utf8(owner.to_string())),
+            Some(CpEntry::Utf8("ORDER".to_string())),
+        ])
+    };
+    // <clinit>()V :
+    //   getstatic Log.SEQ ; dup ; putstatic <owner>.ORDER ;
+    //   iconst1 ; iadd ; putstatic Log.SEQ ; return
+    let clinit_method = || {
+        let instrs: Arc<[(usize, Instruction)]> = vec![
+            (0, Instruction::Getstatic(CpIndex(1))),
+            (3, Instruction::Dup),
+            (4, Instruction::Putstatic(CpIndex(7))),
+            (7, Instruction::Iconst1),
+            (8, Instruction::Iadd),
+            (9, Instruction::Putstatic(CpIndex(1))),
+            (12, Instruction::Return),
+        ]
+        .into();
+        MethodEntry {
+            name: "<clinit>".to_string(),
+            descriptor: "()V".to_string(),
+            is_public: false,
+            is_static: true,
+            is_native: false,
+            is_abstract: false,
+            instructions: instrs,
+            max_stack: 2,
+            max_locals: 0,
+            exception_table: Vec::new(),
+            pc_to_idx: Arc::new(HashMap::from([
+                (0, 0),
+                (3, 1),
+                (4, 2),
+                (7, 3),
+                (8, 4),
+                (9, 5),
+                (12, 6),
+            ])),
+            line_number_table: Vec::new(),
+            source_file: None,
+        }
+    };
+
+    let super_ctx = ClassContext {
+        class_name: "SuperInit".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        interfaces: Vec::new(),
+        constant_pool: make_clinit_cp("SuperInit"),
+        methods: vec![clinit_method()],
+        fields: vec![FieldEntry {
+            name: "ORDER".to_string(),
+            descriptor: "I".to_string(),
+            is_static: true,
+        }],
+        static_fields: vec![Slot::Int(0)],
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Classfile,
+    };
+    let sub_ctx = ClassContext {
+        class_name: "SubInit".to_string(),
+        super_class: Some("SuperInit".to_string()),
+        interfaces: Vec::new(),
+        constant_pool: make_clinit_cp("SubInit"),
+        methods: vec![clinit_method()],
+        fields: vec![FieldEntry {
+            name: "ORDER".to_string(),
+            descriptor: "I".to_string(),
+            is_static: true,
+        }],
+        static_fields: vec![Slot::Int(0)],
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Classfile,
+    };
+    let log_ctx = ClassContext {
+        class_name: "Log".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        interfaces: Vec::new(),
+        constant_pool: vec![None],
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "SEQ".to_string(),
+            descriptor: "I".to_string(),
+            is_static: true,
+        }],
+        static_fields: vec![Slot::Int(1)],
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+
+    // Caller triggers SubInit's initialization via getstatic SubInit.ORDER.
+    //   [1]=Fieldref(class=2,nat=3) [2]=Class(4) [3]=NaT(5,6)
+    //   [4]=Utf8("SubInit") [5]=Utf8("ORDER") [6]=Utf8("I")
+    let caller_cp = make_cp(vec![
+        Some(CpEntry::Fieldref {
+            class_index: CpIndex(2),
+            name_and_type_index: CpIndex(3),
+        }),
+        Some(CpEntry::Class {
+            name_index: CpIndex(4),
+        }),
+        Some(CpEntry::NameAndType {
+            name_index: CpIndex(5),
+            descriptor_index: CpIndex(6),
+        }),
+        Some(CpEntry::Utf8("SubInit".to_string())),
+        Some(CpEntry::Utf8("ORDER".to_string())),
+        Some(CpEntry::Utf8("I".to_string())),
+    ]);
+    let trigger_instrs: Arc<[(usize, Instruction)]> = vec![
+        (0, Instruction::Getstatic(CpIndex(1))),
+        (3, Instruction::Ireturn),
+    ]
+    .into();
+    let trigger_method = MethodEntry {
+        name: "trigger".to_string(),
+        descriptor: "()I".to_string(),
+        is_public: true,
+        is_static: true,
+        is_native: false,
+        is_abstract: false,
+        instructions: trigger_instrs,
+        max_stack: 1,
+        max_locals: 0,
+        exception_table: Vec::new(),
+        pc_to_idx: Arc::new(HashMap::from([(0, 0), (3, 1)])),
+        line_number_table: Vec::new(),
+        source_file: None,
+    };
+    let caller_ctx = ClassContext {
+        class_name: "InitOrderCaller".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        interfaces: Vec::new(),
+        constant_pool: caller_cp,
+        methods: vec![trigger_method],
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Classfile,
+    };
+
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    registry.register(caller_ctx);
+    registry.register(super_ctx);
+    registry.register(sub_ctx);
+    registry.register(log_ctx);
+    let loader = fixtures_loader();
+
+    let mut sink: Vec<u8> = Vec::new();
+    execute_class(
+        &mut registry,
+        &loader,
+        &mut heap,
+        &mut sink,
+        "InitOrderCaller",
+        "trigger",
+        "()I",
+        &[],
+    )
+    .expect("triggering SubInit initialization must succeed")
+    .expect("trigger()I must return a value");
+
+    // Superclass <clinit> ran first (sequence 1); subclass ran second (2).
+    assert_eq!(
+        registry.get("SuperInit").unwrap().static_fields[0],
+        Slot::Int(1),
+        "the direct superclass <clinit> must run first (JVMS 5.5 step 7)"
+    );
+    assert_eq!(
+        registry.get("SubInit").unwrap().static_fields[0],
+        Slot::Int(2),
+        "the subclass <clinit> must run after its superclass's"
+    );
+}
