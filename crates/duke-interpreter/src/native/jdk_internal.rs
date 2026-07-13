@@ -351,6 +351,53 @@ pub(crate) fn native_file_descriptor_get_append(
     Ok(Some(Slot::Int(0)))
 }
 
+/// Native: `jdk/internal/access/JavaLangAccess.encodeASCII([CI[BII)I`.
+///
+/// The ASCII fast-path that `sun.nio.cs.UTF_8$Encoder.encodeArrayLoop` invokes via
+/// `SharedSecrets.getJavaLangAccess()`. In the JDK this delegates to
+/// `StringCoding.implEncodeAsciiArray`: copy chars from `sa[sp..]` into `da[dp..]`
+/// as bytes, stopping at the first non-ASCII char (`>= 0x80`), and return the
+/// number of chars encoded so the caller can advance its buffer positions and hand
+/// the remainder to the multibyte slow path.
+///
+/// Args (interface dispatch on the placeholder `JavaLangAccess` object): `args[0]`
+/// is the receiver; `args[1..=5]` are `sa`, `sp`, `da`, `dp`, `len`. Char-array
+/// elements are stored as `Slot::Int` (widened, matching `caload`); byte-array
+/// elements are written via `java_byte_slot`.
+// Intentional narrowing: a `char` is 16-bit, so `i32 -> u16` models `caload`
+// (dropping the sign/high bits Duke widens on push); the `u32 -> u8` write is exact
+// because it only runs after the `< 0x80` ASCII guard.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub(crate) fn native_java_lang_access_encode_ascii(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let sa_ref = extract_ref_arg(args, 1)?;
+    let sp = extract_int_arg(args, 2)?;
+    let da_ref = extract_ref_arg(args, 3)?;
+    let dp = extract_int_arg(args, 4)?;
+    let len = extract_int_arg(args, 5)?;
+
+    let mut count: i32 = 0;
+    while count < len {
+        let si = usize::try_from(sp + count).map_err(|_| index_out_of_bounds_error())?;
+        let ch = {
+            let fields = &heap.get(sa_ref)?.fields;
+            let slot = fields.get(si).ok_or_else(index_out_of_bounds_error)?;
+            u32::from(slot.as_int()? as u16)
+        };
+        if ch >= 0x80 {
+            break;
+        }
+        let di = usize::try_from(dp + count).map_err(|_| index_out_of_bounds_error())?;
+        heap.write_field(da_ref, di, java_byte_slot(ch as u8))?;
+        count += 1;
+    }
+    Ok(Some(Slot::Int(count)))
+}
+
 /// `jdk/internal/access/SharedSecrets`, `.javaLangAccess` field name.
 const SHARED_SECRETS: &str = "jdk/internal/access/SharedSecrets";
 const JAVA_LANG_ACCESS_FIELD: &str = "javaLangAccess";
