@@ -24,6 +24,8 @@ mod jar_diff;
 mod jar_search;
 mod jdwp;
 #[cfg(feature = "nova")]
+mod metrics_export;
+#[cfg(feature = "nova")]
 mod pathfinding;
 #[cfg(feature = "nova")]
 mod purity;
@@ -386,6 +388,8 @@ fn main() {
         eprintln!("       duke analyze <classfile.class>");
         eprintln!("       duke jar-analyze <file.jar>");
         eprintln!("       duke histogram <file.jar>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke export-metrics <file.jar> <output.csv>");
         eprintln!("       duke search <classfile.class> <opcode>");
         eprintln!("       duke scan <classfile.class>");
         eprintln!("       duke jar-scan <file.jar>");
@@ -440,6 +444,24 @@ fn main() {
         #[cfg(not(feature = "nova"))]
         eprintln!("duke: 'jar-diff' command requires the 'nova' feature flag.");
         return;
+    }
+
+    // Dispatch `export-metrics`
+    if args.len() >= 4 && args[1] == "export-metrics" {
+        if !std::path::Path::new(&args[2]).exists() {
+            eprintln!("duke: file not found: {}", args[2]);
+            std::process::exit(1);
+        }
+        #[cfg(feature = "nova")]
+        {
+            metrics_export::dump_metrics_csv(&args[2], &args[3]);
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: unknown subcommand 'export-metrics'");
+            std::process::exit(1);
+        }
     }
 
     // Dispatch `jar-search`
