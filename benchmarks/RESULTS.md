@@ -287,3 +287,79 @@ read dominated. Gate: `cargo test --workspace` = 3042 passed / 0 failed / 4 igno
   turn these into ref-count bumps (~485k allocs saved on benchFib), but the type flows
   through `native/common.rs`/`registry.rs`, which are owned by other lanes — deferred.
 - `bootstrap_stdlib` (~251 µs) remains the standing wall-clock startup term (stdlib.rs).
+
+## 2026-07-13: Arc<str> class-name interning — eliminate the 4 hot per-call class-name clones (#1328 follow-up)
+
+Date: 2026-07-13
+Hardware: CI container (same as the 2026-07-13 BEFORE capture)
+Duke version: trunk @ `b6c90ec` + the `Arc<str>` interning implementation carried in PR #1350
+  (branch `swarm/arcstr-interning`, rebased)
+HotSpot version: OpenJDK 21.0.10 (system `java`)
+
+This is the follow-up flagged under "Follow-ups" in the 2026-07-11 entry above. The code lives in
+PR #1350; it is behavior-identical and fully green but measured performance-neutral (see Verdict),
+so it is left unmerged for performance reasons. This entry records the negative result on trunk.
+
+### Design (Arc<str> interning)
+
+Class identity keys are now interned `Arc<str>` shared across the registry and the dispatch
+hot path. `ClassRegistry.classes` is `HashMap<Arc<str>, ClassContext>`; `CallFrame.class_name`,
+`CachedDispatch.class_name`, `ExecutionState.current_class` and the `dispatch_cache` key are
+`Arc<str>`. `ClassRegistry::intern_key(&str) -> Arc<str>` hands cached class names a cheap `Arc`
+clone of the registry's existing key (or allocates a fresh one). Because `Arc<str>` hashes/compares
+by string *contents* and `Borrow<str>` keeps `.get(&str)` working, the `\0loader:`/`\0code:`
+provenance-suffix key identity from the #1317 real-jdk shadow scheme is preserved byte-for-byte —
+key computation (`class_key_from_provenance`) is unchanged; this is a representation change only.
+`ClassContext.class_name` and `HeapObject.class_name` were intentionally left `String` (out of the
+hot path; not worth the wider churn).
+
+### Clone sites eliminated (were `String` deep-copies, now `Arc` refcount bumps)
+
+- `cached.class_name.clone()` on the invokestatic fast path (`execution.rs`) — 1 per cache hit.
+- `class_name: current_class.clone()` in `activate_method_state` pushing the caller `CallFrame`
+  (`native/common.rs`) — 1 per *any* method call.
+- the same `cached.class_name.clone()` on the invokespecial and invokevirtual-PIC fast paths.
+
+benchFib incurs ~2 of these per call (~485k deep String copies over fib(25)); they are now
+atomic refcount bumps with no allocation.
+
+### Criterion (median, `--sample-size 10 --measurement-time 8`; isolates the execution loop)
+
+Isolated read = trunk `b6c90ec` re-benched back-to-back against HEAD on the same machine (strips
+the unrelated stdlib growth from #1348/#1349 that landed on trunk between the BEFORE capture and now).
+
+| Benchmark | trunk b6c90ec (ms) | Arc<str> (ms) | Δ (criterion verdict) |
+|-----------|-------------------:|--------------:|-----------------------|
+| benchSum        | 90.493 | 83.678 | -6.06% (improved, p<0.05) |
+| benchFib        | 72.577 | 71.655 | -1.15% (within noise) |
+| benchArrayList  | 8.4636 | 8.2565 | -0.92% (no change, p=0.54) |
+| benchHashMap    | 1.7773 | 1.8169 | +3.10% (regressed, p<0.05) |
+| bootstrap_stdlib (µs) | 515.25 | 514.54 | +1.02% (no change) |
+
+### Wall-clock vs HotSpot (compare.sh, median of 7)
+
+| Benchmark | Duke before (ms) | Duke after (ms) | HS JIT | Duke/JIT |
+|-----------|-----------------:|----------------:|-------:|----------|
+| benchSum       | 633 | 622 | 45 | 15x → 14x |
+| benchFib       | 393 | 398 | 44 | 10x → 9x  |
+| benchArrayList | 129 | 139 | 46 | 3x → 3x   |
+| benchHashMap   | 120 | 123 | 56 | 2x → 2x   |
+
+### Verdict (honest)
+
+Performance-neutral within measurement noise on this suite — the intended hot-path benchmark
+benchFib (tightest call loop) did **not** move outside noise (-1.1%). The class names here are
+short (~14 chars), so the eliminated String deep-copy is a cheap malloc+memcpy that the atomic
+Arc refcount bump+drop roughly offsets; benchSum's ~6% is machine variance (it is arithmetic-heavy,
+~1 call — not causally a call-path effect) and benchHashMap's ~3% is atomic-refcount overhead on
+the virtual-dispatch path. The change's value is the cleaner shared-allocation representation, not a
+measured throughput win. Fully behavior-identical: no error-message text changed. The implementation
+is carried in PR #1350 for the team to adopt if the shared-`Arc<str>` representation is wanted for
+cleanliness; it is not merged for throughput.
+
+Gate: `cargo test --workspace` = **3095 passed / 0 failed / 4 ignored**; `cargo fmt --all --check`
+clean; `cargo clippy --workspace --all-targets -W clippy::pedantic -W clippy::nursery` clean.
+Extended gates all green: HelloWorld (synthetic + real-jdk, incl. `DUKE_LAYOUT_CHECK=fail`); the 3
+OSS canaries (slf4j-simple / gson / commons-lang3); Spring Boot synthetic + real-jdk pins; real-jdk
+shadow-key / provenance suites (`real_jdk_shadow`, `classloader_bootstrap_frontier`, `module_model`,
+`layout_coherence`) — the `\0loader:` loader-suffixed keys still resolve.
