@@ -6170,6 +6170,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/String",
+        "indexOf",
+        "(II)I",
+        native_string_index_of_char_from,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "lastIndexOf",
+        "(I)I",
+        native_string_last_index_of_char,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "lastIndexOf",
+        "(II)I",
+        native_string_last_index_of_char_from,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
         "lastIndexOf",
         "(Ljava/lang/String;)I",
         native_string_last_index_of,
@@ -6293,6 +6311,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "append",
         "(C)Ljava/lang/StringBuilder;",
         native_sb_append_char,
+    );
+    // StringBuilder.append(Object)
+    registry.natives_mut().register(
+        "java/lang/StringBuilder",
+        "append",
+        "(Ljava/lang/Object;)Ljava/lang/StringBuilder;",
+        native_sb_append_object,
     );
     // StringBuilder.toString()
     registry.natives_mut().register(
@@ -7018,6 +7043,28 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_arrays_as_list,
     );
 
+    // java/util/AbstractMap — abstract Map ancestor. Real map classes loaded from
+    // a jar chain their `<init>` to `AbstractMap.<init>()V` (a protected no-op),
+    // so a synthetic class with an Object-style no-op constructor lets that
+    // super() call resolve. Concrete AbstractMap helper methods are not provided;
+    // subclasses that Duke runs override the surface they use.
+    let abstract_map_ctx = ClassContext {
+        class_name: "java/util/AbstractMap".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec!["java/util/Map".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(abstract_map_ctx);
+    registry
+        .natives_mut()
+        .register("java/util/AbstractMap", "<init>", "()V", native_object_init);
+
     // java/util/HashMap — hash map backed by flat key/value pair list in fields
     // fields[0] = Int(size), fields[1]=key0, fields[2]=val0, fields[3]=key1, ...
     let hashmap_ctx = ClassContext {
@@ -7043,6 +7090,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/util/HashMap", "<init>", "()V", native_hashmap_init);
+    // Initial-capacity / capacity+loadFactor constructors ignore their hints.
+    registry
+        .natives_mut()
+        .register("java/util/HashMap", "<init>", "(I)V", native_hashmap_init);
+    registry
+        .natives_mut()
+        .register("java/util/HashMap", "<init>", "(IF)V", native_hashmap_init);
     registry.natives_mut().register(
         "java/util/HashMap",
         "put",
@@ -7247,6 +7301,274 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register_callback(
         "java/util/Hashtable",
+        "replaceAll",
+        "(Ljava/util/function/BiFunction;)V",
+        native_hashmap_replace_all,
+    );
+
+    // java/util/WeakHashMap — weak-keyed map. Duke does not model GC-driven key
+    // eviction, so this deliberately reuses the HashMap layout and natives, the
+    // same way java/util/Hashtable does. Behaviour is that of a plain HashMap,
+    // which is correct for the bootstraps that allocate a WeakHashMap as a cache.
+    let weak_hashmap_ctx = ClassContext {
+        class_name: "java/util/WeakHashMap".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec![
+            "java/util/Map".to_string(),
+            "java/util/Collection".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(weak_hashmap_ctx);
+    for (method, descriptor, handler) in [
+        ("<init>", "()V", native_hashmap_init as NativeHandler),
+        (
+            "put",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_put as NativeHandler,
+        ),
+        (
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_get as NativeHandler,
+        ),
+        (
+            "containsKey",
+            "(Ljava/lang/Object;)Z",
+            native_hashmap_contains_key as NativeHandler,
+        ),
+        ("size", "()I", native_hashmap_size as NativeHandler),
+        (
+            "remove",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_remove as NativeHandler,
+        ),
+        ("isEmpty", "()Z", native_hashmap_is_empty as NativeHandler),
+        (
+            "keySet",
+            "()Ljava/util/Set;",
+            native_hashmap_key_set as NativeHandler,
+        ),
+        (
+            "values",
+            "()Ljava/util/Collection;",
+            native_hashmap_values as NativeHandler,
+        ),
+        (
+            "entrySet",
+            "()Ljava/util/Set;",
+            native_hashmap_entry_set as NativeHandler,
+        ),
+        ("clear", "()V", native_hashmap_clear as NativeHandler),
+        (
+            "putIfAbsent",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_put_if_absent as NativeHandler,
+        ),
+        (
+            "getOrDefault",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_get_or_default as NativeHandler,
+        ),
+        (
+            "replace",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_replace as NativeHandler,
+        ),
+        (
+            "containsValue",
+            "(Ljava/lang/Object;)Z",
+            native_hashmap_contains_value as NativeHandler,
+        ),
+        (
+            "putAll",
+            "(Ljava/util/Map;)V",
+            native_hashmap_put_all as NativeHandler,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/util/WeakHashMap", method, descriptor, handler);
+    }
+    // Map-default callback natives (invoke Java lambdas) — must use register_callback.
+    registry.natives_mut().register_callback(
+        "java/util/WeakHashMap",
+        "computeIfAbsent",
+        "(Ljava/lang/Object;Ljava/util/function/Function;)Ljava/lang/Object;",
+        native_hashmap_compute_if_absent,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/WeakHashMap",
+        "computeIfPresent",
+        "(Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_hashmap_compute_if_present,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/WeakHashMap",
+        "compute",
+        "(Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_hashmap_compute,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/WeakHashMap",
+        "merge",
+        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_hashmap_merge,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/WeakHashMap",
+        "forEach",
+        "(Ljava/util/function/BiConsumer;)V",
+        native_hashmap_for_each,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/WeakHashMap",
+        "replaceAll",
+        "(Ljava/util/function/BiFunction;)V",
+        native_hashmap_replace_all,
+    );
+
+    // java/util/IdentityHashMap — reference-equality map. Duke's shared map key
+    // comparison (`slots_equal`) already compares general object keys by identity
+    // (only String/Class/UUID/boxed keys fall back to value equality, which
+    // IdentityHashMap is not used with in these bootstraps), so IdentityHashMap
+    // reuses the HashMap layout and natives, like Hashtable/WeakHashMap do. The
+    // `(I)V` initial-capacity constructor ignores the capacity hint.
+    let identity_hashmap_ctx = ClassContext {
+        class_name: "java/util/IdentityHashMap".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec![
+            "java/util/Map".to_string(),
+            "java/util/Collection".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(identity_hashmap_ctx);
+    for (method, descriptor, handler) in [
+        ("<init>", "()V", native_hashmap_init as NativeHandler),
+        // Initial-capacity constructor; the capacity hint is ignored.
+        ("<init>", "(I)V", native_hashmap_init as NativeHandler),
+        (
+            "put",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_put as NativeHandler,
+        ),
+        (
+            "get",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_get as NativeHandler,
+        ),
+        (
+            "containsKey",
+            "(Ljava/lang/Object;)Z",
+            native_hashmap_contains_key as NativeHandler,
+        ),
+        ("size", "()I", native_hashmap_size as NativeHandler),
+        (
+            "remove",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_remove as NativeHandler,
+        ),
+        ("isEmpty", "()Z", native_hashmap_is_empty as NativeHandler),
+        (
+            "keySet",
+            "()Ljava/util/Set;",
+            native_hashmap_key_set as NativeHandler,
+        ),
+        (
+            "values",
+            "()Ljava/util/Collection;",
+            native_hashmap_values as NativeHandler,
+        ),
+        (
+            "entrySet",
+            "()Ljava/util/Set;",
+            native_hashmap_entry_set as NativeHandler,
+        ),
+        ("clear", "()V", native_hashmap_clear as NativeHandler),
+        (
+            "putIfAbsent",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_put_if_absent as NativeHandler,
+        ),
+        (
+            "getOrDefault",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_get_or_default as NativeHandler,
+        ),
+        (
+            "replace",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            native_hashmap_replace as NativeHandler,
+        ),
+        (
+            "containsValue",
+            "(Ljava/lang/Object;)Z",
+            native_hashmap_contains_value as NativeHandler,
+        ),
+        (
+            "putAll",
+            "(Ljava/util/Map;)V",
+            native_hashmap_put_all as NativeHandler,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/util/IdentityHashMap", method, descriptor, handler);
+    }
+    // Map-default callback natives (invoke Java lambdas) — must use register_callback.
+    registry.natives_mut().register_callback(
+        "java/util/IdentityHashMap",
+        "computeIfAbsent",
+        "(Ljava/lang/Object;Ljava/util/function/Function;)Ljava/lang/Object;",
+        native_hashmap_compute_if_absent,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/IdentityHashMap",
+        "computeIfPresent",
+        "(Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_hashmap_compute_if_present,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/IdentityHashMap",
+        "compute",
+        "(Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_hashmap_compute,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/IdentityHashMap",
+        "merge",
+        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_hashmap_merge,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/IdentityHashMap",
+        "forEach",
+        "(Ljava/util/function/BiConsumer;)V",
+        native_hashmap_for_each,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/IdentityHashMap",
         "replaceAll",
         "(Ljava/util/function/BiFunction;)V",
         native_hashmap_replace_all,
@@ -7604,6 +7926,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/util/HashSet", "<init>", "()V", native_hashset_init);
+    // Initial-capacity / capacity+loadFactor constructors ignore their hints.
+    registry
+        .natives_mut()
+        .register("java/util/HashSet", "<init>", "(I)V", native_hashset_init);
+    registry
+        .natives_mut()
+        .register("java/util/HashSet", "<init>", "(IF)V", native_hashset_init);
     registry.natives_mut().register_callback(
         "java/util/HashSet",
         "<init>",
@@ -7615,6 +7944,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "add",
         "(Ljava/lang/Object;)Z",
         native_hashset_add,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/HashSet",
+        "addAll",
+        "(Ljava/util/Collection;)Z",
+        native_hashset_add_all,
     );
     registry.natives_mut().register(
         "java/util/HashSet",
@@ -7697,6 +8032,119 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "next",
         "()Ljava/lang/Object;",
         native_hashset_iter_next,
+    );
+
+    // java/util/LinkedHashSet — insertion-ordered Set. In real Java it extends
+    // HashSet; Duke's HashSet natives already store elements in insertion order
+    // in the object's fields (fields[0] = size, fields[1..] = elements), so
+    // LinkedHashSet reuses the exact same native family. The shared
+    // duke/util/HashSetIterator walks any set ref's fields, so iteration
+    // preserves insertion order automatically.
+    let linked_hashset_ctx = ClassContext {
+        class_name: "java/util/LinkedHashSet".to_string(),
+        super_class: Some("java/util/HashSet".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "size".to_string(),
+            descriptor: "I".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec![
+            "java/util/Set".to_string(),
+            "java/util/Collection".to_string(),
+            "java/lang/Iterable".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(linked_hashset_ctx);
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "<init>",
+        "()V",
+        native_hashset_init,
+    );
+    // Initial-capacity / capacity+loadFactor constructors ignore their hints.
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "<init>",
+        "(I)V",
+        native_hashset_init,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "<init>",
+        "(IF)V",
+        native_hashset_init,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/LinkedHashSet",
+        "<init>",
+        "(Ljava/util/Collection;)V",
+        native_hashset_init_from_collection,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "add",
+        "(Ljava/lang/Object;)Z",
+        native_hashset_add,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/LinkedHashSet",
+        "addAll",
+        "(Ljava/util/Collection;)Z",
+        native_hashset_add_all,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "contains",
+        "(Ljava/lang/Object;)Z",
+        native_hashset_contains,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "remove",
+        "(Ljava/lang/Object;)Z",
+        native_hashset_remove,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "size",
+        "()I",
+        native_hashset_size,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "isEmpty",
+        "()Z",
+        native_hashset_is_empty,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        native_hashset_iterator,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "toArray",
+        "()[Ljava/lang/Object;",
+        native_collection_to_array,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "toArray",
+        "([Ljava/lang/Object;)[Ljava/lang/Object;",
+        native_collection_to_array_with_seed_array,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "stream",
+        "()Ljava/util/stream/Stream;",
+        native_hashset_stream,
     );
 
     // java/util/Collections — static utility class
@@ -8228,6 +8676,20 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_collections_swap,
     );
 
+    // Collections.newSetFromMap(map) — set backed by the (empty) map
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "newSetFromMap",
+        "(Ljava/util/Map;)Ljava/util/Set;",
+        native_collections_new_set_from_map,
+    );
+    // Collections.addAll(Collection, T...) — bulk add of array elements
+    registry.natives_mut().register_callback(
+        "java/util/Collections",
+        "addAll",
+        "(Ljava/util/Collection;[Ljava/lang/Object;)Z",
+        native_collections_add_all,
+    );
     // Collections.unmodifiableMap(map) — wraps in UnmodifiableMap
     registry.natives_mut().register(
         "java/util/Collections",
@@ -14017,6 +14479,45 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "<init>",
         "(Ljava/lang/Object;)V",
         native_reference_init,
+    );
+    // WeakReference(referent, queue): the queue is accepted and ignored — Duke's
+    // non-collecting model never enqueues, so only the referent slot is stored.
+    registry.natives_mut().register(
+        "java/lang/ref/WeakReference",
+        "<init>",
+        "(Ljava/lang/Object;Ljava/lang/ref/ReferenceQueue;)V",
+        native_reference_init,
+    );
+
+    // java/lang/ref/ReferenceQueue — non-collecting stub. Nothing is ever enqueued
+    // (Duke never clears a Reference implicitly), so the constructor is a no-op and
+    // poll() always returns null. Real WeakHashMap-style classes loaded from a jar
+    // allocate a queue and drain it; observing it empty is the correct behaviour
+    // in a world where no referent has been reclaimed.
+    let reference_queue_ctx = ClassContext {
+        class_name: "java/lang/ref/ReferenceQueue".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(reference_queue_ctx);
+    registry.natives_mut().register(
+        "java/lang/ref/ReferenceQueue",
+        "<init>",
+        "()V",
+        native_object_init,
+    );
+    registry.natives_mut().register(
+        "java/lang/ref/ReferenceQueue",
+        "poll",
+        "()Ljava/lang/ref/Reference;",
+        native_reference_queue_poll,
     );
 
     // java/lang/Class.isAssignableFrom — hierarchy-walking reflection predicate
