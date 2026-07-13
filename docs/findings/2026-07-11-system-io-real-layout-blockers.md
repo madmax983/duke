@@ -216,6 +216,15 @@ the writer graph, run `System.initPhase1` (using the now-landed
 `setOut0`/`setErr0`), producing a real `PrintStream` and real `System`. Drop both
 from the allowlist and update the two locked tests (§4).
 
+> **Status update (2026-07-13, see §10):** the charset / `StreamEncoder` floor is
+> **reachable and proven** — the real `OutputStreamWriter -> StreamEncoder -> Charset`
+> writer graph runs clean on any non-allowlisted sink and was driven end-to-end
+> (`"hello\n"` encoded to `[104,101,108,108,111,10]`) under throwaway fixes. It is now
+> **blocked only on two GENERIC interpreter-linkage fixes** (superclass-walk
+> static-field resolution + eager superclass `<clinit>`), not on anything
+> charset-specific. The `PrintStream` / `System` migration additionally needs the
+> `KEEP_SYNTHETIC` allowlist edit and the `String.COMPACT_STRINGS` work.
+
 ---
 
 ## 6. What landed this wave (`df33dcd`)
@@ -440,6 +449,95 @@ any file is opened — and were intentionally NOT added speculatively.
 **Allowlist delta: none.** `KEEP_SYNTHETIC` remains 10 members. Tests 3083 → 3087
 (+4). fmt/clippy clean, HelloWorld exit 0 flag-on (`DUKE_REAL_JDK=1
 DUKE_LAYOUT_CHECK=fail`) and flag-off, real-JDK gate tests green.
+
+---
+
+## 10. Stage-c — charset/StreamEncoder writer graph (2026-07-13)
+
+This wave lands the **dormant floor natives** the real UTF-8 writer graph needs and
+pins the honest frontier with two asserted regression guards. No allowlist change;
+no forbidden-file change.
+
+### Correction to §9
+
+§9 reported "real `FileOutputStream` writes `DUKEFDWRITE`, exit 0". That milestone
+holds **ONLY under the reverted throwaway probe that drops `FileOutputStream` from
+`KEEP_SYNTHETIC`**. On the **committed tree** — both the CLI (`DUKE_REAL_JDK=1`) and
+the in-test (`enable_real_jdk_shadow`) paths, which share
+`should_shadow_synthetic` / `KEEP_SYNTHETIC` — `FileOutputStream` stays synthetic, so
+its real FD constructor is never loaded and a `new FileOutputStream(FileDescriptor)`
+sink walls at:
+
+```
+MethodNotFound { name: "java/io/FileOutputStream.<init>", descriptor: "(Ljava/io/FileDescriptor;)V" }
+```
+
+(guarded by `streamencoder_writer_frontier.rs`).
+
+### Finding — the charset/StreamEncoder floor is essentially ALREADY PRESENT
+
+Driving the writer graph over a **non-allowlisted** `OutputStream` sink (a
+user-defined subclass wrapping a real `ByteArrayOutputStream`, so no
+`FileOutputStream` allowlist gate) shows the real
+`OutputStreamWriter -> sun.nio.cs.StreamEncoder -> Charset` pipeline runs **clean**
+through `Charset.forName` / `UTF_8` / `CharsetEncoder` / `StreamEncoder.<init>`,
+walling only inside `StreamEncoder`'s `ByteBuffer.allocate(8192)` at `getstatic
+ByteBuffer.UNSAFE`. The charset layer itself needs no further natives.
+
+### Full ordered 5-wall chain (proven end-to-end under throwaway fixes)
+
+Crossing each wall in turn (via reverted throwaway patches) revealed and cleared the
+entire chain to a working writer graph:
+
+1. **`ByteBuffer.UNSAFE` inherited-static** — `getstatic ByteBuffer.UNSAFE` where
+   `UNSAFE` is declared in the superclass `java/nio/Buffer`. Needs two forbidden-file
+   interpreter fixes (**A**: static-field resolution must walk the superclass chain;
+   **B**: `ensure_initialized` must eagerly init the direct superclass first). [FORBIDDEN]
+2. **`jdk/internal/misc/ScopedMemoryAccess.registerNatives ()V`** — `native_void_noop`. [ADDED]
+3. **`jdk/internal/misc/Unsafe.isBigEndian ()Z`** — `native_false_boolean`. [ADDED]
+4. **`jdk/internal/access/JavaLangAccess.encodeASCII ([CI[BII)I`** —
+   `native_java_lang_access_encode_ascii`, mirroring `StringCoding.implEncodeAsciiArray`
+   (unit-tested by direct dispatch: pure-ASCII encodes all; a `0x00E9` mid-string stops
+   at that index). [ADDED]
+5. **`ReentrantLock` `IllegalMonitorStateException`** from an unstable
+   `Thread.currentThread()` identity (lock/unlock saw different carrier-thread objects).
+   [REVERTED — needs a heap-scoped stable `currentThread` fix]
+
+**Milestone proof:** with all five crossed, `WriterGraphProbe` runs to completion —
+`w.write("hello\n"); w.flush()` encodes and writes exactly
+`[104,101,108,108,111,10]` = `"hello\n"` into the sink, `RESULT = 6`.
+
+The three ADDED natives are **committed and dormant** on this tree (the committed
+tree walls at wall #1). The `encodeASCII` native is pinned by direct-dispatch unit
+tests; walls #2–#4 are additive no-op/constant/pure natives.
+
+### VERBATIM pinned next wall (committed tree)
+
+```
+InvalidFieldref { index: 0 }
+```
+
+at `java/nio/ByteBuffer::<clinit>@16  getstatic ByteBuffer.UNSAFE:Ljdk/internal/misc/Unsafe;`
+(the `UNSAFE` field is inherited from `java/nio/Buffer`). Guarded by
+`writer_graph_frontier.rs`.
+
+### HANDOFF to `swarm/arcstr-interning`
+
+That lane owns the three forbidden files (`registry.rs` / `native/common.rs` /
+`execution.rs`). Three **generic interpreter-correctness** gaps — not charset-specific
+— gate the writer graph and (per MEMORY) also the `String.COMPACT_STRINGS` frontier:
+
+- **(A) Superclass-walk static-field resolution.** `getstatic`/`putstatic` must
+  resolve a field by walking the superclass chain (mirror the existing instance-field
+  `field_slot_idx` walk), so `ByteBuffer.UNSAFE` resolves against `java/nio/Buffer`.
+- **(B) Eager direct-superclass `<clinit>`.** `ensure_initialized` must initialize the
+  direct superclass **before** the class itself, per JVMS 5.5.
+- **(C, deferred) Heap-scoped stable `Thread.currentThread()`.** `currentThread` must
+  return a stable identity across calls so `ReentrantLock` lock/unlock balance.
+
+Exact throwaway patches for (A)+(B) are saved at
+`scratchpad/stage-c-forbidden-fixes.diff`; the reverted (C) patch at
+`scratchpad/stage-c-thread-identity-throwaway.diff`.
 
 ---
 
