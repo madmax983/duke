@@ -212,6 +212,49 @@ pub(crate) fn native_jul_logger_log_throwable(
     )?;
     Ok(None)
 }
+pub(crate) fn native_jul_logger_logp(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    // logp(Level, sourceClass, sourceMethod, msg): the source class/method are
+    // LogRecord metadata in real JUL; Duke's formatter renders the message, so
+    // log it at the given level like `log(Level, String)`. args: 0=logger,
+    // 1=level, 2=sourceClass, 3=sourceMethod, 4=msg.
+    let logger_ref = extract_ref_arg(args, 0)?;
+    jul_log_message_slot(
+        heap,
+        out,
+        logger_ref,
+        extract_slot_arg(args, 1),
+        extract_slot_arg(args, 4),
+        &[],
+        Slot::Reference(None),
+    )?;
+    Ok(None)
+}
+pub(crate) fn native_jul_logger_logp_throwable(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    // logp(Level, sourceClass, sourceMethod, msg, Throwable): as `logp` above,
+    // carrying the thrown reference through. args: 0=logger, 1=level,
+    // 2=sourceClass, 3=sourceMethod, 4=msg, 5=thrown.
+    let logger_ref = extract_ref_arg(args, 0)?;
+    jul_log_message_slot(
+        heap,
+        out,
+        logger_ref,
+        extract_slot_arg(args, 1),
+        extract_slot_arg(args, 4),
+        &[],
+        extract_slot_arg(args, 5),
+    )?;
+    Ok(None)
+}
 pub(crate) fn native_jul_logger_severe(
     args: &[Slot],
     heap: &mut duke_gc::Heap,

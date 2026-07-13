@@ -572,3 +572,89 @@ All instrumentation was reverted; `reflect.rs` is byte-for-byte unchanged.
 `ExceptionInInitializerError`, both documented in the test).
 `LADDER_BLOCKER` is unchanged
 (`"method not found: org/apache/commons/logging/impl/LogFactoryImpl.objectId(Ljava/lang/Object;)Ljava/lang/String;"`).
+
+## 2026-07-13 — LADDER climb: objectId → Serializable → Logger.logp → Thread CCL → getInterfaces (stacked branch `swarm/ladder-objectid`)
+
+Continuing from the `objectId` fix (PR #1347, invokestatic super-walk, which advanced
+the ladder to `class not found: java/io/Serializable`), three in-lane rungs were cleared
+one at a time on a branch stacked off `swarm/invokestatic-super-walk`. Each rung was
+observed directly from the freshly-built binary running
+`duke -jar tests/fixtures/oss-jars/spring-boot/duke-spring-boot-ladder-3.5.12.jar`.
+
+**Rung 1 — `class not found: java/io/Serializable` (CLEARED).** Registered as an empty
+synthetic marker interface in `stdlib.rs`, immediately after the existing
+`java/lang/AutoCloseable` block and using its exact `ClassContext` field set
+(`super_class: None`, empty constant pool / methods / fields / interfaces, zero
+`instance_field_count`, `load_source: ClassLoadSource::Synthetic`). Registered so
+reflective hierarchy walks / `is_assignable_from` resolve it instead of raising
+`ClassNotFound`.
+
+**Rung 2 — `method not found: java/util/logging/Logger.logp(...)` (CLEARED).**
+commons-logging's `Jdk14Logger` routes every log call through
+`logp(Level, sourceClass, sourceMethod, msg)` and the 5-arg
+`logp(..., Throwable)` overload. Added `native_jul_logger_logp` and
+`native_jul_logger_logp_throwable` in `native/java_util_logging.rs`, mirroring the
+existing `native_jul_logger_log` / `native_jul_logger_log_throwable` (level = arg 1,
+message = arg 4, thrown = arg 5; source class/method are `LogRecord` metadata that
+Duke's formatter does not render, so they are accepted and ignored). Registered both
+descriptors on `java/util/logging/Logger` in `stdlib.rs`.
+
+**Rung 3 — uncaught `InvocationTargetException` → `NullPointerException`, then a
+follow-on `getResourceAsStream(...) == null` (BOTH CLEARED).** The visible blocker was
+the generic `java exception: java/lang/reflect/InvocationTargetException`. Temporarily
+instrumenting the two wrap sites in `native/reflect.rs` (printing the discarded cause +
+the reflectively-invoked method; since reverted, `reflect.rs` byte-for-byte unchanged)
+showed the target method was the fixture's OWN `com/example/duke/ladder/LadderApplication.main`
+and the cause a `NullPointerException`. Bytecode + `DUKE_TRACE_EXEC` traced it to
+`main@28 invokevirtual java/lang/ClassLoader.getResourceAsStream` with a null receiver:
+`main@13` called `Thread.currentThread().getContextClassLoader()` which returned null.
+
+Root cause: `native_thread_current_thread` allocates a fresh, throwaway
+`java/lang/Thread` object on every call (with `contextClassLoader = null`). The Spring
+Boot launcher (`Launcher.launch@0-4`) does call
+`Thread.currentThread().setContextClassLoader(launchedLoader)`, but that write lands on a
+discarded instance and is invisible to the next `currentThread().getContextClassLoader()`
+in `main`.
+
+Fix (in-lane, `native/java_lang.rs` + `stdlib.rs`): persist the main thread's context
+loader in a new static slot `$dukeMainContextClassLoader` on the synthetic
+`java/lang/Thread` (declared in the Thread `ClassContext`, same singleton pattern as
+`$dukeSystemClassLoader` on `java/lang/ClassLoader`). `setContextClassLoader` (now a
+`register_callback` native) writes both the instance field and the static slot;
+`getContextClassLoader` (now `register_callback`) returns the instance field when set,
+else the persisted static loader, else the system class loader — the JVM default for the
+main thread (HotSpot installs it at VM startup). This also cleared the immediate
+follow-on rung: with the real `LaunchedClassLoader` restored (it carries the fat-jar
+archive path), `getResourceAsStream("META-INF/duke-ladder.properties")` resolves
+`BOOT-INF/classes/META-INF/duke-ladder.properties`. Resource resolution keys off the
+loader OBJECT's `runtime_loader_paths` (`native/common.rs`); a bare system loader has no
+paths, so returning the launched loader — not just any system loader — was load-bearing.
+
+**New LADDER frontier (HANDOFF — pinned, NOT patched; OUT OF LANE).** The ladder now
+lands on `method not found: java/lang/Class.getInterfaces()[Ljava/lang/Class;`, but that
+is only a SYMPTOM. `LogFactoryImpl.createLogFromClass@404` evaluates
+`newLogger instanceof org/apache/commons/logging/Log` on the reflectively-constructed
+`Jdk14Logger` (which genuinely `implements org.apache.commons.logging.Log,
+java.io.Serializable`). Duke's `instanceof` returns FALSE, diverting control into
+`handleFlawedHierarchy`, whose first act is `Class.getInterfaces()` and whose ultimate
+act is to throw a spurious `LogConfigurationException`. The false negative is in
+`is_assignable_from` (`crates/duke-interpreter/src/native/common.rs`, ~line 11465): a
+class's interface entries are plain internal names (`org/apache/commons/logging/Log`)
+while `to_key` is loader-qualified (`org/apache/commons/logging/Log loader:NN`), so the
+`iface == to_key` comparison never matches (the super-class comparison one line up has
+the same shape). The real fix is to normalize the interface/`to_key` comparison in
+`is_assignable_from` (`native/common.rs`) or the `Instanceof` opcode (`execution.rs`) —
+the interpreter class-identity/assignability lane, which is out of this lane's scope
+(`registry.rs` / `native/common.rs` / `execution.rs` are owned elsewhere). Adding
+`getInterfaces()` alone would be semantically WRONG: it would not boot the ladder, it
+would only swap `method not found` for a false `LogConfigurationException`, so the rung
+is pinned honestly rather than patched.
+
+`LADDER_BLOCKER` is now
+`"method not found: java/lang/Class.getInterfaces()[Ljava/lang/Class;"`
+(root cause: `instanceof(Jdk14Logger, org/apache/commons/logging/Log)` false negative in
+`is_assignable_from`, documented in the test). The ladder end-to-end canary stays
+`#[ignore]`d. `APP_BLOCKER` and the app section are untouched. Full workspace suite stays
+3096/0/4; fmt + clippy (1.97.0, pedantic + nursery) clean; HelloWorld class + jar modes
+both print `Hello, World!`. No edits to `registry.rs`, `native/common.rs`, or
+`execution.rs`.

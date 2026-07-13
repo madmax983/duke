@@ -112,15 +112,49 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //     superclass `LogFactory` and invoked via a Methodref bound to the subclass
 //     `LogFactoryImpl`. The invokestatic slow-path resolver now walks the super
 //     chain (JVMS §5.4.3.3) instead of flat-scanning the subclass, so the
-//     inherited static body resolves. The frontier advanced
-//     (objectId → java/io/Serializable): the ladder now lands on
-//     `class not found: java/io/Serializable`, the next real blocker.
+//     inherited static body resolves. The frontier then advanced through a run of
+//     in-lane rungs cleared this session (objectId → java/io/Serializable →
+//     Logger.logp → Thread contextClassLoader → Class.getInterfaces):
+//       (1) `class not found: java/io/Serializable` — registered as a synthetic
+//           marker interface in stdlib.rs (like java/lang/AutoCloseable) so
+//           reflective hierarchy walks / is_assignable_from resolve it. CLEARED.
+//       (2) `method not found: java/util/logging/Logger.logp(...)` — commons-logging's
+//           Jdk14Logger routes every call through the 4-arg `logp(Level, srcClass,
+//           srcMethod, msg)` and 5-arg `logp(..., Throwable)`. Both natives added
+//           (native_jul_logger_logp / _logp_throwable in java_util_logging.rs,
+//           mirroring `log`/`log_throwable`). CLEARED.
+//       (3) An uncaught `InvocationTargetException` wrapping a
+//           `NullPointerException` inside the fixture's own reflectively-invoked
+//           `LadderApplication.main`: `Thread.currentThread().getContextClassLoader()`
+//           returned null because `currentThread()` allocates a throwaway Thread per
+//           call, so the launcher's `setContextClassLoader(LaunchedClassLoader)` was
+//           written to a discarded instance. Fixed by persisting the main thread's
+//           context loader in a static slot on the synthetic java/lang/Thread
+//           (MAIN_CONTEXT_CLASS_LOADER_FIELD): setContextClassLoader writes it,
+//           getContextClassLoader falls back to it (then to the system loader). This
+//           also cleared the follow-on `getResourceAsStream(...)` == null rung —
+//           with the LaunchedClassLoader's real archive path restored, the lookup
+//           resolves BOOT-INF/classes/META-INF/duke-ladder.properties. CLEARED.
+//     The ladder now lands on `method not found: java/lang/Class.getInterfaces()`,
+//     but that is only a SYMPTOM: commons-logging's `LogFactoryImpl.createLogFromClass`
+//     evaluates `newLogger instanceof org/apache/commons/logging/Log` on the
+//     reflectively-constructed `Jdk14Logger`. Duke's `instanceof` returns false — in
+//     `is_assignable_from` (crates/duke-interpreter/src/native/common.rs) the class's
+//     interface entries are plain internal names (`org/apache/commons/logging/Log`)
+//     while `to_key` is loader-qualified (`org/apache/commons/logging/Log loader:NN`),
+//     so `iface == to_key` never matches. That false negative diverts control into
+//     `handleFlawedHierarchy`, which calls `Class.getInterfaces()` (and ultimately
+//     throws a spurious LogConfigurationException). The real fix normalizes the
+//     interface/`to_key` comparison in `is_assignable_from` (native/common.rs) or the
+//     `Instanceof` opcode (execution.rs) — the interpreter class-identity lane —
+//     so this rung is pinned, not patched here (adding getInterfaces alone would only
+//     let commons-logging throw the false LogConfigurationException).
 // If either boot advances past its pin, re-observe and update.
 // See docs/findings/2026-07-10-spring-boot-real-app.md.
 // Root cause (visible only via instrumentation of the reflection wrap):
 // `NoClassDefFoundError: java/util/EnumSet`, then `ExceptionInInitializerError`.
 const APP_BLOCKER: &str = "java exception: java/lang/reflect/InvocationTargetException";
-const LADDER_BLOCKER: &str = "class not found: java/io/Serializable";
+const LADDER_BLOCKER: &str = "method not found: java/lang/Class.getInterfaces()[Ljava/lang/Class;";
 
 fn run_fixture(jar: &str) -> Output {
     let jar_path = spring_boot_fixture(jar);
@@ -204,13 +238,20 @@ fn spring_boot_app_surfaces_next_missing_capability_explicitly() {
 /// End-to-end CANARY for the commons-logging ladder fixture. Ignored until boot
 /// completes all rungs. Un-ignore when the happy path clears.
 #[test]
-#[ignore = "Blocked on 'class not found: java/io/Serializable' in the commons-logging \
-            bootstrap (a class-linkage blocker). The LogFactoryImpl.objectId rung is now \
-            cleared: objectId is a public static declared on the abstract superclass \
-            LogFactory and invoked via a Methodref bound to the subclass LogFactoryImpl; the \
-            invokestatic slow-path resolver now walks the super chain (JVMS §5.4.3.3) so the \
-            inherited static body resolves (frontier advanced objectId → java/io/Serializable); \
-            keep ignored until the ladder fixture completes. \
+#[ignore = "Blocked on 'method not found: java/lang/Class.getInterfaces()' — a SYMPTOM of a \
+            deeper instanceof bug. This session cleared a run of in-lane rungs \
+            (objectId → java/io/Serializable synthetic marker → Logger.logp 4/5-arg natives → \
+            Thread contextClassLoader persistence, which also restored getResourceAsStream \
+            resolution of BOOT-INF/classes). The ladder now reaches \
+            LogFactoryImpl.createLogFromClass, where 'newLogger instanceof \
+            org/apache/commons/logging/Log' wrongly returns false for the reflectively-built \
+            Jdk14Logger: in is_assignable_from (native/common.rs) a class's plain interface \
+            names are compared against a loader-qualified to_key, so they never match. That \
+            false negative diverts into handleFlawedHierarchy, which calls Class.getInterfaces(). \
+            The real fix is the interface/to_key key-normalization in is_assignable_from \
+            (native/common.rs) or the Instanceof opcode (execution.rs) — the interpreter \
+            class-identity lane, out of this lane's scope; adding getInterfaces alone would only \
+            surface a spurious LogConfigurationException. Keep ignored until the ladder completes. \
             See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_ladder_boots_end_to_end() {
     let output = run_fixture(LADDER_JAR);

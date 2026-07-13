@@ -407,6 +407,18 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         "(Ljava/util/logging/Level;Ljava/lang/String;Ljava/lang/Throwable;)V",
         native_jul_logger_log_throwable,
     );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "logp",
+        "(Ljava/util/logging/Level;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+        native_jul_logger_logp,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "logp",
+        "(Ljava/util/logging/Level;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V",
+        native_jul_logger_logp_throwable,
+    );
     for (method, handler) in [
         ("severe", native_jul_logger_severe as NativeHandler),
         ("warning", native_jul_logger_warning),
@@ -4414,8 +4426,17 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 descriptor: "Ljava/lang/ClassLoader;".to_string(),
                 is_static: false,
             },
+            // Static-only slot caching the main thread's context class loader.
+            // `currentThread()` allocates a throwaway Thread per call, so a loader
+            // set by the launcher must survive here to be observable later (see
+            // MAIN_CONTEXT_CLASS_LOADER_FIELD).
+            FieldEntry {
+                name: MAIN_CONTEXT_CLASS_LOADER_FIELD.to_string(),
+                descriptor: "Ljava/lang/ClassLoader;".to_string(),
+                is_static: true,
+            },
         ],
-        static_fields: Vec::new(),
+        static_fields: vec![Slot::Reference(None)],
         instance_field_count: 5,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
@@ -4470,13 +4491,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/lang/String;",
         native_thread_get_name,
     );
-    registry.natives_mut().register(
+    registry.natives_mut().register_callback(
         "java/lang/Thread",
         "getContextClassLoader",
         "()Ljava/lang/ClassLoader;",
         native_thread_get_context_class_loader,
     );
-    registry.natives_mut().register(
+    registry.natives_mut().register_callback(
         "java/lang/Thread",
         "setContextClassLoader",
         "(Ljava/lang/ClassLoader;)V",
@@ -5066,6 +5087,21 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(autocloseable_ctx);
+
+    // java/io/Serializable — marker interface, registered so reflective hierarchy walks / is_assignable_from resolve it instead of ClassNotFound.
+    let serializable_ctx = ClassContext {
+        class_name: "java/io/Serializable".to_string(),
+        super_class: None, // interface — no super class
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(serializable_ctx);
 
     // java/sql/Driver - marker interface for ServiceLoader-based JDBC smoke tests.
     let sql_driver_ctx = ClassContext {

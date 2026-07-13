@@ -1780,11 +1780,19 @@ pub(crate) fn native_thread_interrupted(
         take_current_host_thread_interrupted(),
     ))))
 }
+/// Static-field name on the synthetic `java/lang/Thread` caching the main thread's
+/// context class loader. `Thread.currentThread()` allocates a throwaway Thread per
+/// call, so a loader set via `setContextClassLoader` (e.g. the Spring Boot launcher
+/// installing its `LaunchedClassLoader`) would otherwise be lost before the next
+/// `currentThread().getContextClassLoader()`. Persisting it here keeps the loader —
+/// with its real archive paths — observable so resource lookups resolve correctly.
+pub(crate) const MAIN_CONTEXT_CLASS_LOADER_FIELD: &str = "$dukeMainContextClassLoader";
 pub(crate) fn native_thread_get_context_class_loader(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let thread_ref = extract_ref_arg(args, 0)?;
     let loader = heap
@@ -1793,17 +1801,48 @@ pub(crate) fn native_thread_get_context_class_loader(
         .get(THREAD_CONTEXT_CLASS_LOADER_SLOT)
         .copied()
         .unwrap_or(Slot::Reference(None));
-    Ok(Some(loader))
+    if let Slot::Reference(Some(_)) = loader {
+        return Ok(Some(loader));
+    }
+    // This throwaway Thread instance has no loader of its own. Fall back to the
+    // persisted main-thread context loader (set by the launcher), then — if none was
+    // ever installed — to the system class loader, mirroring the JVM default where the
+    // main thread's context loader is the system loader (set during VM startup).
+    if let Slot::Reference(Some(persisted)) =
+        ops.read_static_field("java/lang/Thread", MAIN_CONTEXT_CLASS_LOADER_FIELD)?
+    {
+        return Ok(Some(Slot::Reference(Some(persisted))));
+    }
+    if let Slot::Reference(Some(existing)) =
+        ops.read_static_field("java/lang/ClassLoader", SYSTEM_CLASS_LOADER_FIELD)?
+    {
+        return Ok(Some(Slot::Reference(Some(existing))));
+    }
+    let loader_ref = heap.allocate("java/lang/ClassLoader".to_string(), 0);
+    ops.write_static_field(
+        "java/lang/ClassLoader",
+        SYSTEM_CLASS_LOADER_FIELD,
+        Slot::Reference(Some(loader_ref)),
+    )?;
+    Ok(Some(Slot::Reference(Some(loader_ref))))
 }
 pub(crate) fn native_thread_set_context_class_loader(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let thread_ref = extract_ref_arg(args, 0)?;
     let loader = extract_slot_arg(args, 1);
     heap.write_field(thread_ref, THREAD_CONTEXT_CLASS_LOADER_SLOT, loader)?;
+    // Persist on the synthetic Thread class so the loader survives the throwaway
+    // Thread objects returned by successive `currentThread()` calls.
+    ops.write_static_field(
+        "java/lang/Thread",
+        MAIN_CONTEXT_CLASS_LOADER_FIELD,
+        loader,
+    )?;
     Ok(None)
 }
 /// Native: `String.substring(int)` - substring from begin to end.
