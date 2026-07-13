@@ -658,3 +658,54 @@ is pinned honestly rather than patched.
 3096/0/4; fmt + clippy (1.97.0, pedantic + nursery) clean; HelloWorld class + jar modes
 both print `Hello, World!`. No edits to `registry.rs`, `native/common.rs`, or
 `execution.rs`.
+
+---
+
+## 2026-07-13 — instanceof loader-key fix clears the whole commons-logging wall; ladder now walls in its own `main` (wave-9 pin)
+
+The pinned `Class.getInterfaces()` frontier above was only a symptom of a false-negative
+`instanceof`. That is now **FIXED** in `is_assignable_from` (`native/common.rs`, branch
+`swarm/instanceof-loader-keys`, cherry-picked onto `swarm/ladder-objectid`/PR #1353).
+
+**Root cause (confirmed in code):** a `ClassContext`'s interface entries are stored either
+as PLAIN internal names — for classes built reflectively/synthetically via
+`build_class_context`, which never runs the loader-resolution pass — or as LOADER-QUALIFIED
+keys (`name\0loader:N`), rewritten by `ensure_loaded_inner` (`registry.rs:1281-1292`). The
+target `to_key` is loader-qualified, so the old `iface == to_key` equality silently failed
+for the plain case. commons-logging's `LogFactoryImpl.createLogFromClass` evaluated
+`newLogger instanceof org/apache/commons/logging/Log` on the reflectively-built
+`Jdk14Logger` (which genuinely `implements Log, Serializable`) and Duke returned FALSE,
+diverting into `handleFlawedHierarchy` → `Class.getInterfaces()`.
+
+**Fix (one comparison site):** compare interface entries on the PLAIN internal name —
+`class_internal_name_from_key(&iface) == to_internal` (loader separator is `\0`;
+`to_internal` already holds the plain name of `to_key`). This strips the loader qualifier
+from both sides, is loader-agnostic per Duke's interface-by-name identity model, and fixes
+BOTH `Instanceof` and `Checkcast` (both opcodes route through `is_assignable_from` at
+`execution.rs:2839`/`2871`). Regression test
+`is_assignable_from_matches_loader_qualified_interface` in `tests.rs` (plain interface
+entry vs loader-qualified target key = true; unrelated class = false) fails on trunk,
+passes with the fix.
+
+**Ladder end-to-end result:** the fix clears commons-logging entirely — `Jdk14Logger.log`
+/`info` now execute and the ladder boots ALL THE WAY THROUGH logging into its own
+`LadderApplication.main`.
+
+**NEW WALL — pinned for wave 9:** an uncaught `java/lang/reflect/InvocationTargetException`.
+Decoded from `main`'s bytecode (main@10-48) plus temporary instrumentation of the reflect
+wrap (since reverted): main does
+`new Properties().load(Thread.currentThread().getContextClassLoader().getResourceAsStream(name))`.
+Duke's synthetic `java/util/Properties.load(Ljava/io/InputStream;)V` throws
+`java/io/IOException` (it cannot read the resource `InputStream` Duke returns), which
+propagates out of `main`; the Spring Boot launcher's reflective `main.invoke` wraps it into
+the uncaught `InvocationTargetException` (the visible blocker). **Wave-9 lane:** java.util
+Properties / resource-stream I/O — teach `Properties.load(InputStream)` to actually parse
+the stream handed back by `getResourceAsStream`.
+
+`LADDER_BLOCKER` is re-pinned to `"java exception: java/lang/reflect/InvocationTargetException"`
+(the same visible string as `APP_BLOCKER`, though the two have different underlying causes —
+LADDER = `Properties.load` IOException, APP = `NoClassDefFoundError: java/util/EnumSet`).
+The ladder end-to-end canary stays `#[ignore]`d with an updated reason. `APP_BLOCKER` and
+the app section are untouched. Part-1 gate: workspace 3097/0/4 (+1 = the new test, zero
+instanceof/checkcast/reflection regressions), fmt + clippy (1.97.0 pedantic+nursery) clean,
+HelloWorld class + jar both print `Hello, World!`. No edits to `registry.rs`.

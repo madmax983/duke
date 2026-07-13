@@ -135,26 +135,37 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //           also cleared the follow-on `getResourceAsStream(...)` == null rung —
 //           with the LaunchedClassLoader's real archive path restored, the lookup
 //           resolves BOOT-INF/classes/META-INF/duke-ladder.properties. CLEARED.
-//     The ladder now lands on `method not found: java/lang/Class.getInterfaces()`,
-//     but that is only a SYMPTOM: commons-logging's `LogFactoryImpl.createLogFromClass`
-//     evaluates `newLogger instanceof org/apache/commons/logging/Log` on the
-//     reflectively-constructed `Jdk14Logger`. Duke's `instanceof` returns false — in
-//     `is_assignable_from` (crates/duke-interpreter/src/native/common.rs) the class's
-//     interface entries are plain internal names (`org/apache/commons/logging/Log`)
-//     while `to_key` is loader-qualified (`org/apache/commons/logging/Log loader:NN`),
-//     so `iface == to_key` never matches. That false negative diverts control into
-//     `handleFlawedHierarchy`, which calls `Class.getInterfaces()` (and ultimately
-//     throws a spurious LogConfigurationException). The real fix normalizes the
-//     interface/`to_key` comparison in `is_assignable_from` (native/common.rs) or the
-//     `Instanceof` opcode (execution.rs) — the interpreter class-identity lane —
-//     so this rung is pinned, not patched here (adding getInterfaces alone would only
-//     let commons-logging throw the false LogConfigurationException).
+//     The `getInterfaces()` rung was only a SYMPTOM of a deeper `instanceof` bug:
+//     commons-logging's `LogFactoryImpl.createLogFromClass` evaluates `newLogger
+//     instanceof org/apache/commons/logging/Log` on the reflectively-constructed
+//     `Jdk14Logger`, and Duke returned false because in `is_assignable_from`
+//     (crates/duke-interpreter/src/native/common.rs) the class's interface entries are
+//     plain internal names (`org/apache/commons/logging/Log`) while `to_key` was
+//     loader-qualified (`org/apache/commons/logging/Log\0loader:NN`), so `iface ==
+//     to_key` never matched. The false negative diverted control into
+//     `handleFlawedHierarchy` → `Class.getInterfaces()`. That is now CLEARED
+//     (interpreter class-identity lane): `is_assignable_from` compares interface
+//     entries against the target's PLAIN internal name (stripping any loader
+//     qualifier from both sides), which is loader-agnostic and fixes both `Instanceof`
+//     and `Checkcast`. commons-logging now resolves `Jdk14Logger` as a real `Log`,
+//     initializes fully, and the ladder boots all the way through logging into its own
+//     `LadderApplication.main`.
+//     The ladder now lands on an uncaught `java/lang/reflect/InvocationTargetException`
+//     (same visible blocker string as APP). Root cause (decoded from main's bytecode +
+//     reflection-wrap instrumentation): main does `new Properties().load(
+//     Thread.currentThread().getContextClassLoader().getResourceAsStream(name))` at
+//     main@48; Duke's synthetic `java/util/Properties.load(Ljava/io/InputStream;)V`
+//     throws `java/io/IOException` (it cannot read the resource InputStream Duke hands
+//     back), which propagates out of main and the Spring Boot launcher's reflective
+//     `main.invoke` wraps into the uncaught InvocationTargetException. PINNED for wave 9
+//     (java.util Properties / resource-stream I/O lane — teach `Properties.load(
+//     InputStream)` to parse the stream from `getResourceAsStream`), not fixed here.
 // If either boot advances past its pin, re-observe and update.
 // See docs/findings/2026-07-10-spring-boot-real-app.md.
-// Root cause (visible only via instrumentation of the reflection wrap):
+// APP root cause (visible only via instrumentation of the reflection wrap):
 // `NoClassDefFoundError: java/util/EnumSet`, then `ExceptionInInitializerError`.
 const APP_BLOCKER: &str = "java exception: java/lang/reflect/InvocationTargetException";
-const LADDER_BLOCKER: &str = "method not found: java/lang/Class.getInterfaces()[Ljava/lang/Class;";
+const LADDER_BLOCKER: &str = "java exception: java/lang/reflect/InvocationTargetException";
 
 fn run_fixture(jar: &str) -> Output {
     let jar_path = spring_boot_fixture(jar);
@@ -238,20 +249,17 @@ fn spring_boot_app_surfaces_next_missing_capability_explicitly() {
 /// End-to-end CANARY for the commons-logging ladder fixture. Ignored until boot
 /// completes all rungs. Un-ignore when the happy path clears.
 #[test]
-#[ignore = "Blocked on 'method not found: java/lang/Class.getInterfaces()' — a SYMPTOM of a \
-            deeper instanceof bug. This session cleared a run of in-lane rungs \
-            (objectId → java/io/Serializable synthetic marker → Logger.logp 4/5-arg natives → \
-            Thread contextClassLoader persistence, which also restored getResourceAsStream \
-            resolution of BOOT-INF/classes). The ladder now reaches \
-            LogFactoryImpl.createLogFromClass, where 'newLogger instanceof \
-            org/apache/commons/logging/Log' wrongly returns false for the reflectively-built \
-            Jdk14Logger: in is_assignable_from (native/common.rs) a class's plain interface \
-            names are compared against a loader-qualified to_key, so they never match. That \
-            false negative diverts into handleFlawedHierarchy, which calls Class.getInterfaces(). \
-            The real fix is the interface/to_key key-normalization in is_assignable_from \
-            (native/common.rs) or the Instanceof opcode (execution.rs) — the interpreter \
-            class-identity lane, out of this lane's scope; adding getInterfaces alone would only \
-            surface a spurious LogConfigurationException. Keep ignored until the ladder completes. \
+#[ignore = "The instanceof false-negative that walled commons-logging at \
+            Class.getInterfaces() is now FIXED (is_assignable_from compares interface entries \
+            on the plain internal name, stripping loader qualifiers from both sides), so the \
+            ladder boots all the way through commons-logging/Jdk14Logger into its own \
+            LadderApplication.main. It now fails there: main does \
+            new Properties().load(getContextClassLoader().getResourceAsStream(name)) and Duke's \
+            synthetic java/util/Properties.load(InputStream) throws java/io/IOException, which \
+            the Spring Boot launcher's reflective main.invoke wraps into an uncaught \
+            java/lang/reflect/InvocationTargetException. Pinned for wave 9 (java.util Properties \
+            / resource-stream I/O lane: teach Properties.load(InputStream) to parse the stream \
+            from getResourceAsStream). Keep ignored until the ladder completes. \
             See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_ladder_boots_end_to_end() {
     let output = run_fixture(LADDER_JAR);
