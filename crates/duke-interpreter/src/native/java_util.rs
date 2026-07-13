@@ -4014,22 +4014,29 @@ pub(crate) fn native_properties_load(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let file_id = properties_stream_id_from_slot(extract_slot_arg(args, 1), heap)?;
-    let mut bytes = Vec::new();
-    let mut buf = [0u8; 4096];
-    loop {
-        let n = heap.read_host_file_bytes(file_id, &mut buf)?;
-        if n < 0 {
-            break;
-        }
-        let n = usize::try_from(n).unwrap_or(0);
-        bytes.extend_from_slice(&buf[..n]);
-    }
+    let bytes = properties_read_input_stream_bytes(extract_slot_arg(args, 1), heap)?;
 
     for (key, value) in parse_properties_bytes(&bytes)? {
         properties_put_string_pair(heap, this_ref, key, value)?;
     }
     Ok(None)
+}
+
+/// Drain a `java.util.Properties.load(InputStream)` source to raw bytes.
+///
+/// `getResourceAsStream` (Class / `ClassLoader`) hands back a synthetic
+/// `duke/io/ResourceInputStream` that holds the resolved resource bytes in a
+/// backing byte-array field rather than a host file descriptor. The pre-existing
+/// `properties_stream_id_from_slot` path only understood host-file streams
+/// (`fields[0]` = positive fd) and raised `java/io/IOException` for a
+/// `ResourceInputStream`, which is why loading a fat-jar resource `.properties`
+/// failed. Delegates to the shared `input_stream_drain_all_bytes`, which reads
+/// either stream kind.
+fn properties_read_input_stream_bytes(slot: Slot, heap: &mut duke_gc::Heap) -> Result<Vec<u8>> {
+    let Slot::Reference(Some(stream_ref)) = slot else {
+        return Err(Error::NullPointerException);
+    };
+    input_stream_drain_all_bytes(stream_ref, heap)
 }
 pub(crate) fn native_properties_store(
     args: &[Slot],
