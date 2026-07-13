@@ -106,16 +106,21 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //     — computeIfAbsent/computeIfPresent/compute/merge/forEach/replaceAll plus
 //     putIfAbsent/getOrDefault/replace/containsValue/putAll — is registered on
 //     `java/util/Hashtable`, reusing the HashMap natives). That rung is CLEARED.
-//     The ladder now lands on `method not found:
-//     org/apache/commons/logging/impl/LogFactoryImpl.objectId(...)` — the next
-//     real blocker in commons-logging's LogFactoryImpl bootstrap (collections
-//     lane cleared; this is a different missing-method rung).
+//     The ladder previously landed on `method not found:
+//     org/apache/commons/logging/impl/LogFactoryImpl.objectId(...)`. That rung is
+//     now CLEARED: `objectId` is a `public static` method declared on the abstract
+//     superclass `LogFactory` and invoked via a Methodref bound to the subclass
+//     `LogFactoryImpl`. The invokestatic slow-path resolver now walks the super
+//     chain (JVMS §5.4.3.3) instead of flat-scanning the subclass, so the
+//     inherited static body resolves. The frontier advanced
+//     (objectId → java/io/Serializable): the ladder now lands on
+//     `class not found: java/io/Serializable`, the next real blocker.
 // If either boot advances past its pin, re-observe and update.
 // See docs/findings/2026-07-10-spring-boot-real-app.md.
 // Root cause (visible only via instrumentation of the reflection wrap):
 // `NoClassDefFoundError: java/util/EnumSet`, then `ExceptionInInitializerError`.
 const APP_BLOCKER: &str = "java exception: java/lang/reflect/InvocationTargetException";
-const LADDER_BLOCKER: &str = "method not found: org/apache/commons/logging/impl/LogFactoryImpl.objectId(Ljava/lang/Object;)Ljava/lang/String;";
+const LADDER_BLOCKER: &str = "class not found: java/io/Serializable";
 
 fn run_fixture(jar: &str) -> Output {
     let jar_path = spring_boot_fixture(jar);
@@ -199,14 +204,14 @@ fn spring_boot_app_surfaces_next_missing_capability_explicitly() {
 /// End-to-end CANARY for the commons-logging ladder fixture. Ignored until boot
 /// completes all rungs. Un-ignore when the happy path clears.
 #[test]
-#[ignore = "Blocked on missing \
-            org/apache/commons/logging/impl/LogFactoryImpl.objectId(Object)String in the \
-            LogFactoryImpl bootstrap (a NoSuchMethodError-territory blocker). The \
-            Hashtable.computeIfAbsent rung is now cleared: java/util/Hashtable registers the \
-            full Map-default native family (computeIfAbsent/computeIfPresent/compute/merge/\
-            forEach/replaceAll plus putIfAbsent/getOrDefault/replace/containsValue/putAll), so \
-            the LogFactoryImpl fallback advances past it; keep ignored until the ladder fixture \
-            completes. See docs/findings/2026-07-10-spring-boot-real-app.md"]
+#[ignore = "Blocked on 'class not found: java/io/Serializable' in the commons-logging \
+            bootstrap (a class-linkage blocker). The LogFactoryImpl.objectId rung is now \
+            cleared: objectId is a public static declared on the abstract superclass \
+            LogFactory and invoked via a Methodref bound to the subclass LogFactoryImpl; the \
+            invokestatic slow-path resolver now walks the super chain (JVMS §5.4.3.3) so the \
+            inherited static body resolves (frontier advanced objectId → java/io/Serializable); \
+            keep ignored until the ladder fixture completes. \
+            See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_ladder_boots_end_to_end() {
     let output = run_fixture(LADDER_JAR);
     let combined = combined_output(&output);

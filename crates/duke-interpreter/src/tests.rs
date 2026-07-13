@@ -1895,6 +1895,142 @@ fn registered_callback_native_overrides_loaded_bytecode_static_method() {
     assert_eq!(result, Some(Slot::Int(42)));
 }
 
+/// Regression: an `invokestatic` whose `Methodref` is symbolically bound to a
+/// subclass must resolve a `public static` method declared on a *superclass*
+/// (JVMS §5.4.3.3). Mirror of the real commons-logging bug where
+/// `LogFactoryImpl.objectId(...)` is invoked via a Methodref bound to the
+/// subclass `LogFactoryImpl`, but the body is declared on the abstract
+/// superclass `LogFactory`. Before the fix the invokestatic slow-path resolver
+/// flat-scanned only the referenced class, found nothing, and raised
+/// `MethodNotFound`. The resolver now walks the super chain and rebinds the
+/// callee class to where the body was found.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn invokestatic_resolves_inherited_static_method() {
+    use duke_classfile::CpIndex;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    // Caller: `Invokestatic` on `SubStaticImpl.inheritedStatic()I`. The
+    // Methodref is bound to the *subclass*, which declares no such method.
+    let caller_cp = make_cp(vec![
+        Some(CpEntry::Methodref {
+            class_index: CpIndex(2),
+            name_and_type_index: CpIndex(3),
+        }),
+        Some(CpEntry::Class {
+            name_index: CpIndex(4),
+        }),
+        Some(CpEntry::NameAndType {
+            name_index: CpIndex(5),
+            descriptor_index: CpIndex(6),
+        }),
+        Some(CpEntry::Utf8("SubStaticImpl".to_string())),
+        Some(CpEntry::Utf8("inheritedStatic".to_string())),
+        Some(CpEntry::Utf8("()I".to_string())),
+    ]);
+    let caller_instructions: Arc<[(usize, Instruction)]> = vec![
+        (0, Instruction::Invokestatic(CpIndex(1))),
+        (3, Instruction::Ireturn),
+    ]
+    .into();
+    let caller_method = MethodEntry {
+        name: "callInherited".to_string(),
+        descriptor: "()I".to_string(),
+        is_public: true,
+        is_static: true,
+        is_native: false,
+        is_abstract: false,
+        instructions: Arc::clone(&caller_instructions),
+        max_stack: 1,
+        max_locals: 0,
+        exception_table: Vec::new(),
+        pc_to_idx: Arc::new(HashMap::from([(0, 0), (3, 1)])),
+        line_number_table: Vec::new(),
+        source_file: None,
+    };
+    let caller_ctx = ClassContext {
+        class_name: "InheritedStaticCaller".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        interfaces: Vec::new(),
+        constant_pool: caller_cp,
+        methods: vec![caller_method],
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Classfile,
+    };
+
+    // Superclass declares the `public static` body (returns 7).
+    let super_instructions: Arc<[(usize, Instruction)]> =
+        vec![(0, Instruction::Bipush(7)), (2, Instruction::Ireturn)].into();
+    let super_method = MethodEntry {
+        name: "inheritedStatic".to_string(),
+        descriptor: "()I".to_string(),
+        is_public: true,
+        is_static: true,
+        is_native: false,
+        is_abstract: false,
+        instructions: Arc::clone(&super_instructions),
+        max_stack: 1,
+        max_locals: 0,
+        exception_table: Vec::new(),
+        pc_to_idx: Arc::new(HashMap::from([(0, 0), (2, 1)])),
+        line_number_table: Vec::new(),
+        source_file: None,
+    };
+    let super_ctx = ClassContext {
+        class_name: "SuperStaticBase".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        interfaces: Vec::new(),
+        constant_pool: Vec::new(),
+        methods: vec![super_method],
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Classfile,
+    };
+
+    // Subclass declares NO `inheritedStatic` of its own — it inherits the static.
+    let sub_ctx = ClassContext {
+        class_name: "SubStaticImpl".to_string(),
+        super_class: Some("SuperStaticBase".to_string()),
+        interfaces: Vec::new(),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Classfile,
+    };
+
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    registry.register(caller_ctx);
+    registry.register(super_ctx);
+    registry.register(sub_ctx);
+    let loader = make_simple_loader();
+    let mut sink: Vec<u8> = Vec::new();
+
+    let result = execute_class(
+        &mut registry,
+        &loader,
+        &mut heap,
+        &mut sink,
+        "InheritedStaticCaller",
+        "callInherited",
+        "()I",
+        &[],
+    )
+    .expect("invokestatic should resolve the inherited static via the super chain");
+
+    assert_eq!(result, Some(Slot::Int(7)));
+}
+
 // ---- Unit tests: parse_arg_count ----
 
 #[test]
