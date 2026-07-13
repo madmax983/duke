@@ -8012,7 +8012,7 @@ impl FramePool {
 /// - `dispatch_cache`: `(caller_class, cp_idx)` for `invokestatic`/`invokespecial`
 /// - `vtable_cache`: `(caller_class, cp_idx, receiver_runtime_class)` for `invokevirtual`
 struct CachedDispatch {
-    class_name: String,
+    class_name: std::sync::Arc<str>,
     method_idx: usize,
     arg_count: usize,
     /// JVM primitive type chars for each parameter ('I', 'J', 'D', 'F', 'Z', 'B', 'C', 'S', 'L', '[').
@@ -8025,7 +8025,7 @@ struct CachedDispatch {
 }
 
 struct ExecutionState {
-    current_class: String,
+    current_class: std::sync::Arc<str>,
     method_idx: usize,
     pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
     instructions: std::sync::Arc<[(usize, Instruction)]>,
@@ -8034,10 +8034,10 @@ struct ExecutionState {
     frame_pool: FramePool,
     /// Static dispatch cache for `invokestatic` and `invokespecial`.
     /// Key: (`caller_class`, `cp_idx`) → pre-resolved method data.
-    dispatch_cache: HashMap<String, HashMap<u16, CachedDispatch>>,
+    dispatch_cache: HashMap<std::sync::Arc<str>, HashMap<u16, CachedDispatch>>,
     /// Polymorphic inline cache for `invokevirtual`.
     /// Key: (`caller_class`, `cp_idx`, `receiver_runtime_class`) → pre-resolved method data.
-    vtable_cache: HashMap<String, HashMap<u16, HashMap<String, CachedDispatch>>>,
+    vtable_cache: HashMap<std::sync::Arc<str>, HashMap<u16, HashMap<String, CachedDispatch>>>,
     idx: usize,
     string_intern: HashMap<(u8, String), u64>,
     #[cfg(feature = "telemetry")]
@@ -8417,7 +8417,7 @@ impl ExecutionState {
         entry_idx: usize,
         args: &[Slot],
     ) -> Result<Self> {
-        let current_class = class_name.to_string();
+        let current_class = registry.intern_key(class_name);
         let pc_to_idx = {
             let ctx = registry.get(&current_class)?;
             std::sync::Arc::clone(&ctx.methods[entry_idx].pc_to_idx)
@@ -8485,9 +8485,9 @@ fn activate_method_state(
     method_idx: &mut usize,
     pc_to_idx: &mut std::sync::Arc<std::collections::HashMap<usize, usize>>,
     instructions: &mut std::sync::Arc<[(usize, Instruction)]>,
-    current_class: &mut String,
+    current_class: &mut std::sync::Arc<str>,
     call_stack: &mut Vec<CallFrame>,
-    callee_class: String,
+    callee_class: std::sync::Arc<str>,
     callee_idx: usize,
     callee_pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
     callee_frame: Frame,
@@ -9797,7 +9797,7 @@ struct CallFrame {
     pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
     resume_idx: usize,
     /// Class that was executing when this frame was pushed.
-    class_name: String,
+    class_name: std::sync::Arc<str>,
 }
 
 fn line_number_for_bci(line_number_table: &[(u16, u16)], bci: usize) -> i32 {

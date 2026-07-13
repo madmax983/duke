@@ -568,7 +568,7 @@ pub fn run_execution(
         macro_rules! ensure_field_owner_loaded {
             ($class:expr, $key:expr) => {{
                 let owner_was_loaded =
-                    registry.ensure_loaded_from(&$class, Some(current_class.as_str()), loader)?;
+                    registry.ensure_loaded_from(&$class, Some(&**current_class), loader)?;
                 if !owner_was_loaded && !registry.contains(&$key) {
                     throw_no_class_def_found!($class);
                 }
@@ -590,7 +590,7 @@ pub fn run_execution(
             // ---- invokestatic ----
             Instruction::Invokestatic(cp_idx) => {
                 if let Some(cached) = dispatch_cache
-                    .get(current_class.as_str())
+                    .get(&**current_class)
                     .and_then(|m| m.get(&cp_idx.0))
                 {
                     // Fast path: cache hit — zero registry lookups.
@@ -637,13 +637,10 @@ pub fn run_execution(
                     let ctx = registry.get(current_class)?;
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
-                let class_was_loaded = registry.ensure_loaded_from(
-                    &callee_class,
-                    Some(current_class.as_str()),
-                    loader,
-                )?;
+                let class_was_loaded =
+                    registry.ensure_loaded_from(&callee_class, Some(&**current_class), loader)?;
                 let callee_class_key =
-                    registry.class_key_from_source(&callee_class, Some(current_class.as_str()));
+                    registry.class_key_from_source(&callee_class, Some(&**current_class));
                 if class_was_loaded {
                     route_class_init_result!(ensure_initialized(
                         registry,
@@ -710,7 +707,7 @@ pub fn run_execution(
                                 .insert(
                                     cp_idx.0,
                                     CachedDispatch {
-                                        class_name: callee_class_key.clone(),
+                                        class_name: registry.intern_key(&callee_class_key),
                                         method_idx: callee_idx,
                                         arg_count,
                                         param_types: parse_arg_types(&callee_desc),
@@ -744,7 +741,7 @@ pub fn run_execution(
                             instructions,
                             current_class,
                             call_stack,
-                            callee_class_key,
+                            registry.intern_key(&callee_class_key),
                             callee_idx,
                             callee_pc_to_idx,
                             callee_frame,
@@ -1669,8 +1666,8 @@ pub fn run_execution(
                     resolve_class_name(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 let target_class_key =
-                    registry.class_key_from_source(&target_class, Some(current_class.as_str()));
-                registry.ensure_loaded_from(&target_class, Some(current_class.as_str()), loader)?;
+                    registry.class_key_from_source(&target_class, Some(&**current_class));
+                registry.ensure_loaded_from(&target_class, Some(&**current_class), loader)?;
                 // NOTE: `new` on an *unresolvable* class is deliberately NOT turned
                 // into a NoClassDefFoundError here. Unlike the other opcode sites
                 // (invokestatic / get(field|static) / put(field|static)), which
@@ -1720,7 +1717,7 @@ pub fn run_execution(
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 let target_class_key =
-                    registry.class_key_from_source(&target_class, Some(current_class.as_str()));
+                    registry.class_key_from_source(&target_class, Some(&**current_class));
                 let r = frame.pop_ref()?;
                 ensure_field_owner_loaded!(target_class, target_class_key);
                 let fidx = field_slot_idx(registry, &target_class_key, &field_name)?;
@@ -1782,7 +1779,7 @@ pub fn run_execution(
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 let target_class_key =
-                    registry.class_key_from_source(&target_class, Some(current_class.as_str()));
+                    registry.class_key_from_source(&target_class, Some(&**current_class));
                 let val = frame.pop()?;
                 let r = frame.pop_ref()?;
                 ensure_field_owner_loaded!(target_class, target_class_key);
@@ -1842,7 +1839,7 @@ pub fn run_execution(
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 let target_class_key =
-                    registry.class_key_from_source(&target_class, Some(current_class.as_str()));
+                    registry.class_key_from_source(&target_class, Some(&**current_class));
                 ensure_field_owner_loaded!(target_class, target_class_key);
                 route_class_init_result!(ensure_initialized(
                     registry,
@@ -1862,7 +1859,7 @@ pub fn run_execution(
                     resolve_fieldref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 let target_class_key =
-                    registry.class_key_from_source(&target_class, Some(current_class.as_str()));
+                    registry.class_key_from_source(&target_class, Some(&**current_class));
                 let val = frame.pop()?;
                 ensure_field_owner_loaded!(target_class, target_class_key);
                 route_class_init_result!(ensure_initialized(
@@ -1886,7 +1883,7 @@ pub fn run_execution(
                 // Fast path: cache hit for invokespecial (static dispatch — safe to cache).
                 if matches!(instr, Instruction::Invokespecial(_))
                     && let Some(cached) = dispatch_cache
-                        .get(current_class.as_str())
+                        .get(&**current_class)
                         .and_then(|m| m.get(&cp_idx.0))
                 {
                     // Zero registry lookups — all data pre-cached.
@@ -1934,18 +1931,15 @@ pub fn run_execution(
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 let callee_class_key =
-                    registry.class_key_from_source(&callee_class, Some(current_class.as_str()));
+                    registry.class_key_from_source(&callee_class, Some(&**current_class));
                 // <clinit> (static initialiser) is not supported yet — skip silently.
                 if callee_name == "<clinit>" {
                     *idx += 1;
                     continue;
                 }
                 // Attempt to load the target class; soft-fail for unloadable.
-                let class_was_loaded = registry.ensure_loaded_from(
-                    &callee_class,
-                    Some(current_class.as_str()),
-                    loader,
-                )?;
+                let class_was_loaded =
+                    registry.ensure_loaded_from(&callee_class, Some(&**current_class), loader)?;
                 let virtual_start: Option<String> =
                     if matches!(instr, Instruction::Invokevirtual(_)) {
                         let arg_count = parse_arg_count(&callee_desc);
@@ -1994,7 +1988,7 @@ pub fn run_execution(
                 if matches!(instr, Instruction::Invokevirtual(_))
                     && let Some(ref runtime_class) = virtual_start
                     && let Some(cached) = vtable_cache
-                        .get(current_class.as_str())
+                        .get(&**current_class)
                         .and_then(|m| m.get(&cp_idx.0))
                         .and_then(|m| m.get(runtime_class.as_str()))
                 {
@@ -2122,12 +2116,12 @@ pub fn run_execution(
 
                                 let _ = registry.ensure_loaded_from(
                                     &lambda_info.impl_class,
-                                    Some(current_class.as_str()),
+                                    Some(&**current_class),
                                     loader,
                                 );
                                 let impl_class_key = registry.class_key_from_source(
                                     &lambda_info.impl_class,
-                                    Some(current_class.as_str()),
+                                    Some(&**current_class),
                                 );
 
                                 let resolved = resolve_method_in_hierarchy(
@@ -2172,7 +2166,7 @@ pub fn run_execution(
                                         instructions,
                                         current_class,
                                         call_stack,
-                                        dispatch_class,
+                                        registry.intern_key(&dispatch_class),
                                         impl_idx,
                                         callee_pc_to_idx,
                                         callee_frame,
@@ -2431,7 +2425,7 @@ pub fn run_execution(
                             .insert(
                                 cp_idx.0,
                                 CachedDispatch {
-                                    class_name: dispatch_class.clone(),
+                                    class_name: registry.intern_key(&dispatch_class),
                                     method_idx: callee_idx,
                                     arg_count,
                                     param_types: parse_arg_types(&callee_desc),
@@ -2450,7 +2444,7 @@ pub fn run_execution(
                             .insert(
                                 runtime_class.clone(),
                                 CachedDispatch {
-                                    class_name: dispatch_class.clone(),
+                                    class_name: registry.intern_key(&dispatch_class),
                                     method_idx: callee_idx,
                                     arg_count,
                                     param_types: parse_arg_types(&callee_desc),
@@ -2487,7 +2481,7 @@ pub fn run_execution(
                     instructions,
                     current_class,
                     call_stack,
-                    dispatch_class,
+                    registry.intern_key(&dispatch_class),
                     callee_idx,
                     callee_pc_to_idx,
                     callee_frame,
@@ -2841,7 +2835,7 @@ pub fn run_execution(
                             loader,
                             &actual,
                             &target,
-                            Some(current_class.as_str()),
+                            Some(&**current_class),
                         ) {
                             frame.push(slot)?;
                         } else {
@@ -2873,7 +2867,7 @@ pub fn run_execution(
                             loader,
                             &actual,
                             &target,
-                            Some(current_class.as_str()),
+                            Some(&**current_class),
                         ));
                         frame.push(Slot::Int(result))?;
                     }
@@ -3046,11 +3040,8 @@ pub fn run_execution(
                         heap.get_mut(r)?.fields[i] = slot;
                     }
 
-                    let _ = registry.ensure_loaded_from(
-                        &impl_class,
-                        Some(current_class.as_str()),
-                        loader,
-                    );
+                    let _ =
+                        registry.ensure_loaded_from(&impl_class, Some(&**current_class), loader);
 
                     frame.push(Slot::Reference(Some(r)))?;
                     if gc_allowed && heap.should_gc() {
@@ -3083,7 +3074,7 @@ pub fn run_execution(
                     resolve_methodref(&ctx.constant_pool, usize::from(cp_idx.0))?
                 };
                 let callee_class_key =
-                    registry.class_key_from_source(&callee_class, Some(current_class.as_str()));
+                    registry.class_key_from_source(&callee_class, Some(&**current_class));
                 if callee_name == "<clinit>" {
                     *idx += 1;
                     continue;
@@ -3336,12 +3327,12 @@ pub fn run_execution(
 
                             let _ = registry.ensure_loaded_from(
                                 &lambda_info.impl_class,
-                                Some(current_class.as_str()),
+                                Some(&**current_class),
                                 loader,
                             );
                             let impl_class_key = registry.class_key_from_source(
                                 &lambda_info.impl_class,
-                                Some(current_class.as_str()),
+                                Some(&**current_class),
                             );
 
                             if lambda_info.impl_kind == 6 {
@@ -3388,7 +3379,7 @@ pub fn run_execution(
                                         instructions,
                                         current_class,
                                         call_stack,
-                                        dispatch_class,
+                                        registry.intern_key(&dispatch_class),
                                         impl_idx,
                                         callee_pc_to_idx,
                                         callee_frame,
@@ -3412,7 +3403,7 @@ pub fn run_execution(
                                 // invokeVirtual / invokeInterface dispatch
                                 let impl_class_key = registry.class_key_from_source(
                                     &lambda_info.impl_class,
-                                    Some(current_class.as_str()),
+                                    Some(&**current_class),
                                 );
                                 let resolved = resolve_method_in_hierarchy(
                                     registry,
@@ -3456,7 +3447,7 @@ pub fn run_execution(
                                         instructions,
                                         current_class,
                                         call_stack,
-                                        dispatch_class,
+                                        registry.intern_key(&dispatch_class),
                                         impl_idx,
                                         callee_pc_to_idx,
                                         callee_frame,
@@ -3680,7 +3671,7 @@ pub fn run_execution(
                     instructions,
                     current_class,
                     call_stack,
-                    dispatch_class,
+                    registry.intern_key(&dispatch_class),
                     callee_idx,
                     callee_pc_to_idx,
                     callee_frame,
