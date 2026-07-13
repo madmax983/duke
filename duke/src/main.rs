@@ -9,6 +9,8 @@ mod analyze;
 #[cfg(feature = "nova")]
 mod audit;
 #[cfg(feature = "nova")]
+mod clone_detect;
+#[cfg(feature = "nova")]
 mod cycle_detect;
 #[cfg(feature = "nova")]
 mod dead_code;
@@ -374,6 +376,8 @@ fn main() {
         eprintln!("       duke cycle-detect <file.jar>");
         #[cfg(feature = "nova")]
         eprintln!("       duke audit <file.jar>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke clone-detect <file.jar>");
         eprintln!("       duke deps-graph <classfile.class>");
         #[cfg(feature = "nova")]
         eprintln!("       duke purity <classfile.class>");
@@ -473,6 +477,27 @@ fn main() {
         #[cfg(not(feature = "nova"))]
         {
             eprintln!("duke: unknown subcommand 'audit'");
+            std::process::exit(1);
+        }
+    }
+
+    // Dispatch `clone-detect`
+    if args.len() > 1 && args[1] == "clone-detect" {
+        if args.len() < 3 {
+            eprintln!("Usage: duke clone-detect <file.jar>");
+            std::process::exit(1);
+        }
+        #[cfg(feature = "nova")]
+        {
+            if let Err(e) = clone_detect::dump_clone_detect(&args[2]) {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: unknown subcommand 'clone-detect'");
             std::process::exit(1);
         }
     }
