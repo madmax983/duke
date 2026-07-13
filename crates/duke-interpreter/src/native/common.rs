@@ -11463,7 +11463,18 @@ fn is_assignable_from(
             queue.push_back(sc);
         }
         for iface in interfaces {
-            if iface == to_key {
+            // A ClassContext's interface entries are stored either as plain internal
+            // names (classes built reflectively/synthetically via `build_class_context`,
+            // which never runs the loader-resolution pass) or as loader-qualified keys
+            // (classes resolved through `ensure_loaded_inner`, which rewrites each
+            // interface to a `name\0loader:N` key). `to_key` here is loader-qualified.
+            // A direct `iface == to_key` match therefore silently fails for the plain
+            // case — e.g. `x instanceof org/apache/commons/logging/Log` on a
+            // reflectively-built implementor returns a false negative. Interface
+            // assignability in Duke's model is keyed by internal name, so compare on the
+            // plain internal name (stripping any loader qualifier from both sides); this
+            // is loader-agnostic and consistent with how interface entries are recorded.
+            if class_internal_name_from_key(&iface) == to_internal {
                 return true;
             }
             queue.push_back(iface);
