@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-25 - [Broken intra-doc links in duke-interpreter and duke-gc]
+**Confusion:** Building docs triggered a warning about public documentation linking to a private item `KEEP_SYNTHETIC` in `crates/duke-interpreter/src/registry.rs` and `mark_old` in `crates/duke-gc/src/lib.rs`. The user should not have to see warning messages regarding private intra-doc links since they won't render.
+**Clarification:** Downgraded the intra-doc links to standard inline code formatting (e.g., replaced `[`private_item`]` with `` `private_item` ``) to resolve the warning without suppressing the issue using `#[allow(rustdoc::private_intra_doc_links)]`, keeping the warnings functional to prevent this in the future.
