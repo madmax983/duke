@@ -639,7 +639,7 @@ pub fn run_execution(
                 };
                 let class_was_loaded =
                     registry.ensure_loaded_from(&callee_class, Some(&**current_class), loader)?;
-                let callee_class_key =
+                let mut callee_class_key =
                     registry.class_key_from_source(&callee_class, Some(&**current_class));
                 if class_was_loaded {
                     route_class_init_result!(ensure_initialized(
@@ -685,10 +685,29 @@ pub fn run_execution(
                         .filter(|(owning_class, _)| owning_class == &callee_class_key)
                         .map(|(_, idx)| idx)
                 } else {
-                    let ctx = registry.get(&callee_class_key)?;
-                    ctx.methods
-                        .iter()
-                        .position(|m| m.name == callee_name && m.descriptor == callee_desc)
+                    // JVMS §5.4.3.3: a static method may be declared on a superclass
+                    // and invoked via a Methodref symbolically bound to a subclass
+                    // (e.g. commons-logging LogFactoryImpl.objectId, declared on the
+                    // abstract superclass LogFactory). invokestatic has no receiver, so
+                    // no virtual dispatch — a plain upward walk for a concrete matching
+                    // name+descriptor is correct. Rebind callee_class_key to the class
+                    // where the body was found so the invoked frame resolves its own
+                    // constant pool / method idx / ctx correctly.
+                    match resolve_method_in_hierarchy_lookup(
+                        registry,
+                        loader,
+                        &callee_class_key,
+                        &callee_name,
+                        &callee_desc,
+                    ) {
+                        MethodHierarchyLookup::Bytecode(found_class, idx) => {
+                            callee_class_key = found_class;
+                            Some(idx)
+                        }
+                        MethodHierarchyLookup::NativeOverride | MethodHierarchyLookup::Missing => {
+                            None
+                        }
+                    }
                 };
                 match callee_idx {
                     Some(callee_idx) => {
