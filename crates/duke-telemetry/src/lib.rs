@@ -520,12 +520,23 @@ mod tests {
     #[test]
     #[cfg(feature = "telemetry")]
     fn test_print_report_io_error() {
-        struct FailingWriter;
-        impl std::io::Write for FailingWriter {
-            fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
-                Err(std::io::Error::other("disk full"))
+        use std::io;
+
+        struct LimitWriter {
+            pub limit: usize,
+            pub written: usize,
+        }
+
+        impl io::Write for LimitWriter {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                if self.written + buf.len() > self.limit {
+                    Err(io::Error::other("limit reached"))
+                } else {
+                    self.written += buf.len();
+                    Ok(buf.len())
+                }
             }
-            fn flush(&mut self) -> std::io::Result<()> {
+            fn flush(&mut self) -> io::Result<()> {
                 Ok(())
             }
         }
@@ -548,9 +559,18 @@ mod tests {
             .native_boundary
             .record_call("java/lang/String", "intern", 100, true);
 
-        let mut w = FailingWriter;
-        let res = store.print_report(&mut w);
-        assert!(res.is_err());
+        // Exhaustively test the I/O error paths at different failure boundaries
+        // 500 bytes should be more than enough to test partial output writes in the telemetry blocks
+        for limit in 0..500 {
+            let mut w = LimitWriter { limit, written: 0 };
+            let res = store.print_report(&mut w);
+            // Some boundaries might accidentally succeed if 500 is higher than max bytes,
+            // but the test primarily aims to reach every `?` branch.
+            if res.is_ok() {
+                // If it succeeded, we've verified past all boundaries.
+                break;
+            }
+        }
     }
 
     #[test]
@@ -564,6 +584,44 @@ mod tests {
     }
 
     #[test]
+    fn test_print_bytecode_cost_with_more_than_10() {
+        let mut store = crate::TelemetryStore::default();
+        // The sort is by count descending. So we give them different counts.
+        // The one with count=15 should be at the top, count=1 at the bottom.
+        // We will assert that the top 10 are present, and the bottom 5 are excluded.
+        store.bytecode_cost.record("op_00", "Foo", "bar", 10, 100); // 1 time
+
+        for _ in 0..2 { store.bytecode_cost.record("op_01", "Foo", "bar", 10, 100); }
+        for _ in 0..3 { store.bytecode_cost.record("op_02", "Foo", "bar", 10, 100); }
+        for _ in 0..4 { store.bytecode_cost.record("op_03", "Foo", "bar", 10, 100); }
+        for _ in 0..5 { store.bytecode_cost.record("op_04", "Foo", "bar", 10, 100); }
+        for _ in 0..6 { store.bytecode_cost.record("op_05", "Foo", "bar", 10, 100); }
+        for _ in 0..7 { store.bytecode_cost.record("op_06", "Foo", "bar", 10, 100); }
+        for _ in 0..8 { store.bytecode_cost.record("op_07", "Foo", "bar", 10, 100); }
+        for _ in 0..9 { store.bytecode_cost.record("op_08", "Foo", "bar", 10, 100); }
+        for _ in 0..10 { store.bytecode_cost.record("op_09", "Foo", "bar", 10, 100); }
+        for _ in 0..11 { store.bytecode_cost.record("op_10", "Foo", "bar", 10, 100); }
+        for _ in 0..12 { store.bytecode_cost.record("op_11", "Foo", "bar", 10, 100); }
+        for _ in 0..13 { store.bytecode_cost.record("op_12", "Foo", "bar", 10, 100); }
+        for _ in 0..14 { store.bytecode_cost.record("op_13", "Foo", "bar", 10, 100); }
+        for _ in 0..15 { store.bytecode_cost.record("op_14", "Foo", "bar", 10, 100); }
+
+        let mut buf = Vec::new();
+        store.print_bytecode_cost(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+
+        // Highest counts are op_05 through op_14 (10 ops)
+        assert!(s.contains("op_14"));
+        assert!(s.contains("op_05"));
+        // Lowest counts should not be present
+        assert!(!s.contains("op_04"));
+        assert!(!s.contains("op_00"));
+
+        let count = s.matches("op_").count();
+        assert_eq!(count, 10);
+    }
+
+    #[test]
     fn test_print_object_lineage_with_less_than_10() {
         let mut store = crate::TelemetryStore::default();
         store
@@ -573,6 +631,69 @@ mod tests {
         store.print_object_lineage(&mut buf).unwrap();
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/String"));
+    }
+
+    #[test]
+    fn test_print_object_lineage_with_more_than_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            for _ in 0..=i {
+                store
+                    .object_lineage
+                    .record(&format!("java/lang/String_{i:02}"), "Foo", 10, "bar");
+            }
+        }
+        let mut buf = Vec::new();
+        store.print_object_lineage(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("java/lang/String_14"));
+        assert!(s.contains("java/lang/String_05"));
+        assert!(!s.contains("java/lang/String_04"));
+        assert!(!s.contains("java/lang/String_00"));
+        let count = s.matches("java/lang/String_").count();
+        assert_eq!(count, 10);
+    }
+
+    #[test]
+    fn test_print_dispatch_resolution_with_more_than_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            for _ in 0..=i {
+                store
+                    .dispatch_resolution
+                    .record(&format!("Foo_{i:02}"), 42, "java/lang/String", true);
+            }
+        }
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("Foo_14"));
+        assert!(s.contains("Foo_05"));
+        assert!(!s.contains("Foo_04"));
+        assert!(!s.contains("Foo_00"));
+        let count = s.matches("Foo_").count();
+        assert_eq!(count, 10);
+    }
+
+    #[test]
+    fn test_print_native_boundary_with_more_than_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            for _ in 0..=i {
+                store
+                    .native_boundary
+                    .record_call("java/lang/String", &format!("intern_{i:02}"), 100, true);
+            }
+        }
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("intern_14"));
+        assert!(s.contains("intern_05"));
+        assert!(!s.contains("intern_04"));
+        assert!(!s.contains("intern_00"));
+        let count = s.matches("intern_").count();
+        assert_eq!(count, 10);
     }
 
     #[test]

@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Testing limit truncation in reporters
+**Learning:** Found an uncovered edge case with formatting large amounts of report output (like bounding the top 10 telemetry components) where `.take(10)` was never correctly verified since fewer than 10 inputs were recorded.
+**Action:** Always add tests that explicitly bound an input set with greater than max threshold boundaries to verify sorting and truncation works effectively when reporting large items.
