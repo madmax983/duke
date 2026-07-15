@@ -1418,6 +1418,11 @@ fn register_unsafe_stdlib(registry: &mut ClassRegistry) {
             "(Ljava/lang/Object;JI)I",
             native_unsafe_get_and_add_int,
         ),
+        // Real-JDK shadow (stage-c writer graph): `java.nio.ByteOrder.<clinit>`
+        // calls `Unsafe.isBigEndian()` to compute the native byte order. It is
+        // genuinely `native` (no bytecode). The host is amd64 (little-endian),
+        // so this returns false, matching `ByteOrder.nativeOrder() == LITTLE_ENDIAN`.
+        ("isBigEndian", "()Z", native_false_boolean),
     ] {
         registry
             .natives_mut()
@@ -3753,6 +3758,20 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "jdk/internal/misc/CDS",
         "logLambdaFormInvoker",
         "(Ljava/lang/String;)V",
+        native_void_noop,
+    );
+
+    // Real-JDK shadow (stage-c writer graph): `sun.nio.cs.StreamEncoder`
+    // reaches `java.nio.Buffer.<clinit>`, which forces
+    // `jdk/internal/misc/ScopedMemoryAccess.<clinit>`. Its first act is the
+    // genuinely-`native` `registerNatives()V` (no bytecode body), so without a
+    // registered native the interpreter runs off the empty body (`FellOffEnd`).
+    // Duke supplies each ScopedMemoryAccess surface explicitly, so this is a
+    // no-op that lets `<clinit>` proceed.
+    registry.natives_mut().register(
+        "jdk/internal/misc/ScopedMemoryAccess",
+        "registerNatives",
+        "()V",
         native_void_noop,
     );
 
@@ -15188,6 +15207,16 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "currentCarrierThread",
         "()Ljava/lang/Thread;",
         native_thread_current_thread,
+    );
+    // Real-JDK shadow (stage-c writer graph): `sun.nio.cs.UTF_8$Encoder`'s ASCII
+    // fast path calls `JavaLangAccess.encodeASCII` (dispatched on the placeholder
+    // JLA object). The JDK delegates to `StringCoding.implEncodeAsciiArray`; Duke
+    // supplies the equivalent leaf that copies ASCII chars into the byte buffer.
+    registry.natives_mut().register(
+        "jdk/internal/access/JavaLangAccess",
+        "encodeASCII",
+        "([CI[BII)I",
+        native_java_lang_access_encode_ascii,
     );
     // The real `FileDescriptor(int)` constructor seeds `handle`/`append` from these
     // natives. `getHandle` is -1 on unix (Windows-only concept); `getAppend` is
