@@ -9906,6 +9906,17 @@ fn native_needs_stack_snapshot(
         || (native_class == "jdk/internal/reflect/Reflection"
             && native_method == "getCallerClass"
             && native_desc == "()Ljava/lang/Class;")
+        // `Method.invoke` / `Constructor.newInstance` are caller-sensitive: the JVM
+        // access check permits a class to reflectively invoke its OWN
+        // (private/nestmate) members without `setAccessible(true)`. Capturing the
+        // stack snapshot here makes `frames[0]` (the invoking Java frame) available
+        // to the reflect natives so they can apply the same-class rule.
+        || (native_class == "java/lang/reflect/Method"
+            && native_method == "invoke"
+            && native_desc == "(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;")
+        || (native_class == "java/lang/reflect/Constructor"
+            && native_method == "newInstance"
+            && native_desc == "([Ljava/lang/Object;)Ljava/lang/Object;")
         || (native_method == "<init>"
             && matches!(
                 native_desc,

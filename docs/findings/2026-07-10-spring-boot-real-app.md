@@ -804,3 +804,83 @@ Gate: `cargo test --workspace --no-fail-fast` = 3097 passed / 0 failed / 4 ignor
 clippy (1.97.0 pedantic+nursery) clean, gson/slf4j/commons-lang3 canaries + both Spring Boot
 pins green, HelloWorld class + jar both print `Hello, World!`. No edits to
 `registry.rs` / `native/common.rs` / `execution.rs`.
+
+---
+
+## Session 2026-07-15 — LADDER BOOTS END-TO-END: caller-sensitive reflective access (`swarm/same-class-reflection`)
+
+**The wave-9 wall above is CLEARED.** The commons-logging ladder now boots all the way
+through `LadderApplication.main` and prints its full success path; the end-to-end canary
+`spring_boot_ladder_boots_end_to_end` is **un-ignored and passing**.
+
+### Root cause (confirmed exactly as pinned)
+
+`LadderApplication.main` (main@399) does
+`LadderApplication.class.getDeclaredMethod("summarize", List.class).invoke(null, ...)` — a
+**same-class** reflective invoke of its OWN `private static` method **without**
+`setAccessible(true)`. A real JVM permits this: `Method.invoke`'s access check is
+caller-sensitive (JLS 6.6 / JVMS 5.4.4), and a class may always reflectively access its own
+members. Duke's `native_reflect_method_invoke` (`native/reflect.rs`) kept the coarse
+`!is_public && !is_accessible → throw`, so it spuriously threw `IllegalAccessException`, which
+the Spring Boot launcher's reflective `main.invoke` wrapped into the uncaught
+`java/lang/reflect/InvocationTargetException`.
+
+### Fix (minimal; two source files)
+
+1. **`native_needs_stack_snapshot`** (`native/common.rs`, reflection region) now also returns
+   `true` for `java/lang/reflect/Method.invoke(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;`
+   and `java/lang/reflect/Constructor.newInstance([Ljava/lang/Object;)Ljava/lang/Object;`. This
+   makes `native_control_for_call` capture the invoking Java frame, so `control.stack_trace()[0]`
+   names the caller class — the same mechanism `Reflection.getCallerClass` already relies on
+   (the native is not itself represented in the snapshot, so `frames[0]` is its caller).
+2. **`native_reflect_method_invoke` / `native_reflect_constructor_new_instance`**
+   (`native/reflect.rs`) now take `control` (previously `_control`). The access check becomes
+   `!is_public && !is_accessible && !caller_is_same_class(control, declaring_class_key)`. The new
+   helper `caller_is_same_class` compares
+   `class_internal_name_from_key(frames[0].class_name) == class_internal_name_from_key(declaring_class_key)`,
+   normalizing away any `\0loader:N` key qualifier on both sides (Duke's by-name class identity).
+   `setAccessible(true)` (recorded as `is_accessible`) still bypasses exactly as before; an empty
+   snapshot rejects (conservative — matches the pre-fix throw).
+
+### Guardrail: the check is narrowed to same-class ONLY
+
+CROSS-class private invoke still throws `IllegalAccessException`. Verified green: the `gson`
+canary (`gson_smoke_runs_real_jar_bytecode`) and
+`ReflectionTest.privateMethodRaisesIllegalAccess` (which invokes `ReflectionTarget`'s private
+`hidden()` from `ReflectionTest` — different classes). A prior attempt that relaxed the check
+generally broke both and was reverted; this lane deliberately keeps the cross-class throw.
+
+**Nest-mates (JEP 181, `NestHost`/`NestMembers`) are NOT modelled** — `ReflectedClassInfo`
+carries no nest membership — so only strict same-class access is permitted; cross-nest private
+invoke still throws. Documented in a one-line code comment; follow-up if a fixture needs it.
+
+### Test / pin state
+
+- `spring_boot_ladder_boots_end_to_end` — `#[ignore]` removed; now asserts the real boot output
+  (starting banner, loaded props, `Math.sqrt(2809) = 53.0`, reflective `summarize`, both success
+  banners). Passing.
+- The obsolete next-blocker pin `spring_boot_ladder_surfaces_next_missing_capability_explicitly`
+  is repurposed into a no-regression guard `spring_boot_ladder_surfaces_no_missing_capability`
+  (asserts a clean boot and absence of `runtime error`), mirroring the commons-lang3
+  `_surfaces_no_missing_capability` precedent. `LADDER_BLOCKER` retired in favour of
+  `LADDER_REGRESSED_MARKER = "runtime error"`.
+- `APP_BLOCKER`, the app pin, and the app canary are untouched — the Spring Boot app fixture is
+  still walled at its `EnumSet` / `ExceptionInInitializerError` enum-reflection frontier.
+- New hermetic unit test `caller_is_same_class_allows_same_class_and_rejects_cross_class`
+  (`tests.rs`) covers same-class-allow / cross-class-reject / loader-key normalization /
+  empty-snapshot-reject without needing the ladder jar.
+
+### Gate (local; all green)
+
+- `cargo build` — clean.
+- `cargo test --workspace` — **3101 passed / 0 failed / 3 ignored** (baseline 3099/0/4; +2 passed
+  = the new unit test + the un-ignored ladder canary; ignored 4 → 3).
+- `cargo fmt --check` — clean.
+- `RUSTFLAGS="-D warnings" cargo +1.97.0 clippy --workspace --all-targets -- -W clippy::pedantic -W clippy::nursery` — clean.
+- HelloWorld `duke run …HelloWorld.class` and `duke -jar …hello.jar` — both print `Hello, World!`.
+- OSS canaries (`gson`, `slf4j-simple`, `commons-lang3`, commons-logging ladder) — all pass.
+- Spring / real-jdk pins (`spring_boot_real_app` 3/0/1, `spring_boot_real_jdk`,
+  `real_jdk_shadow`, `module_model`, `classloader_bootstrap_frontier`, `layout_coherence`) — all pass.
+
+No edits to `registry.rs` / `execution.rs`, and none to the String/heap/EnumSet/threading
+regions of `native/common.rs` — only its reflection-region `native_needs_stack_snapshot`.

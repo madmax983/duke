@@ -19297,6 +19297,49 @@ fn reflection_private_method_invoke_raises_illegal_access() {
     );
 }
 
+// Unit coverage for the caller-sensitive access rule that `Method.invoke` /
+// `Constructor.newInstance` apply (see `caller_is_same_class` in native/reflect.rs):
+// a class may reflectively access its OWN non-public members (same-class), while a
+// different caller class still walls out. Both cases normalize away any
+// `\0loader:N` key qualifier.
+#[test]
+fn caller_is_same_class_allows_same_class_and_rejects_cross_class() {
+    fn control_with_caller(caller_class: &str) -> NativeControl {
+        let mut control = NativeControl::default();
+        control.set_stack_trace(vec![NativeStackFrame {
+            class_name: caller_class.to_string(),
+            method_name: "main".to_string(),
+            file_name: None,
+            line_number: -1,
+        }]);
+        control
+    }
+
+    // Same class → allowed (plain key, and loader-qualified caller vs plain
+    // declaring key must still match after normalization).
+    assert!(caller_is_same_class(
+        &control_with_caller("com/example/Ladder"),
+        "com/example/Ladder"
+    ));
+    assert!(caller_is_same_class(
+        &control_with_caller("com/example/Ladder\0loader:7"),
+        "com/example/Ladder"
+    ));
+
+    // Different caller class → rejected (this is the gson / ReflectionTest
+    // cross-class case that must keep throwing IllegalAccessException).
+    assert!(!caller_is_same_class(
+        &control_with_caller("com/example/Caller"),
+        "com/example/Target"
+    ));
+
+    // No captured frame → rejected (conservative; matches the pre-fix throw).
+    assert!(!caller_is_same_class(
+        &NativeControl::default(),
+        "com/example/Target"
+    ));
+}
+
 #[test]
 fn reflection_private_method_invoke_with_accessible_succeeds() {
     assert_eq!(
@@ -34206,5 +34249,115 @@ fn subclass_init_initializes_superclass_first() {
         registry.get("SubInit").unwrap().static_fields[0],
         Slot::Int(2),
         "the subclass <clinit> must run after its superclass's"
+    );
+}
+
+// ── Stage-c charset writer-graph floor: `JavaLangAccess.encodeASCII` ──
+//
+// `native_java_lang_access_encode_ascii` is the ASCII fast-path that the real
+// `sun.nio.cs.UTF_8$Encoder` reaches via `SharedSecrets.getJavaLangAccess()`. It is
+// dormant on the committed tree (the writer graph walls earlier at
+// `ByteBuffer.UNSAFE`), so these direct-dispatch tests pin its contract against
+// bit-rot, mirroring the `FileOutputStream` floor tests above. It must match the JDK
+// `StringCoding.implEncodeAsciiArray`: copy `sa[sp+i]` into `da[dp+i]` as bytes while
+// each char is `< 0x80`, stop at the first char `>= 0x80`, and return the count
+// encoded.
+
+/// Pure-ASCII input: every char is encoded, the return value is the full length, and
+/// each destination byte matches the source char, honouring the `sp`/`dp` offsets.
+#[test]
+fn native_encode_ascii_pure_ascii_encodes_all() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+
+    // sa = { 'X', 'h', 'e', 'l', 'l', 'o' }; encode the 5-char tail from sp = 1.
+    let chars = ['X', 'h', 'e', 'l', 'l', 'o'];
+    let sa_ref = heap.allocate("[C".to_string(), chars.len());
+    for (i, c) in chars.into_iter().enumerate() {
+        heap.get_mut(sa_ref).unwrap().fields[i] = Slot::Int(i32::from(c as u16));
+    }
+    // da has a 2-slot pad so we can check writes land at dp = 2, not 0.
+    let da_ref = heap.allocate("[B".to_string(), 7);
+
+    let ret = native_java_lang_access_encode_ascii(
+        &[
+            Slot::Reference(Some(0)), // receiver (unused)
+            Slot::Reference(Some(sa_ref)),
+            Slot::Int(1), // sp
+            Slot::Reference(Some(da_ref)),
+            Slot::Int(2), // dp
+            Slot::Int(5), // len
+        ],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(ret, Slot::Int(5), "all five ASCII chars encoded");
+    let da = &heap.get(da_ref).unwrap().fields;
+    assert_eq!(
+        da[2..7],
+        [
+            java_byte_slot(b'h'),
+            java_byte_slot(b'e'),
+            java_byte_slot(b'l'),
+            java_byte_slot(b'l'),
+            java_byte_slot(b'o'),
+        ],
+        "\"hello\" written at dp = 2"
+    );
+    assert_eq!(
+        da[0..2],
+        [Slot::Int(0), Slot::Int(0)],
+        "bytes before dp are untouched"
+    );
+}
+
+/// Mixed input: a non-ASCII char (`0x00E9`, `é`) mid-string stops the fast-path. The
+/// return is the ASCII-prefix count, and only the prefix bytes are written — the
+/// destination slots at and past the stop index stay zeroed for the multibyte slow
+/// path to fill.
+#[test]
+fn native_encode_ascii_stops_at_non_ascii() {
+    let mut heap = duke_gc::Heap::new();
+    let mut sink: Vec<u8> = Vec::new();
+
+    // sa = { 'a', 'b', 'é'(0x00E9), 'c' }; the non-ASCII char sits at index 2.
+    let sa_ref = heap.allocate("[C".to_string(), 4);
+    heap.get_mut(sa_ref).unwrap().fields[0] = Slot::Int(i32::from(b'a'));
+    heap.get_mut(sa_ref).unwrap().fields[1] = Slot::Int(i32::from(b'b'));
+    heap.get_mut(sa_ref).unwrap().fields[2] = Slot::Int(0x00E9);
+    heap.get_mut(sa_ref).unwrap().fields[3] = Slot::Int(i32::from(b'c'));
+    let da_ref = heap.allocate("[B".to_string(), 4);
+
+    let ret = native_java_lang_access_encode_ascii(
+        &[
+            Slot::Reference(Some(0)),
+            Slot::Reference(Some(sa_ref)),
+            Slot::Int(0), // sp
+            Slot::Reference(Some(da_ref)),
+            Slot::Int(0), // dp
+            Slot::Int(4), // len
+        ],
+        &mut heap,
+        &mut sink,
+        &mut NativeControl::default(),
+    )
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(ret, Slot::Int(2), "stops at the non-ASCII char (index 2)");
+    let da = &heap.get(da_ref).unwrap().fields;
+    assert_eq!(
+        da[0..2],
+        [java_byte_slot(b'a'), java_byte_slot(b'b')],
+        "only the ASCII prefix is written"
+    );
+    assert_eq!(
+        da[2..4],
+        [Slot::Int(0), Slot::Int(0)],
+        "bytes at and past the non-ASCII char are left for the slow path"
     );
 }
