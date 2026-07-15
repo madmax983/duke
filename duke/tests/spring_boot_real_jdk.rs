@@ -62,13 +62,16 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // advances past it. With the synthetic String now declaring the real-JDK `COMPACT_STRINGS:Z`
 // static (init true, mirroring String.<clinit> `iconst_1; putstatic COMPACT_STRINGS`), the
 // former `getstatic java/lang/String.COMPACT_STRINGS` fieldref wall is cleared and real String
-// bytecode advances into `String.coder()`, an instance method the synthetic KEEP_SYNTHETIC
+// bytecode advances into `String.coder()`. That instance method is now provided as a native
+// reading real-layout slot1 (0=Latin1/1=UTF16), so the coder wall is cleared and real String
+// bytecode advances into `String.getBytes([BIB)V`, the package-private
+// `getBytes(byte[] dst, int dstBegin, byte coder)` copy helper the synthetic KEEP_SYNTHETIC
 // `java/lang/String` does not provide, which surfaces as the CLI runtime error
-// `method not found: java/lang/String.coder()B`. That is a separate lane (String real-layout /
-// KEEP_SYNTHETIC allowlist), the SAME frontier pinned by
+// `method not found: java/lang/String.getBytes([BIB)V`. That is a separate lane (String
+// real-layout / KEEP_SYNTHETIC allowlist), the SAME frontier pinned by
 // `crates/duke-interpreter/tests/classloader_bootstrap_frontier.rs`. Out of scope here.
 // If either boot advances past this, re-observe and update.
-const REAL_JDK_FRONTIER: &str = "method not found: java/lang/String.coder()B";
+const REAL_JDK_FRONTIER: &str = "method not found: java/lang/String.getBytes([BIB)V";
 
 // Markers of the OLD raw panic that this fix eliminates. None of these must appear.
 const RAW_PANIC_MARKERS: &[&str] = &["index out of bounds", "execution.rs", "panicked at"];

@@ -303,3 +303,43 @@ The new wall is real String's private byte-coder accessor `coder()B`. The **next
 target** (Stage 2) is to implement `String.coder()B` on the real 4-field layout.
 The spring RAW_PANIC_MARKERS check (`"index out of bounds"`, `"execution.rs"`,
 `"panicked at"`) still passes — the new CLI text contains none of them.
+
+---
+
+## Stage 1 — LANDED (2026-07-15, branch `swarm/string-stage1`)
+
+`heap.allocate_string` now mints the REAL 4-field layout: `value:[B` (slot0, real
+byte[] heap array), `coder:B` (slot1, 0=Latin1 / 1=UTF16LE), `hash:I` (slot2),
+`hashIsZero:Z` (slot3). String stays Synthetic + `KEEP_SYNTHETIC`; real
+`String.<clinit>` does NOT run. Approach = **additive cache**: `string_value`
+retained as authoritative cache, so the ~285 readers are unchanged and there is no
+#1307 half-migration divergence (every string uniformly carries both; strings are
+immutable so they never desync). Both mint paths coherent: `allocate_string` AND
+the `new String(...)` `<init>` paths (via `store_string_init_value`) populate
+slot0/slot1. String `ClassContext` declares `instance_field_count=4` so the layout
+guard stays coherent (`DUKE_LAYOUT_CHECK=fail` verified clean on HelloWorld both
+modes + all 3 canaries). GC needs no new code: mark/forward trace any
+`Slot::Reference` generically, so the byte[] traces/forwards for free.
+
+**Frontier moved:** `String.coder()B` → `String.getBytes([BIB)V` (`coder()`
+intrinsic added, reads slot1). Both frontier pins updated.
+
+**Entanglement discovered (bigger than the doc's map):** minting a byte[] per
+string shifted GC timing and exposed a PRE-EXISTING latent GC-safety bug — the
+java_util collection natives held stale heap refs across `ops.invoke` (runs user
+lambdas → relocating GC), then dereferenced them → heap corruption. Fixed the 5
+exercised Category-C sites (HashMap compute/computeIfAbsent/computeIfPresent/merge
++ Optional.filter) by re-resolving refs through the forwarding map after each
+invoke. 10 loop-carried Category-D sites of the same shape remain (NOT exercised
+by the gate) and are enumerated as follow-ups: hashmap forEach/replaceAll,
+collections min/max/addAll, priorityqueue offer/poll(×2), arrays setAll,
+arraylist/arraydeque forEach.
+
+**Gate:** `cargo test --workspace` 3105/0/4 (baseline 3099/0/4, +6 tests); fmt +
+CI clippy (1.97.0 pedantic/nursery, `-D warnings`) clean; HelloWorld both modes + 3
+OSS canaries green under `DUKE_LAYOUT_CHECK=fail`; Spring pins green.
+
+**Next (Stage 1.5+):** populate slot0/slot1 already done on both paths; migrate
+~285 `string_value` readers onto the byte[] slot; then Stage 4 removes String from
+`KEEP_SYNTHETIC` + runs real `String.<clinit>`. Next real-jdk frontier:
+`String.getBytes([BIB)V`.

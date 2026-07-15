@@ -47,6 +47,32 @@ pub(crate) fn native_string_length(
     let len = obj.string_value.as_ref().map_or(0, String::len);
     Ok(Some(Slot::Int(len as i32)))
 }
+/// Native: `String.coder()B` — returns the real-layout `coder` field (slot1):
+/// `0` = Latin1, `1` = UTF16. Both mint paths (`allocate_string` /
+/// `set_string_layout` and the `<init>` paths via `store_string_init_value`)
+/// populate slot1, so it is authoritative. Defensive fallback: if slot1 is
+/// somehow absent, derive the coder from `string_value` (Latin1 iff every
+/// char is `<= 0xFF`) rather than panicking.
+pub(crate) fn native_string_coder(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get(this_ref)?;
+    if let Some(Slot::Int(coder)) = obj.fields.get(1) {
+        return Ok(Some(Slot::Int(*coder)));
+    }
+    // Fallback: derive coder from the string payload.
+    let latin1 = obj
+        .string_value
+        .as_deref()
+        .unwrap_or("")
+        .chars()
+        .all(|c| c as u32 <= 0xFF);
+    Ok(Some(Slot::Int(i32::from(!latin1))))
+}
 /// Native: `String.equals(Object)` — compares string content.
 pub(crate) fn native_string_equals(
     args: &[Slot],
@@ -470,7 +496,11 @@ pub(crate) fn native_string_init_copy(
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
         _ => None,
     };
-    heap.get_mut(this_ref)?.string_value = src_val;
+    if let Some(v) = src_val {
+        store_string_init_value(heap, this_ref, v)?;
+    } else {
+        heap.get_mut(this_ref)?.string_value = None;
+    }
     Ok(None)
 }
 /// Native: `Enum.<init>(Ljava/lang/String;I)V` — stores name + ordinal.
@@ -2607,7 +2637,7 @@ pub(crate) fn native_string_init_from_chars(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let Some(Slot::Reference(Some(arr_ref))) = args.get(1).copied() else {
-        heap.get_mut(this_ref)?.string_value = Some(String::new());
+        store_string_init_value(heap, this_ref, String::new())?;
         return Ok(None);
     };
     let chars: String = heap
@@ -2619,7 +2649,7 @@ pub(crate) fn native_string_init_from_chars(
             _ => None,
         })
         .collect();
-    heap.get_mut(this_ref)?.string_value = Some(chars);
+    store_string_init_value(heap, this_ref, chars)?;
     Ok(None)
 }
 /// Native: `String.<init>(char[], int offset, int count)V` — constructs a String
@@ -2634,7 +2664,7 @@ pub(crate) fn native_string_init_from_chars_range(
     let offset = extract_int_arg(args, 2)?;
     let count = extract_int_arg(args, 3)?;
     let Some(Slot::Reference(Some(arr_ref))) = args.get(1).copied() else {
-        heap.get_mut(this_ref)?.string_value = Some(String::new());
+        store_string_init_value(heap, this_ref, String::new())?;
         return Ok(None);
     };
     let all: Vec<char> = heap
@@ -2657,7 +2687,7 @@ pub(crate) fn native_string_init_from_chars_range(
         });
     };
     let chars: String = all[start..end].iter().collect();
-    heap.get_mut(this_ref)?.string_value = Some(chars);
+    store_string_init_value(heap, this_ref, chars)?;
     Ok(None)
 }
 /// Native: `String.valueOf(char[])String` — creates String from char array.

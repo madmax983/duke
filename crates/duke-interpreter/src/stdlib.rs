@@ -3136,13 +3136,22 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: vec![FieldEntry {
-            name: "COMPACT_STRINGS".to_string(),
-            descriptor: "Z".to_string(),
-            is_static: true,
-        }],
+        fields: vec![
+            FieldEntry {
+                name: "COMPACT_STRINGS".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: true,
+            },
+            // Real java/lang/String instance layout (positional slots 0-3). The
+            // static field above is filtered out when computing instance slots,
+            // so value/coder/hash/hashIsZero land at slots 0/1/2/3.
+            synthetic_field("value", "[B", false),
+            synthetic_field("coder", "B", false),
+            synthetic_field("hash", "I", false),
+            synthetic_field("hashIsZero", "Z", false),
+        ],
         static_fields: vec![Slot::Int(1)],
-        instance_field_count: 0,
+        instance_field_count: 4,
         interfaces: vec![
             "java/lang/Comparable".to_string(),
             "java/io/Serializable".to_string(),
@@ -3157,6 +3166,9 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/String", "length", "()I", native_string_length);
+    registry
+        .natives_mut()
+        .register("java/lang/String", "coder", "()B", native_string_coder);
     registry.natives_mut().register(
         "java/lang/String",
         "equals",
