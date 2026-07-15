@@ -804,3 +804,53 @@ Gate: `cargo test --workspace --no-fail-fast` = 3097 passed / 0 failed / 4 ignor
 clippy (1.97.0 pedantic+nursery) clean, gson/slf4j/commons-lang3 canaries + both Spring Boot
 pins green, HelloWorld class + jar both print `Hello, World!`. No edits to
 `registry.rs` / `native/common.rs` / `execution.rs`.
+
+## 2026-07-15 — APP: EnumSet wall CLEARED (enum-reflection lane); next rung is `SoftReference.<init>` (out of lane)
+
+The app fixture's long-standing `EnumSet` wall (rung #1 on the app path — the
+`ExceptionInInitializerError` raised out of an enum/config static initializer that
+calls `EnumSet`'s `Class`-typed factories) is now **CLEARED** on branch
+`swarm/enumset-reflection`. `org/springframework/util/ConcurrentReferenceHashMap$Task.<init>`
+— the old wall — now executes, and `EnumSet.of(Enum, Enum[])` / `noneOf` / `contains`
+all work end-to-end against the JDK21 golden.
+
+**What landed (enum-reflection / ordinal-bitset subsystem, in lane):**
+
+- **Synthetic `java/util/EnumSet`** (`native/java_util.rs` + `stdlib.rs`), backed by an
+  ordinal **bit-set** (`fields[0]` = element-type `Class`, `fields[1]` = `long` ordinal
+  bitmask), supporting ≤64 enum constants. Factories `of` (varargs + the
+  `of(Enum, Enum[])` overload Spring uses), `noneOf`, `allOf`, `range`, `copyOf`; instance
+  methods `contains` / `add` / `remove` / `size` / `isEmpty` / `iterator` / `toArray`.
+  `allOf`/`range` materialize the universe via a heap-scan of instantiated constants
+  ordered by ordinal.
+- **`Class.isEnum` + `Class.getEnumConstants`** enum-constant reflection (`native/reflect.rs`
+  + `stdlib.rs`): `getEnumConstants` recovers the constant instances by heap-scan-by-ordinal
+  in declaration order.
+- **9 tests** (`tests.rs` + fixtures `tests/fixtures/EnumSetTest.java` / `.class` /
+  `EnumSetTest$Day.class`) pinning `of`/`contains`, `noneOf`/`allOf`/`range` sizes,
+  `add`/`remove`, iterator count, and `Class.isEnum` / `getEnumConstants` length against JDK21
+  golden output.
+
+**The visible APP blocker string is UNCHANGED** — the uncaught
+`java exception: java/lang/reflect/InvocationTargetException` still surfaces, so the app pin
+`spring_boot_app_surfaces_next_missing_capability_explicitly` still holds and `APP_BLOCKER`
+is **not** changed. But the real underlying cause has **MOVED** off the enum lane. Traced via
+`DUKE_TRACE_EXEC`, the new real cause is:
+
+> `java/lang/ref/SoftReference.<init>(Ljava/lang/Object;Ljava/lang/ref/ReferenceQueue;)V`
+> is **not registered**. `stdlib.rs` carries synthetic `Reference` / `WeakReference` /
+> `ReferenceQueue` but no `SoftReference`. The missing ctor is hit at
+> `org/springframework/util/ConcurrentReferenceHashMap$SoftEntryReference.<init>@4
+> invokespecial`, and is caught + rethrown at
+> `ConcurrentReferenceHashMap$Segment.doTask@178 athrow`, which the launcher's reflective
+> `main.invoke` re-wraps into the same visible `InvocationTargetException`.
+
+This next rung is **OUT OF the enum lane** — it belongs to the reference/GC lane (synthetic
+`SoftReference` alongside the existing `Reference`/`WeakReference`/`ReferenceQueue` family).
+
+**Gate (this branch):** `cargo test --workspace` = **3108 passed / 0 failed / 4 ignored**
+(the enum lane added 9 tests), fmt clean, exact-CI clippy (`+1.97.0`, `-D warnings`,
+`pedantic+nursery`) clean, both Spring Boot pins green, both canaries fail as assertions (not
+panics), HelloWorld class both modes print `Hello, World!`. Changes limited to
+`native/java_util.rs`, `native/reflect.rs`, `stdlib.rs`, `tests.rs` + the new fixtures.
+`APP_BLOCKER` and `tests/spring_boot_real_app.rs` untouched.
