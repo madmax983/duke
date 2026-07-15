@@ -371,11 +371,11 @@ pub(crate) fn native_resource_input_stream_close(
 //   * `readLine` recognises `\n`, `\r`, and `\r\n` terminators (java.io
 //     semantics) and returns null at end-of-input.
 
-/// `InputStreamReader` field layout: [0] underlying `InputStream` ref, [1]
+/// `InputStreamReader` field layout: `[0]` underlying `InputStream` ref, `[1]`
 /// charset name String ref (nullable → UTF-8).
 const INPUT_STREAM_READER_STREAM_FIELD: usize = 0;
 const INPUT_STREAM_READER_CHARSET_FIELD: usize = 1;
-/// `BufferedReader` field layout: [0] fully-decoded content String ref, [1] read
+/// `BufferedReader` field layout: `[0]` fully-decoded content String ref, `[1]` read
 /// cursor (char offset) Int.
 const BUFFERED_READER_CONTENT_FIELD: usize = 0;
 const BUFFERED_READER_CURSOR_FIELD: usize = 1;

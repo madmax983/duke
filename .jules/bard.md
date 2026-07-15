@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2026-07-15 - [Broken intra-doc links in duke-interpreter and duke-gc]
+**Confusion:** Several public structs and methods had broken intra-doc links, either linking to private items, or having malformed markdown tags linking to non-existent index names rather than correctly escaping brackets for field layouts.
+**Clarification:** Corrected markdown syntax for array indexes in doc strings to escape brackets (e.g. replacing `[0]` with `\[0\]`). Fixed private links by rewording to avoid  or correctly referencing public items.
