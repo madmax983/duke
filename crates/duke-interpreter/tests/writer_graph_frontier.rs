@@ -9,25 +9,27 @@
 //! WITHOUT touching the `FileOutputStream` floor (which is gated behind a forbidden
 //! `KEEP_SYNTHETIC` allowlist edit).
 //!
-//! This is a REGRESSION GUARD: it asserts the honest stage-c writer-graph frontier.
-//! The real `OutputStreamWriter -> StreamEncoder -> Charset` pipeline runs clean on a
-//! non-allowlisted sink all the way THROUGH the encode: it fills the `CharBuffer`,
-//! runs `sun.nio.cs.UTF_8$Encoder.encode`, and encodes+drains all 6 bytes of
-//! `"hello\n"` — exercising our three stage-c natives on the LIVE path
-//! (`ScopedMemoryAccess.registerNatives` no-op, `Unsafe.isBigEndian`→false via
-//! `java/nio/ByteOrder.<clinit>`, and `JavaLangAccess.encodeASCII([CI[BII)I`
-//! with `sp=0 dp=0 len=6`). It walls only when `StreamEncoder.write` releases its
-//! `ReentrantLock`: `ReentrantLock$Sync.tryRelease@24` throws
-//! `java/lang/IllegalMonitorStateException` because the lock's exclusive-owner check
-//! (`getExclusiveOwnerThread() != Thread.currentThread()`) fails — Duke's
-//! `Thread.currentThread()` allocates a fresh throwaway identity per call, so the
-//! thread that acquired the lock is not equal to the thread that releases it.
+//! This is an END-TO-END MILESTONE assertion: the real
+//! `OutputStreamWriter -> StreamEncoder -> Charset` pipeline runs to COMPLETION on a
+//! non-allowlisted sink. It fills the `CharBuffer`, runs `sun.nio.cs.UTF_8$Encoder.encode`,
+//! encodes+drains all 6 bytes of `"hello\n"` — exercising our three stage-c natives on
+//! the LIVE path (`ScopedMemoryAccess.registerNatives` no-op, `Unsafe.isBigEndian`→false
+//! via `java/nio/ByteOrder.<clinit>`, and `JavaLangAccess.encodeASCII([CI[BII)I` with
+//! `sp=0 dp=0 len=6`), releases the `StreamEncoder` `ReentrantLock`, and returns from
+//! `main`. The test reads the sink bytes back off `WriterGraphProbe.BYTES` and asserts
+//! they are the exact UTF-8 encoding of `"hello\n"`.
 //!
-//! HISTORY: PR #1354 (inherited-static resolution + eager superclass `<clinit>`,
-//! JVMS 5.4.3.2 / 5.5) cleared the previous wall at `java/nio/ByteBuffer.<clinit>@16`
-//! `getstatic ByteBuffer.UNSAFE` (inherited from superclass `java/nio/Buffer`), which
-//! surfaced as `InvalidFieldref { index: 0 }`. Crossing THIS wall needs the deferred
-//! wave-9 fix (C): a heap-scoped, stable `Thread.currentThread()` identity — see
+//! HISTORY: this was formerly a frontier GUARD pinned at `StreamEncoder.write`'s
+//! `ReentrantLock` release — `ReentrantLock$Sync.tryRelease@24` threw
+//! `java/lang/IllegalMonitorStateException` because the exclusive-owner check
+//! (`getExclusiveOwnerThread() == Thread.currentThread()`) failed: Duke's
+//! `Thread.currentThread()` allocated a fresh throwaway identity per call, so the thread
+//! that acquired the lock was not equal to the thread that released it. Wave-9 fix (C) —
+//! a heap-scoped, GC-rooted, STABLE `Thread.currentThread()` (seeded once at bootstrap
+//! into a static field on `java/lang/Thread`) — balances the owner check and clears the
+//! wall. PR #1354 (inherited-static resolution + eager superclass `<clinit>`, JVMS
+//! 5.4.3.2 / 5.5) had earlier cleared the prior wall at `java/nio/ByteBuffer.<clinit>@16`
+//! `getstatic ByteBuffer.UNSAFE` (`InvalidFieldref { index: 0 }`). See
 //! `docs/findings/2026-07-11-system-io-real-layout-blockers.md` §10.
 //!
 //! Requires a real JDK jimage (`lib/modules`); without one it skips.
@@ -86,9 +88,18 @@ impl ClassLoader for ArcLoader {
     }
 }
 
-/// Drive the writer-graph probe under real-JDK shadow and return the rendered result
-/// (`Ok(())` if it ran to completion, or the `{err:?}` rendering of the first blocker).
-fn run_writer_graph_probe_real_jdk_shadow() -> Result<(), String> {
+/// Outcome of driving the writer-graph probe to completion: the exact bytes drained
+/// into the sink (`WriterGraphProbe.BYTES`) and the reported count
+/// (`WriterGraphProbe.RESULT`).
+struct ProbeCompletion {
+    sink_bytes: Vec<u8>,
+    reported_size: i32,
+}
+
+/// Drive the writer-graph probe under real-JDK shadow. Returns the completion
+/// (sink bytes + reported size) if `main` returned, or the `{err:?}` rendering of
+/// the first blocker.
+fn run_writer_graph_probe_real_jdk_shadow() -> Result<ProbeCompletion, String> {
     std::thread::Builder::new()
         .name("writer-graph-probe-driver".to_string())
         .stack_size(64 * 1024 * 1024)
@@ -98,7 +109,7 @@ fn run_writer_graph_probe_real_jdk_shadow() -> Result<(), String> {
         .expect("probe driver thread panicked")
 }
 
-fn run_writer_graph_probe_real_jdk_shadow_inner() -> Result<(), String> {
+fn run_writer_graph_probe_real_jdk_shadow_inner() -> Result<ProbeCompletion, String> {
     let modules = jdk_modules_path().ok_or_else(|| "SKIP: no JDK jimage".to_string())?;
 
     let fixtures = repo_root().join("tests/fixtures");
@@ -118,7 +129,7 @@ fn run_writer_graph_probe_real_jdk_shadow_inner() -> Result<(), String> {
     let args_ref = heap.allocate("[Ljava/lang/String;".to_string(), 0);
     let main_args = [Slot::Reference(Some(args_ref))];
     let mut output = Vec::new();
-    let result = execute_class_to_completion(
+    execute_class_to_completion(
         &mut registry,
         ArcLoader(Arc::clone(&loader)),
         &mut heap,
@@ -127,50 +138,97 @@ fn run_writer_graph_probe_real_jdk_shadow_inner() -> Result<(), String> {
         "main",
         "([Ljava/lang/String;)V",
         &main_args,
-    );
+    )
+    .map_err(|err| format!("{err:?}"))?;
 
-    result.map(|_| ()).map_err(|err| format!("{err:?}"))
+    // `main` returned. Read the two success markers back off the static fields.
+    let ctx = registry
+        .get("WriterGraphProbe")
+        .expect("WriterGraphProbe registered after execution");
+    let static_slot = |field: &str| -> Slot {
+        let idx = ctx
+            .fields
+            .iter()
+            .filter(|f| f.is_static)
+            .position(|f| f.name == field)
+            .unwrap_or_else(|| panic!("static field {field} present on WriterGraphProbe"));
+        ctx.static_fields[idx]
+    };
+
+    let reported_size = match static_slot("RESULT") {
+        Slot::Int(n) => n,
+        other => panic!("WriterGraphProbe.RESULT is not an int: {other:?}"),
+    };
+    let bytes_ref = match static_slot("BYTES") {
+        Slot::Reference(Some(r)) => r,
+        other => panic!("WriterGraphProbe.BYTES is not a live array reference: {other:?}"),
+    };
+    let array = heap
+        .get(bytes_ref)
+        .expect("WriterGraphProbe.BYTES points to a live heap array");
+    let sink_bytes = array
+        .fields
+        .iter()
+        .map(|slot| match slot {
+            // A `byte[]` element is a sign-extended i32; `as u8` takes the correct
+            // two's-complement low byte (values here are all positive ASCII anyway).
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            Slot::Int(byte) => *byte as u8,
+            other => panic!("byte[] element is not an int: {other:?}"),
+        })
+        .collect();
+
+    Ok(ProbeCompletion {
+        sink_bytes,
+        reported_size,
+    })
 }
 
-/// REGRESSION GUARD: pin the honest stage-c writer-graph frontier reached WITHOUT
-/// `FileOutputStream`. The real `OutputStreamWriter -> StreamEncoder -> Charset` graph
-/// runs on a non-allowlisted sink THROUGH the encode of `"hello\n"` (all three stage-c
-/// natives exercised live — see the module doc), then walls when `StreamEncoder.write`
-/// releases its `ReentrantLock`: `ReentrantLock$Sync.tryRelease@24` throws
-/// `java/lang/IllegalMonitorStateException` because `Thread.currentThread()` returns a
-/// fresh identity per call, so the lock's exclusive-owner check fails on release. That
-/// surfaces as `JavaException { class_name: "java/lang/IllegalMonitorStateException" }`.
+/// END-TO-END MILESTONE: the real `OutputStreamWriter -> StreamEncoder -> Charset`
+/// writer graph runs to COMPLETION on a non-allowlisted sink, WITHOUT
+/// `FileOutputStream`. It fills the `CharBuffer`, runs `sun.nio.cs.UTF_8$Encoder`,
+/// encodes+drains all 6 bytes of `"hello\n"` (exercising the three stage-c natives on
+/// the live path — see the module doc), releases the `StreamEncoder` `ReentrantLock`,
+/// and `main` returns. The exact bytes drained into the sink must be the UTF-8 encoding
+/// of `"hello\n"`: `[104, 101, 108, 108, 111, 10]`.
 ///
-/// PR #1354 (inherited-static resolution + eager superclass `<clinit>`) cleared the
-/// prior `ByteBuffer.UNSAFE` wall (`InvalidFieldref { index: 0 }`); the remaining wall
-/// is the deferred wave-9 fix (C): a heap-scoped, stable `Thread.currentThread()`.
+/// HISTORY: this was formerly a frontier GUARD pinned at
+/// `ReentrantLock$Sync.tryRelease@24 athrow` →
+/// `JavaException { class_name: "java/lang/IllegalMonitorStateException" }`, because
+/// `Thread.currentThread()` allocated a fresh identity per call and the lock's
+/// exclusive-owner check (`getExclusiveOwnerThread() == currentThread`) failed on
+/// release. Wave-9 fix (C) — a heap-scoped, GC-rooted, STABLE `Thread.currentThread()`
+/// seeded once at bootstrap into a static field on `java/lang/Thread` — balances the
+/// owner check and clears the wall. PR #1354 had earlier cleared the prior
+/// `ByteBuffer.UNSAFE` wall (`InvalidFieldref { index: 0 }`).
 ///
-/// Update `EXPECTED_FRONTIER` whenever the wave-9 `Thread.currentThread()` fix (see the
-/// module doc / findings §10) advances the wall — a moved frontier is a real signal,
-/// not a flake. The `eprintln!` is retained for diagnostics on failure.
+/// Requires a real JDK jimage (`lib/modules`); without one it skips.
 #[test]
-fn writer_graph_probe_real_jdk_shadow_frontier() {
-    // Real `OutputStreamWriter -> StreamEncoder -> Charset` encodes `"hello\n"`, then
-    // walls at `ReentrantLock$Sync.tryRelease@24 athrow` (unbalanced lock owner because
-    // `Thread.currentThread()` identity is unstable).
-    const EXPECTED_FRONTIER: &str =
-        "JavaException { class_name: \"java/lang/IllegalMonitorStateException\" }";
+fn writer_graph_probe_real_jdk_shadow_completes_with_hello_bytes() {
+    // UTF-8 bytes of "hello\n".
+    const EXPECTED_BYTES: [u8; 6] = [104, 101, 108, 108, 111, 10];
 
-    let rendered = match run_writer_graph_probe_real_jdk_shadow() {
-        Ok(()) => {
-            eprintln!("WriterGraphProbe ran to completion under real-JDK shadow (no frontier)");
-            return;
-        }
+    let completion = match run_writer_graph_probe_real_jdk_shadow() {
+        Ok(completion) => completion,
         Err(err) if err.starts_with("SKIP:") => {
             eprintln!("skipping: {err}");
             return;
         }
-        Err(rendered) => rendered,
+        Err(rendered) => {
+            panic!(
+                "Writer graph regressed: expected completion with sink bytes {EXPECTED_BYTES:?}, \
+                 but hit a blocker: {rendered}"
+            );
+        }
     };
 
-    eprintln!("=== VERBATIM WRITER-GRAPH FRONTIER ===\n{rendered}\n=== END ===");
-    assert!(
-        rendered.contains(EXPECTED_FRONTIER),
-        "Writer-graph frontier moved.\nExpected to contain: {EXPECTED_FRONTIER}\nActual: {rendered}"
+    assert_eq!(
+        completion.sink_bytes, EXPECTED_BYTES,
+        "sink did not receive the exact UTF-8 bytes of \"hello\\n\""
+    );
+    assert_eq!(
+        completion.reported_size,
+        i32::try_from(EXPECTED_BYTES.len()).unwrap(),
+        "WriterGraphProbe.RESULT (sink size) should equal the number of encoded bytes"
     );
 }
