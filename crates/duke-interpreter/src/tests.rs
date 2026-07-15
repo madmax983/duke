@@ -19297,6 +19297,49 @@ fn reflection_private_method_invoke_raises_illegal_access() {
     );
 }
 
+// Unit coverage for the caller-sensitive access rule that `Method.invoke` /
+// `Constructor.newInstance` apply (see `caller_is_same_class` in native/reflect.rs):
+// a class may reflectively access its OWN non-public members (same-class), while a
+// different caller class still walls out. Both cases normalize away any
+// `\0loader:N` key qualifier.
+#[test]
+fn caller_is_same_class_allows_same_class_and_rejects_cross_class() {
+    fn control_with_caller(caller_class: &str) -> NativeControl {
+        let mut control = NativeControl::default();
+        control.set_stack_trace(vec![NativeStackFrame {
+            class_name: caller_class.to_string(),
+            method_name: "main".to_string(),
+            file_name: None,
+            line_number: -1,
+        }]);
+        control
+    }
+
+    // Same class → allowed (plain key, and loader-qualified caller vs plain
+    // declaring key must still match after normalization).
+    assert!(caller_is_same_class(
+        &control_with_caller("com/example/Ladder"),
+        "com/example/Ladder"
+    ));
+    assert!(caller_is_same_class(
+        &control_with_caller("com/example/Ladder\0loader:7"),
+        "com/example/Ladder"
+    ));
+
+    // Different caller class → rejected (this is the gson / ReflectionTest
+    // cross-class case that must keep throwing IllegalAccessException).
+    assert!(!caller_is_same_class(
+        &control_with_caller("com/example/Caller"),
+        "com/example/Target"
+    ));
+
+    // No captured frame → rejected (conservative; matches the pre-fix throw).
+    assert!(!caller_is_same_class(
+        &NativeControl::default(),
+        "com/example/Target"
+    ));
+}
+
 #[test]
 fn reflection_private_method_invoke_with_accessible_succeeds() {
     assert_eq!(

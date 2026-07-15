@@ -172,40 +172,36 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //           looks the class-relative name up against the bootstrap loader instead of the
 //           LaunchedClassLoader; the fixture tolerates the null and continues. Not this
 //           lane; follow-up.)
-//       (3) WALL (pinned for wave 9, OUT OF LANE) —
+//       (3) CLEARED (2026-07-15, same-class-reflection lane) —
 //           `LadderApplication.class.getDeclaredMethod("summarize", List.class)
 //           .invoke(null, ...)` invokes the class's OWN private static method via
 //           reflection without setAccessible. The real JVM permits this: its
 //           Method.invoke access check is CALLER-SENSITIVE — a class may always
 //           reflectively access its own (private/nestmate) members, and only CROSS-class
 //           access to a non-accessible member throws IllegalAccessException. Duke's
-//           `native_reflect_method_invoke` (reflect.rs) keeps the coarse
-//           `!is_public && !is_accessible → throw`, which is CORRECT for the cross-class
-//           case the gson canary + `ReflectionTest.privateMethodRaisesIllegalAccess` rely
-//           on, but WRONG here (same-class). It cannot yet distinguish the two: the
-//           invoking frame's class is not available to this native (the stack snapshot in
-//           `native_control_for_call`/`native_needs_stack_snapshot` — common.rs, FORBIDDEN
-//           here — is only captured for Throwable-init and `Reflection.getCallerClass`,
-//           not `Method.invoke`). So the spurious IllegalAccessException propagates out of
-//           main and the Spring Boot launcher's reflective `main.invoke` wraps it into the
-//           uncaught `java/lang/reflect/InvocationTargetException`. WAVE-9 LANE: interpreter
-//           reflection / native-boundary — add `Method.invoke`/`Constructor.newInstance` to
-//           `native_needs_stack_snapshot` so `control.stack_trace()` is populated, then
-//           allow the invoke when the caller frame's class equals the method's declaring
-//           class. The public reflective `Math.sqrt(2809)` invoke (main@337) already works;
-//           the ladder walls at the `summarize` invoke (main@399). The ladder canary stays
-//           `#[ignore]`d; `LADDER_BLOCKER` re-pinned to the (unchanged visible) blocker.
+//           `native_reflect_method_invoke` (reflect.rs) previously kept the coarse
+//           `!is_public && !is_accessible → throw`, WRONG for the same-class case, because
+//           the invoking frame's class was not available to the native. FIX: `Method.invoke`
+//           and `Constructor.newInstance` are now in `native_needs_stack_snapshot`
+//           (common.rs), so `control.stack_trace()[0]` names the caller class; the reflect
+//           natives allow the invoke when that caller class equals the member's declaring
+//           class (`caller_is_same_class`), keeping the cross-class throw that the gson
+//           canary + `ReflectionTest.privateMethodRaisesIllegalAccess` rely on. `setAccessible`
+//           still bypasses. Nest-mates (JEP 181) are not yet modelled — cross-nest private
+//           invoke still throws. The ladder now boots end-to-end; the canary is un-ignored.
 // If the app boot advances past its pin, re-observe and update.
 // See docs/findings/2026-07-10-spring-boot-real-app.md.
 // APP root cause (visible only via instrumentation of the reflection wrap):
 // `NoClassDefFoundError: java/util/EnumSet`, then `ExceptionInInitializerError`.
 const APP_BLOCKER: &str = "java exception: java/lang/reflect/InvocationTargetException";
-// LADDER shares the same visible blocker string as APP but a DIFFERENT underlying
-// cause: main climbs into `LadderApplication.main`, clears Properties.load + the
-// BufferedReader character-stream read, and walls on the reflective same-class
-// private `summarize` invoke (IllegalAccessException, wrapped by the launcher's
-// reflective main.invoke). Pinned for wave 9 (interpreter reflection lane).
-const LADDER_BLOCKER: &str = "java exception: java/lang/reflect/InvocationTargetException";
+// LADDER now boots END-TO-END (2026-07-15, same-class-reflection lane): main climbs
+// into `LadderApplication.main`, clears Properties.load + the BufferedReader
+// character-stream read, and its reflective same-class private `summarize` invoke now
+// succeeds (caller-sensitive access check — see rung (3) above). The former
+// `LADDER_BLOCKER` pin is repurposed into a no-regression guard asserting the ladder no
+// longer emits a runtime error; the canary `spring_boot_ladder_boots_end_to_end` is
+// un-ignored. This substring, if it reappears, means the reflective invoke regressed.
+const LADDER_REGRESSED_MARKER: &str = "runtime error";
 
 fn run_fixture(jar: &str) -> Output {
     let jar_path = spring_boot_fixture(jar);
@@ -297,21 +293,6 @@ fn spring_boot_app_surfaces_next_missing_capability_explicitly() {
 /// progression note above). When that wall clears, the assertion below should
 /// pass end-to-end.
 #[test]
-#[ignore = "The ladder climbs all of commons-logging/Jdk14Logger into its own \
-            LadderApplication.main and clears main's Properties.load(InputStream) rung (now reads \
-            the duke/io/ResourceInputStream from getResourceAsStream) and its \
-            BufferedReader(InputStreamReader(getResourceAsStream(\"greeting.txt\"), UTF_8)) \
-            character-stream rung (new minimal synthetic java/io/Reader/InputStreamReader/\
-            BufferedReader). It then WALLS on main's reflective same-class private invoke: \
-            LadderApplication.class.getDeclaredMethod(\"summarize\", List.class).invoke(null, ...) \
-            without setAccessible raises a spurious IllegalAccessException (Duke's \
-            native_reflect_method_invoke cannot see the invoking frame's class, so it cannot \
-            apply the JVM's caller-sensitive rule that a class may always reflectively access \
-            its OWN private members), which the Spring Boot launcher's reflective main.invoke \
-            wraps into the uncaught java/lang/reflect/InvocationTargetException. Pinned for \
-            wave 9 (interpreter reflection / native-boundary lane: thread the caller class into \
-            Method.invoke via native_needs_stack_snapshot in common.rs). Keep ignored until the \
-            ladder completes. See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_ladder_boots_end_to_end() {
     let output = run_fixture(LADDER_JAR);
     let combined = combined_output(&output);
@@ -339,22 +320,26 @@ fn spring_boot_ladder_boots_end_to_end() {
     }
 }
 
-/// PIN: the ladder fixture still fails at the current first blocker. When boot
-/// advances past it this trips and the pin must be re-observed.
+/// REGRESSION GUARD: the ladder fixture boots end-to-end and emits no runtime
+/// error. Repurposed from the former next-missing-capability pin once the
+/// reflective same-class private invoke wall cleared (2026-07-15). If the
+/// reflection access check (or any earlier rung) regresses, this trips with the
+/// `runtime error` marker.
 /// See docs/findings/2026-07-10-spring-boot-real-app.md
 #[test]
-fn spring_boot_ladder_surfaces_next_missing_capability_explicitly() {
+fn spring_boot_ladder_surfaces_no_missing_capability() {
     let output = run_fixture(LADDER_JAR);
     let combined = combined_output(&output);
 
     assert!(
-        !output.status.success(),
-        "ladder fixture is expected to still fail at the pinned blocker; output:\n{combined}"
+        output.status.success(),
+        "ladder fixture is expected to boot cleanly; output:\n{combined}"
     );
     assert!(
-        combined.contains(LADDER_BLOCKER),
-        "expected the ladder fixture to stay pinned at the current first blocker \
-         ({LADDER_BLOCKER:?}); if it moved, re-observe and update this pin \
-         (docs/findings/2026-07-10-spring-boot-real-app.md). Output:\n{combined}"
+        !combined.contains(LADDER_REGRESSED_MARKER),
+        "expected the ladder fixture to boot with no runtime error \
+         ({LADDER_REGRESSED_MARKER:?}); if it reappears the reflective same-class invoke (or an \
+         earlier rung) regressed (docs/findings/2026-07-10-spring-boot-real-app.md). \
+         Output:\n{combined}"
     );
 }
