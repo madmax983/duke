@@ -2592,6 +2592,151 @@ mod tests {
         assert!(heap.should_gc());
     }
 
+    // ── real String layout (value:[B / coder:B) ───────────────────────────────
+
+    #[test]
+    fn allocate_string_latin1_layout_and_coder() {
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("abc".to_string());
+        let obj = heap.get(s).unwrap();
+        assert_eq!(obj.fields.len(), 4);
+        // coder = 0 (Latin-1) when every char is <= 0xFF.
+        assert_eq!(obj.fields[1], Slot::Int(0), "Latin-1 coder must be 0");
+        // hash / hashIsZero start at 0.
+        assert_eq!(obj.fields[2], Slot::Int(0));
+        assert_eq!(obj.fields[3], Slot::Int(0));
+        // value:[B — a reference to a 3-byte array (1 byte/char for Latin-1).
+        let bytes_ref = obj.fields[0]
+            .as_reference()
+            .expect("value slot must be a [B reference");
+        let bytes = heap.get(bytes_ref).unwrap();
+        assert_eq!(bytes.class_name, "[B");
+        assert_eq!(bytes.fields.len(), 3);
+        assert_eq!(bytes.fields[0], Slot::Int(i32::from(b'a')));
+        assert_eq!(bytes.fields[1], Slot::Int(i32::from(b'b')));
+        assert_eq!(bytes.fields[2], Slot::Int(i32::from(b'c')));
+    }
+
+    #[test]
+    fn allocate_string_utf16_layout_and_coder() {
+        let mut heap = Heap::new();
+        // U+4E2D (中) is a non-Latin-1 BMP char → UTF-16 coder, 2 bytes/unit.
+        let value = "a中b";
+        let s = heap.allocate_string(value.to_string());
+        let obj = heap.get(s).unwrap();
+        assert_eq!(
+            obj.fields[1],
+            Slot::Int(1),
+            "non-Latin-1 content must use coder 1 (UTF-16)"
+        );
+        let bytes_ref = obj.fields[0].as_reference().unwrap();
+        let bytes = heap.get(bytes_ref).unwrap();
+        // 3 UTF-16 code units × 2 bytes = 6 bytes.
+        assert_eq!(bytes.fields.len(), value.encode_utf16().count() * 2);
+        assert_eq!(bytes.fields.len(), 6);
+    }
+
+    #[test]
+    fn allocate_string_stores_signed_java_bytes() {
+        // A Latin-1 char > 0x7F is stored as a NEGATIVE Java byte (signed).
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("\u{00E9}".to_string()); // é = 0xE9
+        let obj = heap.get(s).unwrap();
+        assert_eq!(obj.fields[1], Slot::Int(0), "é is Latin-1 → coder 0");
+        let bytes_ref = obj.fields[0].as_reference().unwrap();
+        let bytes = heap.get(bytes_ref).unwrap();
+        assert_eq!(bytes.fields.len(), 1);
+        assert_eq!(
+            bytes.fields[0],
+            Slot::Int(i32::from(i8::from_ne_bytes([0xE9])))
+        );
+        assert_eq!(bytes.fields[0], Slot::Int(-23));
+    }
+
+    #[test]
+    fn string_layout_survives_gc_promotion_with_stable_identity() {
+        let mut heap = Heap::new();
+        heap.promotion_age = 0; // promote survivors to old on the first collect
+        let value = "héllo中"; // mixed BMP → UTF-16
+        let s = heap.allocate_string(value.to_string());
+        let hash_before = heap.identity_hash(s).unwrap();
+
+        // Full collect: minor GC promotes the String AND its backing [B (reachable
+        // only through slot0) to old gen, rewriting slot0 to the promoted [B.
+        heap.collect(&[Slot::Reference(Some(s))]);
+        let moved = remap(&heap, s);
+        assert_ne!(
+            moved & OLD_BIT,
+            0,
+            "String must have been promoted to old gen"
+        );
+
+        let obj = heap.get(moved).unwrap();
+        // string_value side-channel rode along on the object move.
+        assert_eq!(obj.string_value.as_deref(), Some(value));
+        // coder unchanged; slot0 [B was traced + forwarded to a live object.
+        assert_eq!(obj.fields[1], Slot::Int(1));
+        let bytes_ref = obj.fields[0]
+            .as_reference()
+            .expect("value [B must survive GC");
+        let bytes = heap.get(bytes_ref).unwrap();
+        assert_eq!(bytes.class_name, "[B");
+        assert_eq!(bytes.fields.len(), value.encode_utf16().count() * 2);
+        // Identity hash is stable across the move.
+        assert_eq!(heap.identity_hash(moved).unwrap(), hash_before);
+    }
+
+    #[test]
+    fn string_value_byte_array_edge_rewritten_by_old_compaction() {
+        // Old gen: [garbage@0, [B@1, String@2]. Freeing the garbage hole makes the
+        // [B slide down during compaction, so the String's slot0 value:[B edge must
+        // be rewritten to the [B's new location (#1312 forwarding through the new slot).
+        let mut heap = Heap::new();
+        let garbage = push_old(&mut heap, "Garbage", vec![]);
+        let bytes = push_old(
+            &mut heap,
+            "[B",
+            vec![Slot::Int(i32::from(b'h')), Slot::Int(i32::from(b'i'))],
+        );
+        let string = push_old(
+            &mut heap,
+            "java/lang/String",
+            vec![
+                Slot::Reference(Some(bytes)),
+                Slot::Int(0),
+                Slot::Int(0),
+                Slot::Int(0),
+            ],
+        );
+        heap.get_mut(string).unwrap().string_value = Some("hi".to_string());
+        let _ = garbage;
+
+        // Root only the String; the garbage hole is unrooted → freed → the [B slides.
+        heap.compact_old(&[Slot::Reference(Some(string))]);
+
+        let string_after = remap(&heap, string);
+        let bytes_after = remap(&heap, bytes);
+        assert_ne!(
+            bytes_after, bytes,
+            "the backing [B must have slid during compaction"
+        );
+        // The String's slot0 edge was rewritten to the [B's new address.
+        let slot0 = heap.get(string_after).unwrap().fields[0]
+            .as_reference()
+            .unwrap();
+        assert_eq!(
+            slot0, bytes_after,
+            "String value:[B edge must be rewritten by compaction"
+        );
+        // Content intact after the move.
+        let arr = heap.get(bytes_after).unwrap();
+        assert_eq!(arr.fields.len(), 2);
+        assert_eq!(
+            heap.get(string_after).unwrap().string_value.as_deref(),
+            Some("hi")
+        );
+    }
+
     // ── promote_to_old free-list path ─────────────────────────────────────────
 
     #[test]

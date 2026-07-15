@@ -231,6 +231,39 @@ fn getfield_out_of_bounds_yields_graceful_error_not_panic_when_guard_off() {
     }
 }
 
+/// A minted `java/lang/String` now carries the real 4-slot instance layout
+/// (`value:[B`, `coder:B`, `hash:I`, `hashIsZero:Z`). Field accesses at slots
+/// 0..=3 are in-bounds and same-regime (String stays synthetic / `KEEP_SYNTHETIC`),
+/// so the layout-coherence guard never trips on String operations even in
+/// `DUKE_LAYOUT_CHECK=fail` mode; slot 4 is out of bounds and is flagged.
+#[test]
+fn minted_string_four_slot_layout_is_coherent() {
+    let mut registry = ClassRegistry::new();
+    let mut heap = Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+
+    // String remains synthetic (never shadowed) — same regime on both sides.
+    assert!(!registry.is_shadowed("java/lang/String"));
+
+    let s = heap.allocate_string("abc".to_string());
+    let slots = heap.get(s).unwrap().fields.len();
+    assert_eq!(slots, 4, "a minted String must have the real 4-slot layout");
+
+    // Every in-bounds slot access on a String is layout-coherent (the guard is a
+    // no-op for it), so DUKE_LAYOUT_CHECK=fail cannot trip on String field ops.
+    for slot in 0..slots {
+        assert!(
+            !registry.is_layout_incoherent("java/lang/String", "java/lang/String", slot, slots),
+            "in-bounds String slot {slot} must be layout-coherent"
+        );
+    }
+    // The first out-of-bounds slot (== len) is flagged by the hard bounds arm.
+    assert!(
+        registry.is_layout_incoherent("java/lang/String", "java/lang/String", slots, slots),
+        "slot {slots} (== len) must be flagged out of bounds"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // (c) Audit produces a non-empty candidate report without panicking
 // ---------------------------------------------------------------------------
