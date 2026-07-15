@@ -282,11 +282,26 @@ pub(crate) fn native_reflect_field_set(
     )?;
     Ok(None)
 }
+/// Return `true` when the frame that invoked this caller-sensitive reflect native
+/// (`control.stack_trace()[0]`) belongs to the same class as the member's
+/// declaring class. `native_needs_stack_snapshot` captures the invoking Java frame
+/// for `Method.invoke`/`Constructor.newInstance`, so `frames[0]` is the caller.
+/// Both sides are normalized to their plain internal name (stripping any
+/// `\0loader:N` qualifier) before comparison, matching Duke's by-name class
+/// identity model.
+fn caller_is_same_class(control: &NativeControl, declaring_class_key: &str) -> bool {
+    let declaring_internal = class_internal_name_from_key(declaring_class_key);
+    control
+        .stack_trace()
+        .first()
+        .is_some_and(|frame| class_internal_name_from_key(&frame.class_name) == declaring_internal)
+}
+
 pub(crate) fn native_reflect_method_invoke(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     output: &mut dyn Write,
-    _control: &mut NativeControl,
+    control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let method_ref = extract_ref_arg(args, 0)?;
@@ -294,22 +309,24 @@ pub(crate) fn native_reflect_method_invoke(
     let invoke_arg_slots = reflection_array_elements(heap, extract_slot_arg(args, 2))?;
     let method = reflected_method_handle(heap, method_ref)?;
 
-    // NOTE (reflection access control): the JVM's `Method.invoke` access check is
-    // *caller-sensitive* — a class may always reflectively access its OWN
-    // (private/nestmate) members without `setAccessible(true)`; only CROSS-class
-    // access to a non-accessible member raises IllegalAccessException. Duke cannot
-    // yet distinguish the two here because the invoking frame's class is not
-    // available to this native (the stack snapshot in `native_control_for_call` /
-    // `native_needs_stack_snapshot` is only captured for Throwable-init and
-    // `Reflection.getCallerClass`, not `Method.invoke`). We therefore keep the
-    // coarse `!is_public && !is_accessible → throw`, which is CORRECT for the
-    // cross-class case that real code (and the gson canary / ReflectionTest) rely
-    // on, but WRONG for the legitimate same-class case (e.g. the commons-logging
-    // ladder's `LadderApplication.main` reflectively invoking its own private
-    // static `summarize`). Making that case pass requires threading the caller
-    // class into this native (common.rs + interpreter lane) — see wave-9 pin in
-    // docs/findings/2026-07-10-spring-boot-real-app.md.
-    if !method.is_public && !method.is_accessible {
+    // Reflection access control (JLS 6.6 / JVMS 5.4.4): `Method.invoke` is
+    // *caller-sensitive*. A class may always reflectively access its OWN
+    // (private/protected/package) members without `setAccessible(true)`; only
+    // CROSS-class access to a non-accessible member raises IllegalAccessException.
+    // `setAccessible(true)` (recorded as `is_accessible`) bypasses the check
+    // entirely, exactly as before. `native_needs_stack_snapshot` now captures the
+    // invoking Java frame for `Method.invoke`, so `control.stack_trace()[0]` names
+    // the caller class; we allow same-class access and otherwise keep the coarse
+    // `!is_public → throw` that the cross-class gson canary and
+    // `ReflectionTest.privateMethodRaisesIllegalAccess` depend on.
+    //
+    // NOTE: nest-mate access (JEP 181, NestHost/NestMembers) is not yet modelled —
+    // `ReflectedClassInfo` does not carry nest membership — so only strict
+    // same-class access is permitted here. Cross-nest private invoke still throws.
+    if !method.is_public
+        && !method.is_accessible
+        && !caller_is_same_class(control, &method.declaring_class_key)
+    {
         return Err(Error::JavaException {
             class_name: "java/lang/IllegalAccessException".to_string(),
         });
@@ -347,14 +364,21 @@ pub(crate) fn native_reflect_constructor_new_instance(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     output: &mut dyn Write,
-    _control: &mut NativeControl,
+    control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let constructor_ref = extract_ref_arg(args, 0)?;
     let invoke_arg_slots = reflection_array_elements(heap, extract_slot_arg(args, 1))?;
     let constructor = reflected_method_handle(heap, constructor_ref)?;
 
-    if !constructor.is_public && !constructor.is_accessible {
+    // Same caller-sensitive rule as `Method.invoke` above: a class may always
+    // reflectively construct via its OWN non-public constructor; `setAccessible`
+    // bypasses; cross-class private construction still throws. Nest-mates are not
+    // yet modelled.
+    if !constructor.is_public
+        && !constructor.is_accessible
+        && !caller_is_same_class(control, &constructor.declaring_class_key)
+    {
         return Err(Error::JavaException {
             class_name: "java/lang/IllegalAccessException".to_string(),
         });
