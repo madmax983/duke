@@ -139,16 +139,19 @@ fn slf4j_real_jdk_shadow_classloader_frontier_pin() {
     // declaring the real-JDK `COMPACT_STRINGS:Z` static (init true, mirroring
     // String.<clinit> `iconst_1; putstatic COMPACT_STRINGS`), the former
     // `getstatic java/lang/String.COMPACT_STRINGS` fieldref wall is cleared and real
-    // String bytecode advances into `String.coder()`, an instance method the
-    // synthetic KEEP_SYNTHETIC `java/lang/String` does not provide as a native, which
-    // surfaces as `MethodNotFound { name: "java/lang/String.coder", descriptor: "()B" }`.
+    // String bytecode advances into `String.coder()`. That instance method is now
+    // provided as a native reading real-layout slot1 (0=Latin1/1=UTF16), so the coder
+    // wall is cleared and real String bytecode advances into `String.getBytes([BIB)V`,
+    // the package-private `getBytes(byte[] dst, int dstBegin, byte coder)` copy helper
+    // the synthetic KEEP_SYNTHETIC `java/lang/String` does not provide, which surfaces
+    // as `MethodNotFound { name: "java/lang/String.getBytes", descriptor: "([BIB)V" }`.
     // That is a separate lane (String real-layout / KEEP_SYNTHETIC allowlist), out of
     // scope for the system-properties lane.
     //
     // When a native pushes the wall past this point, re-run with `-- --nocapture`,
     // read the new verbatim blocker above, and update this substring to lock it in.
     const EXPECTED_FRONTIER: &str =
-        "MethodNotFound { name: \"java/lang/String.coder\", descriptor: \"()B\" }";
+        "MethodNotFound { name: \"java/lang/String.getBytes\", descriptor: \"([BIB)V\" }";
 
     let rendered = match run_slf4j_real_jdk_shadow() {
         Ok(()) => {

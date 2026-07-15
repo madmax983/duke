@@ -47,6 +47,32 @@ pub(crate) fn native_string_length(
     let len = obj.string_value.as_ref().map_or(0, String::len);
     Ok(Some(Slot::Int(len as i32)))
 }
+/// Native: `String.coder()B` — returns the real-layout `coder` field (slot1):
+/// `0` = Latin1, `1` = UTF16. Both mint paths (`allocate_string` /
+/// `set_string_layout` and the `<init>` paths via `store_string_init_value`)
+/// populate slot1, so it is authoritative. Defensive fallback: if slot1 is
+/// somehow absent, derive the coder from `string_value` (Latin1 iff every
+/// char is `<= 0xFF`) rather than panicking.
+pub(crate) fn native_string_coder(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get(this_ref)?;
+    if let Some(Slot::Int(coder)) = obj.fields.get(1) {
+        return Ok(Some(Slot::Int(*coder)));
+    }
+    // Fallback: derive coder from the string payload.
+    let latin1 = obj
+        .string_value
+        .as_deref()
+        .unwrap_or("")
+        .chars()
+        .all(|c| c as u32 <= 0xFF);
+    Ok(Some(Slot::Int(i32::from(!latin1))))
+}
 /// Native: `String.equals(Object)` — compares string content.
 pub(crate) fn native_string_equals(
     args: &[Slot],

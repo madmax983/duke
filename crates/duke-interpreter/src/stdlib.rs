@@ -3161,6 +3161,9 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/String", "length", "()I", native_string_length);
+    registry
+        .natives_mut()
+        .register("java/lang/String", "coder", "()B", native_string_coder);
     registry.natives_mut().register(
         "java/lang/String",
         "equals",
