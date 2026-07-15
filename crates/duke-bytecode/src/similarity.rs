@@ -14,6 +14,11 @@ use std::mem::discriminant;
 /// The algorithm computes the Levenshtein distance based on instruction variants
 /// (ignoring operands) to find structural clones.
 ///
+/// **Why it exists:** Code duplication is a nightmare for maintenance. By measuring
+/// the structural similarity of bytecode sequences, we can automatically detect
+/// copy-pasted blocks of code, even if local variables or constants have been tweaked.
+/// This allows us to find duplication that source-level textual analysis might miss.
+///
 /// # Examples
 ///
 /// ```

@@ -15,6 +15,10 @@ use crate::Instruction;
 /// Mermaid.js compatible syntax (using `graph TD`). Each instruction becomes a node,
 /// and edges represent the control flow between them (e.g. conditional branches, gotos, returns).
 ///
+/// **Why it exists:** Navigating bytecode mentally is like reading assembly without
+/// a map. This function turns raw instruction offsets into a visual flowchart,
+/// allowing developers to see the exact decision points and loops of a method at a glance.
+///
 /// # Examples
 ///
 /// ```
@@ -235,6 +239,12 @@ mod tests {
 /// Each `tableswitch` or `lookupswitch` branch (excluding the default) adds 1.
 /// `goto` statements do not add to complexity, as they don't branch.
 ///
+/// **Why it exists:** Cyclomatic complexity acts as a warning system for convoluted
+/// method logic. Identifying methods with incredibly high complexity scores allows us
+/// to surface potential refactoring candidates, as overly complex branches lead to
+/// bug-prone Java code. By tracking complexity directly from bytecode, we don't
+/// need to rely on source-level AST parsing.
+///
 /// # Examples
 ///
 /// ```
@@ -353,6 +363,11 @@ mod complexity_tests {
 /// This is used to visualise the structure of a Java method in terms of basic blocks.
 /// It outputs Mermaid.js compatible syntax (using `graph TD`). Each basic block becomes a node,
 /// and edges represent the control flow between them (e.g. conditional branches, gotos, returns).
+///
+/// **Why it exists:** Visualizing a method instruction-by-instruction can quickly
+/// turn into a tangled "spaghetti" graph for large methods. Grouping instructions into
+/// basic blocks simplifies the visualization, making the core algorithmic loops and
+/// if-else structures much more apparent to human readers.
 ///
 /// # Examples
 ///

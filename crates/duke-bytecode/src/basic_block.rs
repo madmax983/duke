@@ -44,6 +44,12 @@ pub struct BasicBlock {
 /// 2. The target of any jump or branch.
 /// 3. The instruction immediately following any jump, branch, or return.
 ///
+/// **Why it exists:** Raw JVM bytecode is just a flat array of instructions. To perform
+/// any kind of meaningful analysis (like dead code elimination, reachability, or visual
+/// CFG generation), we need to group these instructions into logical blocks that represent
+/// uninterrupted execution flows. This function acts as the foundational step for all
+/// advanced bytecode analysis.
+///
 /// ## Examples
 ///
 /// ```

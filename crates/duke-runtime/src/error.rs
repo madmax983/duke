@@ -1,8 +1,17 @@
 //! `duke-runtime::error` — Runtime errors
+//!
+//! Why does execution fail? Because the Java Virtual Machine is a strict execution environment.
+//! When running bytecode, any stack underflow, local variable out-of-bounds access, or invalid
+//! type cast means the program has violated fundamental execution constraints. This module provides a detailed
+//! [`Error`] enumeration so that when a failure occurs, a tired developer at 3 AM knows exactly
+//! *where* and *why* it happened—whether it was a division by zero or a missing class.
 
 use thiserror::Error;
 
 /// Runtime errors that can occur during JVM bytecode execution.
+///
+/// We don't just return a generic "execution failed" message. We want you to know the exact
+/// cause of the error. Use these variants to log precise, helpful diagnostics during interpretation.
 ///
 /// # Examples
 ///

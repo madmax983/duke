@@ -16,6 +16,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// to determine which instructions could potentially be executed next. This is fundamental for constructing
 /// a complete control flow graph.
 ///
+/// **Why it exists:** Control flow analysis requires knowing exactly where execution
+/// can jump to next. Instead of duplicating the branch-target logic everywhere, this
+/// function provides a single source of truth for resolving the outgoing edges of
+/// any given basic block.
+///
 /// # Examples
 ///
 /// ```
@@ -54,6 +59,11 @@ pub fn get_successors(block: &BasicBlock) -> Vec<usize> {
 /// A basic block is considered "dead" if there is no valid control flow path from the entry
 /// point to that block. Dead code can occur from unoptimized compilation, such as blocks
 /// after an unconditional `return` or `goto` that lack any jump targets pointing to them.
+///
+/// **Why it exists:** Compilers (even `javac`) sometimes generate unreachable
+/// bytecode, or leave remnants of optimized-away assertions. This function allows
+/// us to prune or flag these dead blocks, ensuring the JVM or static analysis tools
+/// don't waste time analyzing code that can never execute.
 ///
 /// Returns a list of block `start_pc`s that are unreachable.
 ///
@@ -125,6 +135,11 @@ pub fn find_dead_blocks(blocks: &[BasicBlock], entry_pc: usize) -> Vec<usize> {
 /// This uses Breadth-First Search (BFS) to traverse the control flow graph.
 /// It is useful for test generation, coverage analysis, and finding the
 /// quickest way to reach a specific block of bytecode.
+///
+/// **Why it exists:** When a crash happens deep within a complex method, knowing
+/// *how* execution reached that point is half the debugging battle. By finding
+/// the shortest path through the basic blocks, we can reconstruct the most
+/// likely chain of events that led to a specific PC.
 ///
 /// Returns a sequence of `start_pc`s representing the path, or `None` if unreachable.
 ///
