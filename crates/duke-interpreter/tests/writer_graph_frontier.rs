@@ -11,13 +11,23 @@
 //!
 //! This is a REGRESSION GUARD: it asserts the honest stage-c writer-graph frontier.
 //! The real `OutputStreamWriter -> StreamEncoder -> Charset` pipeline runs clean on a
-//! non-allowlisted sink all the way into `sun.nio.cs.StreamEncoder`'s
-//! `ByteBuffer.allocate(8192)`, walling only at `java/nio/ByteBuffer.<clinit>@16`'s
-//! `getstatic ByteBuffer.UNSAFE:Ljdk/internal/misc/Unsafe;` (the `UNSAFE` field is
-//! inherited from the superclass `java/nio/Buffer`). Crossing it needs two generic
-//! interpreter-linkage fixes in forbidden files (superclass-walk static-field
-//! resolution + eager superclass `<clinit>` per JVMS 5.5) handed to the
-//! `swarm/arcstr-interning` lane — see
+//! non-allowlisted sink all the way THROUGH the encode: it fills the `CharBuffer`,
+//! runs `sun.nio.cs.UTF_8$Encoder.encode`, and encodes+drains all 6 bytes of
+//! `"hello\n"` — exercising our three stage-c natives on the LIVE path
+//! (`ScopedMemoryAccess.registerNatives` no-op, `Unsafe.isBigEndian`→false via
+//! `java/nio/ByteOrder.<clinit>`, and `JavaLangAccess.encodeASCII([CI[BII)I`
+//! with `sp=0 dp=0 len=6`). It walls only when `StreamEncoder.write` releases its
+//! `ReentrantLock`: `ReentrantLock$Sync.tryRelease@24` throws
+//! `java/lang/IllegalMonitorStateException` because the lock's exclusive-owner check
+//! (`getExclusiveOwnerThread() != Thread.currentThread()`) fails — Duke's
+//! `Thread.currentThread()` allocates a fresh throwaway identity per call, so the
+//! thread that acquired the lock is not equal to the thread that releases it.
+//!
+//! HISTORY: PR #1354 (inherited-static resolution + eager superclass `<clinit>`,
+//! JVMS 5.4.3.2 / 5.5) cleared the previous wall at `java/nio/ByteBuffer.<clinit>@16`
+//! `getstatic ByteBuffer.UNSAFE` (inherited from superclass `java/nio/Buffer`), which
+//! surfaced as `InvalidFieldref { index: 0 }`. Crossing THIS wall needs the deferred
+//! wave-9 fix (C): a heap-scoped, stable `Thread.currentThread()` identity — see
 //! `docs/findings/2026-07-11-system-io-real-layout-blockers.md` §10.
 //!
 //! Requires a real JDK jimage (`lib/modules`); without one it skips.
@@ -124,19 +134,27 @@ fn run_writer_graph_probe_real_jdk_shadow_inner() -> Result<(), String> {
 
 /// REGRESSION GUARD: pin the honest stage-c writer-graph frontier reached WITHOUT
 /// `FileOutputStream`. The real `OutputStreamWriter -> StreamEncoder -> Charset` graph
-/// runs on a non-allowlisted sink into `sun.nio.cs.StreamEncoder`'s
-/// `ByteBuffer.allocate(8192)`, then walls at `java/nio/ByteBuffer.<clinit>@16`'s
-/// `getstatic ByteBuffer.UNSAFE` (inherited from `java/nio/Buffer`). That surfaces as
-/// `InvalidFieldref { index: 0 }`.
+/// runs on a non-allowlisted sink THROUGH the encode of `"hello\n"` (all three stage-c
+/// natives exercised live — see the module doc), then walls when `StreamEncoder.write`
+/// releases its `ReentrantLock`: `ReentrantLock$Sync.tryRelease@24` throws
+/// `java/lang/IllegalMonitorStateException` because `Thread.currentThread()` returns a
+/// fresh identity per call, so the lock's exclusive-owner check fails on release. That
+/// surfaces as `JavaException { class_name: "java/lang/IllegalMonitorStateException" }`.
 ///
-/// Update `EXPECTED_FRONTIER` whenever the two forbidden-file linkage fixes (see the
-/// module doc / findings §10) advance the wall — a moved frontier is a real signal,
+/// PR #1354 (inherited-static resolution + eager superclass `<clinit>`) cleared the
+/// prior `ByteBuffer.UNSAFE` wall (`InvalidFieldref { index: 0 }`); the remaining wall
+/// is the deferred wave-9 fix (C): a heap-scoped, stable `Thread.currentThread()`.
+///
+/// Update `EXPECTED_FRONTIER` whenever the wave-9 `Thread.currentThread()` fix (see the
+/// module doc / findings §10) advances the wall — a moved frontier is a real signal,
 /// not a flake. The `eprintln!` is retained for diagnostics on failure.
 #[test]
 fn writer_graph_probe_real_jdk_shadow_frontier() {
-    // Real `OutputStreamWriter -> StreamEncoder -> Charset` reaching
-    // `java/nio/ByteBuffer.<clinit>@16 getstatic ByteBuffer.UNSAFE`.
-    const EXPECTED_FRONTIER: &str = "InvalidFieldref { index: 0 }";
+    // Real `OutputStreamWriter -> StreamEncoder -> Charset` encodes `"hello\n"`, then
+    // walls at `ReentrantLock$Sync.tryRelease@24 athrow` (unbalanced lock owner because
+    // `Thread.currentThread()` identity is unstable).
+    const EXPECTED_FRONTIER: &str =
+        "JavaException { class_name: \"java/lang/IllegalMonitorStateException\" }";
 
     let rendered = match run_writer_graph_probe_real_jdk_shadow() {
         Ok(()) => {

@@ -219,11 +219,19 @@ from the allowlist and update the two locked tests (§4).
 > **Status update (2026-07-13, see §10):** the charset / `StreamEncoder` floor is
 > **reachable and proven** — the real `OutputStreamWriter -> StreamEncoder -> Charset`
 > writer graph runs clean on any non-allowlisted sink and was driven end-to-end
-> (`"hello\n"` encoded to `[104,101,108,108,111,10]`) under throwaway fixes. It is now
-> **blocked only on two GENERIC interpreter-linkage fixes** (superclass-walk
-> static-field resolution + eager superclass `<clinit>`), not on anything
-> charset-specific. The `PrintStream` / `System` migration additionally needs the
-> `KEEP_SYNTHETIC` allowlist edit and the `String.COMPACT_STRINGS` work.
+> (`"hello\n"` encoded to `[104,101,108,108,111,10]`) under throwaway fixes.
+>
+> **PR #1354 landed the two GENERIC interpreter-linkage fixes** (superclass-walk
+> static-field resolution + eager superclass `<clinit>`, JVMS 5.4.3.2 / 5.5), so on
+> the **committed tree** the writer graph now clears the `ByteBuffer.UNSAFE` wall and
+> runs through all three stage-c natives (now **LIVE-COVERED**, no longer dormant):
+> `ScopedMemoryAccess.registerNatives`, `Unsafe.isBigEndian`, and
+> `JavaLangAccess.encodeASCII` (encodes all 6 bytes of `"hello\n"`). The remaining
+> honest committed-tree wall is the **wave-9 (C)** fix — a heap-scoped stable
+> `Thread.currentThread()` — surfacing as a `ReentrantLock`
+> `IllegalMonitorStateException` on lock release. The `PrintStream` / `System`
+> migration additionally needs the `KEEP_SYNTHETIC` allowlist edit and the
+> `String.COMPACT_STRINGS` work.
 
 ---
 
@@ -521,6 +529,45 @@ at `java/nio/ByteBuffer::<clinit>@16  getstatic ByteBuffer.UNSAFE:Ljdk/internal/
 (the `UNSAFE` field is inherited from `java/nio/Buffer`). Guarded by
 `writer_graph_frontier.rs`.
 
+### Update (2026-07-13) — PR #1354 CLEARED wall #1; the three natives are now LIVE-COVERED
+
+`swarm/io-stage-c` rebased onto trunk `98a02b6`, which includes **PR #1354**
+("interp: resolve inherited statics + eager superclass init (JVMS 5.4.3.2 / 5.5)").
+That PR landed exactly fixes **(A)** and **(B)** from the handoff below, in the
+forbidden files — so **wall #1 (`ByteBuffer.UNSAFE` / `InvalidFieldref { index: 0 }`)
+is now CLEARED on the committed tree.** Re-probing `WriterGraphProbe` (via
+`writer_graph_frontier.rs`, real-JDK shadow) confirms `java/nio/ByteBuffer.<clinit>`
+now runs to `@29 return`, and the graph flows through walls #2–#4.
+
+**The three stage-c natives moved from dormant to LIVE-COVERED** on this path
+(confirmed by `DUKE_TRACE_EXEC=1` + a reverted throwaway `eprintln!` in
+`native_java_lang_access_encode_ascii`):
+
+- **`ScopedMemoryAccess.registerNatives`** — `jdk/internal/misc/ScopedMemoryAccess.<clinit>`
+  invokes it at `@0` and completes to `@19 return`.
+- **`Unsafe.isBigEndian`** — `java/nio/ByteOrder.<clinit>@27` invokes it; it returns
+  `false`, the `@30 ifeq` takes the little-endian branch (`@39`→`@42 putstatic`
+  `NATIVE_ORDER`), and `<clinit>` completes at `@45 return`.
+- **`JavaLangAccess.encodeASCII`** — fires on the real write path with
+  `sp=0 dp=0 len=6`, encoding all six bytes of `"hello\n"` inside
+  `StreamEncoder.implWrite@18` (`CharsetEncoder.encode`).
+
+**NEW honest committed-tree wall = wall #5.** After the encode, `StreamEncoder.write`
+releases its `ReentrantLock`; `ReentrantLock$Sync.tryRelease@24` throws because the
+exclusive-owner check `getExclusiveOwnerThread() != Thread.currentThread()` fails —
+Duke's `Thread.currentThread()` allocates a fresh throwaway identity per call, so the
+acquiring and releasing threads are not `==`. VERBATIM:
+
+```
+JavaException { class_name: "java/lang/IllegalMonitorStateException" }
+```
+
+at `java/util/concurrent/locks/ReentrantLock$Sync::tryRelease@24 athrow`. Now pinned by
+`writer_graph_frontier.rs` (`EXPECTED_FRONTIER`). Crossing it needs the deferred wave-9
+fix **(C)** below — a heap-scoped, stable `Thread.currentThread()` — which is out of
+this lane. `streamencoder_writer_frontier.rs` (the `FileOutputStream(FileDescriptor)`
+allowlist wall) is unaffected by #1354 and stays green.
+
 ### HANDOFF to `swarm/arcstr-interning`
 
 That lane owns the three forbidden files (`registry.rs` / `native/common.rs` /
@@ -530,10 +577,15 @@ That lane owns the three forbidden files (`registry.rs` / `native/common.rs` /
 - **(A) Superclass-walk static-field resolution.** `getstatic`/`putstatic` must
   resolve a field by walking the superclass chain (mirror the existing instance-field
   `field_slot_idx` walk), so `ByteBuffer.UNSAFE` resolves against `java/nio/Buffer`.
+  **DONE — landed in PR #1354.**
 - **(B) Eager direct-superclass `<clinit>`.** `ensure_initialized` must initialize the
   direct superclass **before** the class itself, per JVMS 5.5.
-- **(C, deferred) Heap-scoped stable `Thread.currentThread()`.** `currentThread` must
-  return a stable identity across calls so `ReentrantLock` lock/unlock balance.
+  **DONE — landed in PR #1354.**
+- **(C, deferred — REMAINING wave-9 wall) Heap-scoped stable `Thread.currentThread()`.**
+  `currentThread` must return a stable identity across calls so `ReentrantLock`
+  lock/unlock balance. This is now the honest committed-tree wall (see the 2026-07-13
+  update above): `ReentrantLock$Sync.tryRelease` throws
+  `java/lang/IllegalMonitorStateException` on the writer graph.
 
 Exact throwaway patches for (A)+(B) are saved at
 `scratchpad/stage-c-forbidden-fixes.diff`; the reverted (C) patch at
