@@ -78,16 +78,25 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //     `Collections.newSetFromMap(Map)` (returns a fresh field-backed HashSet,
 //     matching the empty-map contract); and a non-collecting
 //     `java/lang/ref/ReferenceQueue` (no-op `<init>`, `poll()` always null) plus
-//     the two-arg `WeakReference(referent, queue)` constructor. The app now boots
-//     far enough to fail inside a *reflectively-invoked* method, so the visible
-//     first blocker is an uncaught `java/lang/reflect/InvocationTargetException`
-//     (reflection wraps the target throwable and discards its class). Instrumenting
-//     the wrap shows the underlying cause is `NoClassDefFoundError:
-//     java/util/EnumSet`; registering EnumSet only uncovers a deeper
-//     `ExceptionInInitializerError` from an enum/config static initializer that
-//     uses EnumSet's Class-typed factories (`noneOf`/`allOf`/`range`, which need
-//     enum-constant reflection and ordinal bit-set storage). That is a real
-//     subsystem, not a shallow method mirror, so the app is pinned here.
+//     the two-arg `WeakReference(referent, queue)` constructor. The EnumSet rung
+//     is now CLEARED: the enum-reflection/ordinal-bitset subsystem
+//     (`EnumSet.noneOf`/`allOf`/`range` over Class-typed factories) landed, clearing
+//     the reflectively-wrapped `NoClassDefFoundError: java/util/EnumSet` /
+//     `ExceptionInInitializerError` wall (PR #1368). The SoftReference rung is now
+//     CLEARED too: a minimal non-collecting synthetic `java/lang/ref/SoftReference`
+//     (super `Reference`, 1-arg + 2-arg `(Object, ReferenceQueue)` ctors reusing
+//     `native_reference_init`, get/clear inherited) mirrors the WeakReference
+//     precedent and clears Spring's
+//     `ConcurrentReferenceHashMap$SoftEntryReference.<init>` wall. The app now boots
+//     PAST the enum/reference lane and the visible first blocker changed to a
+//     directly-surfaced (no reflection wrap) missing I/O/networking method:
+//     `java/net/URL.openConnection()Ljava/net/URLConnection;` at
+//     `org/springframework/core/io/UrlResource::getInputStream@4 invokevirtual`
+//     (reached via `PropertiesLoaderUtils::fillProperties`). A `java/net/URL`
+//     synthetic and `native_url_open_stream` already exist, but `openConnection()`
+//     needs a NEW synthetic abstract `java/net/URLConnection` (getInputStream/
+//     setUseCaches + an HttpURLConnection instanceof/disconnect path) — a dedicated
+//     I/O-lane rung, so the app is pinned here.
 //   * LADDER cleared the commons-logging `LogFactory.newStandardFactory`
 //     `Class.forName("...SLF4JProvider", false, cl)` availability probe: the
 //     3-arg `Class.forName` native was eagerly computing the class key (which
@@ -197,9 +206,14 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //           `#[ignore]`d; `LADDER_BLOCKER` re-pinned to the (unchanged visible) blocker.
 // If the app boot advances past its pin, re-observe and update.
 // See docs/findings/2026-07-10-spring-boot-real-app.md.
-// APP root cause (visible only via instrumentation of the reflection wrap):
-// `NoClassDefFoundError: java/util/EnumSet`, then `ExceptionInInitializerError`.
-const APP_BLOCKER: &str = "java exception: java/lang/reflect/InvocationTargetException";
+// APP frontier (now VISIBLE directly, no reflection wrap): the app clears the
+// enum/reflection subsystem and the reference-type rungs and walls on a missing
+// I/O/networking method — `java/net/URL.openConnection()Ljava/net/URLConnection;`
+// at `org/springframework/core/io/UrlResource::getInputStream@4 invokevirtual`
+// (reached via `PropertiesLoaderUtils::fillProperties`). A `java/net/URL`
+// synthetic and `native_url_open_stream` already exist, but `openConnection()`
+// needs a new synthetic abstract `java/net/URLConnection` — an I/O-lane rung.
+const APP_BLOCKER: &str = "method not found: java/net/URL.openConnection()Ljava/net/URLConnection;";
 // LADDER shares the same visible blocker string as APP but a DIFFERENT underlying
 // cause: main climbs into `LadderApplication.main`, clears Properties.load + the
 // BufferedReader character-stream read, and walls on the reflective same-class
@@ -234,17 +248,22 @@ fn combined_output(output: &Output) -> String {
 /// End-to-end CANARY for the real Spring Boot app fixture. Ignored until boot
 /// reaches the started-application line. Un-ignore when the happy path clears.
 #[test]
-#[ignore = "Blocked on an uncaught java/lang/reflect/InvocationTargetException whose underlying \
-            cause (visible only via instrumentation of the reflection wrap) is \
-            NoClassDefFoundError: java/util/EnumSet, which in turn uncovers an \
-            ExceptionInInitializerError from an enum/config static initializer using EnumSet's \
-            Class-typed factories (noneOf/allOf/range) — a real enum-reflection/ordinal-bitset \
-            subsystem, not a shallow method mirror. The StringBuilder append(Object) rung plus a \
-            run of shallow java.lang/java.util rungs (String.indexOf(II)/lastIndexOf(I)/(II); \
-            synthetic LinkedHashSet/WeakHashMap/IdentityHashMap/AbstractMap; capacity ctors on \
-            HashMap/HashSet; HashSet.addAll; Collections.addAll/newSetFromMap; non-collecting \
-            ReferenceQueue) are now cleared; keep ignored until the Spring Boot app boot \
-            completes. See docs/findings/2026-07-10-spring-boot-real-app.md"]
+#[ignore = "The app now boots PAST the enum-reflection and reference-type lanes: the EnumSet \
+            subsystem (noneOf/allOf/range Class-typed factories with enum-constant reflection + \
+            ordinal bit-set storage) cleared the reflectively-wrapped NoClassDefFoundError: \
+            java/util/EnumSet / ExceptionInInitializerError wall (PR #1368), and a minimal \
+            non-collecting synthetic java/lang/ref/SoftReference (super Reference, 1-arg + 2-arg \
+            (Object, ReferenceQueue) ctors reusing native_reference_init, get/clear inherited) \
+            cleared Spring's ConcurrentReferenceHashMap$SoftEntryReference.<init> wall. The visible \
+            first blocker is now a directly-surfaced missing I/O/networking method: \
+            java/net/URL.openConnection()Ljava/net/URLConnection; at \
+            org/springframework/core/io/UrlResource::getInputStream@4 invokevirtual (reached via \
+            PropertiesLoaderUtils::fillProperties). A java/net/URL synthetic and \
+            native_url_open_stream already exist, but openConnection() needs a NEW synthetic \
+            abstract java/net/URLConnection (getInputStream/setUseCaches + an HttpURLConnection \
+            instanceof/disconnect path) — a dedicated I/O-lane rung, not taken here. Keep ignored \
+            until the Spring Boot app boot completes. \
+            See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_app_boots_end_to_end() {
     let output = run_fixture(APP_JAR);
     let combined = combined_output(&output);
