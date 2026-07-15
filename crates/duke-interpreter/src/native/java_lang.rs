@@ -470,7 +470,11 @@ pub(crate) fn native_string_init_copy(
         Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone(),
         _ => None,
     };
-    heap.get_mut(this_ref)?.string_value = src_val;
+    if let Some(v) = src_val {
+        store_string_init_value(heap, this_ref, v)?;
+    } else {
+        heap.get_mut(this_ref)?.string_value = None;
+    }
     Ok(None)
 }
 /// Native: `Enum.<init>(Ljava/lang/String;I)V` — stores name + ordinal.
@@ -2607,7 +2611,7 @@ pub(crate) fn native_string_init_from_chars(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let Some(Slot::Reference(Some(arr_ref))) = args.get(1).copied() else {
-        heap.get_mut(this_ref)?.string_value = Some(String::new());
+        store_string_init_value(heap, this_ref, String::new())?;
         return Ok(None);
     };
     let chars: String = heap
@@ -2619,7 +2623,7 @@ pub(crate) fn native_string_init_from_chars(
             _ => None,
         })
         .collect();
-    heap.get_mut(this_ref)?.string_value = Some(chars);
+    store_string_init_value(heap, this_ref, chars)?;
     Ok(None)
 }
 /// Native: `String.<init>(char[], int offset, int count)V` — constructs a String
@@ -2634,7 +2638,7 @@ pub(crate) fn native_string_init_from_chars_range(
     let offset = extract_int_arg(args, 2)?;
     let count = extract_int_arg(args, 3)?;
     let Some(Slot::Reference(Some(arr_ref))) = args.get(1).copied() else {
-        heap.get_mut(this_ref)?.string_value = Some(String::new());
+        store_string_init_value(heap, this_ref, String::new())?;
         return Ok(None);
     };
     let all: Vec<char> = heap
@@ -2657,7 +2661,7 @@ pub(crate) fn native_string_init_from_chars_range(
         });
     };
     let chars: String = all[start..end].iter().collect();
-    heap.get_mut(this_ref)?.string_value = Some(chars);
+    store_string_init_value(heap, this_ref, chars)?;
     Ok(None)
 }
 /// Native: `String.valueOf(char[])String` — creates String from char array.

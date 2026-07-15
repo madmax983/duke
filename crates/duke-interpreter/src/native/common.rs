@@ -1419,6 +1419,18 @@ fn string_bytes_for_arg(
     Ok(encode_string_with_charset(value, charset))
 }
 
+/// Populate a freshly-constructed `java/lang/String` receiver on a `<init>`
+/// path. Sets the authoritative `string_value` side-channel AND mints the real
+/// 4-slot layout (`value:[B`, `coder:B`) via [`Heap::set_string_layout`], so the
+/// `new java/lang/String` + `<init>` mint path is coherent with the
+/// `allocate_string` mint path (both leave slot0/slot1 populated). An empty
+/// `value` still gets a valid zero-length `[B` in slot0.
+fn store_string_init_value(heap: &mut duke_gc::Heap, this_ref: u64, value: String) -> Result<()> {
+    heap.set_string_layout(this_ref, &value);
+    heap.get_mut(this_ref)?.string_value = Some(value);
+    Ok(())
+}
+
 fn init_string_from_bytes(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -1427,7 +1439,7 @@ fn init_string_from_bytes(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let decoded = decode_string_with_charset(bytes, charset);
-    heap.get_mut(this_ref)?.string_value = Some(decoded);
+    store_string_init_value(heap, this_ref, decoded)?;
     Ok(None)
 }
 
@@ -1501,7 +1513,7 @@ pub(crate) fn native_string_init_code_points(
         };
         decoded.push(char::from_u32(cp.cast_unsigned()).unwrap_or(REPLACEMENT_CHAR));
     }
-    heap.get_mut(this_ref)?.string_value = Some(decoded);
+    store_string_init_value(heap, this_ref, decoded)?;
     Ok(None)
 }
 
