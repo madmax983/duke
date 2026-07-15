@@ -47,3 +47,4 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Testing Format and Serialization Output Gaps (Updated)\n**Learning:** Added test coverage for `LimitWriter` truncation limits and I/O error boundaries for `take(10)` iterator adapters.\n**Action:** Iterate output boundary loops across variables inside format reports to explicitly test edge limits inside formatted print statements.

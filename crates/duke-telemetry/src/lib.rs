@@ -520,10 +520,18 @@ mod tests {
     #[test]
     #[cfg(feature = "telemetry")]
     fn test_print_report_io_error() {
-        struct FailingWriter;
-        impl std::io::Write for FailingWriter {
-            fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
-                Err(std::io::Error::other("disk full"))
+        struct LimitWriter {
+            limit: usize,
+            written: usize,
+        }
+        impl std::io::Write for LimitWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                if self.written + buf.len() > self.limit {
+                    Err(std::io::Error::other("limit reached"))
+                } else {
+                    self.written += buf.len();
+                    Ok(buf.len())
+                }
             }
             fn flush(&mut self) -> std::io::Result<()> {
                 Ok(())
@@ -548,9 +556,21 @@ mod tests {
             .native_boundary
             .record_call("java/lang/String", "intern", 100, true);
 
-        let mut w = FailingWriter;
-        let res = store.print_report(&mut w);
-        assert!(res.is_err());
+        // A full successful write takes roughly a few hundred bytes.
+        // Try every limit from 0 up to 1000 to catch every `?` fail path.
+        let mut max_needed = 0;
+        let mut full_success = false;
+        for limit in 0..1000 {
+            let mut w = LimitWriter { limit, written: 0 };
+            if store.print_report(&mut w).is_ok() {
+                full_success = true;
+                max_needed = w.written;
+                break;
+            }
+        }
+
+        assert!(full_success, "print_report never succeeded with limit");
+        assert!(max_needed > 10, "print_report should write some bytes");
     }
 
     #[test]
@@ -597,5 +617,89 @@ mod tests {
         store.print_exception_flow(&mut buf).unwrap();
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn test_truncation_limits() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            store.bytecode_cost.record(
+                Box::leak(format!("op{i}").into_boxed_str()),
+                "Foo",
+                "bar",
+                10,
+                100,
+            );
+            store
+                .object_lineage
+                .record(&format!("Class{i}"), "Foo", 10, "bar");
+            store
+                .dispatch_resolution
+                .record("Foo", i as u16, "bar", true);
+            store
+                .native_boundary
+                .record_call(&format!("Class{i}"), "intern", 100, true);
+        }
+
+        let mut buf = Vec::new();
+        store.print_report(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+
+        // Count lines that look like our generated data
+        // "op" also matches "bytecode_cost (top 10 by count)" and "top" etc.
+        // We match exactly the lines that start with the op name or contain `count=`
+        let cost_lines = s
+            .lines()
+            .filter(|l| l.contains("count=") && l.contains("op"))
+            .count();
+        assert_eq!(cost_lines, 10, "bytecode_cost should be truncated to 10");
+
+        let lineage_lines = s
+            .lines()
+            .filter(|l| l.contains("allocs 1 of bar") && l.contains("Class"))
+            .count();
+        assert_eq!(
+            lineage_lines, 10,
+            "object_lineage should be truncated to 10"
+        );
+
+        let dispatch_lines = s
+            .lines()
+            .filter(|l| l.contains("Foo[cp") && l.contains("] calls="))
+            .count();
+        assert_eq!(
+            dispatch_lines, 10,
+            "dispatch_resolution should be truncated to 10"
+        );
+
+        let native_lines = s
+            .lines()
+            .filter(|l| l.contains("intern calls=1 errors="))
+            .count();
+        assert_eq!(
+            native_lines, 10,
+            "native_boundary should be truncated to 10"
+        );
+
+        // And markdown as well
+        let md = store.to_markdown_report();
+        let md_cost = md.lines().filter(|l| l.contains("`op")).count();
+        assert_eq!(md_cost, 10);
+
+        let md_lineage = md
+            .lines()
+            .filter(|l| l.contains("`Class") && l.contains("`bar`"))
+            .count();
+        assert_eq!(md_lineage, 10);
+
+        let md_dispatch = md.lines().filter(|l| l.contains("`Foo`[cp")).count();
+        assert_eq!(md_dispatch, 10);
+
+        let md_native = md
+            .lines()
+            .filter(|l| l.contains("`Class") && l.contains(".intern`"))
+            .count();
+        assert_eq!(md_native, 10);
     }
 }
