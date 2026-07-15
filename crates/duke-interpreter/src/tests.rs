@@ -33718,3 +33718,61 @@ fn native_file_output_stream_init_ids_is_idempotent() {
         "an already-installed JavaLangAccess must not be overwritten"
     );
 }
+
+/// Regression for the false-negative `instanceof`/`checkcast` that walled the
+/// commons-logging ladder: `LogFactoryImpl.createLogFromClass` evaluates
+/// `newLogger instanceof org/apache/commons/logging/Log` on a reflectively-built
+/// `Jdk14Logger` whose `ClassContext` records its interface as a PLAIN internal
+/// name, while the resolved target key is LOADER-QUALIFIED (`name\0loader:N`). The
+/// old `iface == to_key` equality never matched the plain-vs-qualified pair, so a
+/// class that genuinely implements the interface reported `false`.
+#[test]
+fn is_assignable_from_matches_loader_qualified_interface() {
+    let iface_key = "com/example/Iface\0loader:7";
+    let impl_key = "com/example/Impl\0loader:7";
+    let unrelated_key = "com/example/Unrelated\0loader:7";
+
+    let make_ctx = |name: &str, interfaces: Vec<String>| ClassContext {
+        class_name: name.to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        interfaces,
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Classfile,
+    };
+
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    registry.register(make_ctx(iface_key, Vec::new()));
+    // The interface entry is deliberately a PLAIN internal name (no loader
+    // qualifier), reproducing the reflective/synthetic build path that never runs
+    // the loader-resolution pass.
+    registry.register(make_ctx(impl_key, vec!["com/example/Iface".to_string()]));
+    registry.register(make_ctx(unrelated_key, Vec::new()));
+    let loader = make_simple_loader();
+
+    // Positive: `Impl` implements `Iface` even though the stored interface entry is
+    // plain and the resolved target key (`iface_key`) is loader-qualified.
+    assert!(
+        is_assignable_from(&mut registry, &loader, impl_key, iface_key, Some(impl_key)),
+        "plain interface entry must match a loader-qualified target key"
+    );
+
+    // Negative guard: a class that does not implement `Iface` must still report
+    // false, so the fix is not an unconditional true.
+    assert!(
+        !is_assignable_from(
+            &mut registry,
+            &loader,
+            unrelated_key,
+            iface_key,
+            Some(unrelated_key),
+        ),
+        "an unrelated class must not be assignable to Iface"
+    );
+}

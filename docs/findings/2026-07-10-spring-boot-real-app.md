@@ -572,3 +572,235 @@ All instrumentation was reverted; `reflect.rs` is byte-for-byte unchanged.
 `ExceptionInInitializerError`, both documented in the test).
 `LADDER_BLOCKER` is unchanged
 (`"method not found: org/apache/commons/logging/impl/LogFactoryImpl.objectId(Ljava/lang/Object;)Ljava/lang/String;"`).
+
+## 2026-07-13 — LADDER climb: objectId → Serializable → Logger.logp → Thread CCL → getInterfaces (stacked branch `swarm/ladder-objectid`)
+
+Continuing from the `objectId` fix (PR #1347, invokestatic super-walk, which advanced
+the ladder to `class not found: java/io/Serializable`), three in-lane rungs were cleared
+one at a time on a branch stacked off `swarm/invokestatic-super-walk`. Each rung was
+observed directly from the freshly-built binary running
+`duke -jar tests/fixtures/oss-jars/spring-boot/duke-spring-boot-ladder-3.5.12.jar`.
+
+**Rung 1 — `class not found: java/io/Serializable` (CLEARED).** Registered as an empty
+synthetic marker interface in `stdlib.rs`, immediately after the existing
+`java/lang/AutoCloseable` block and using its exact `ClassContext` field set
+(`super_class: None`, empty constant pool / methods / fields / interfaces, zero
+`instance_field_count`, `load_source: ClassLoadSource::Synthetic`). Registered so
+reflective hierarchy walks / `is_assignable_from` resolve it instead of raising
+`ClassNotFound`.
+
+**Rung 2 — `method not found: java/util/logging/Logger.logp(...)` (CLEARED).**
+commons-logging's `Jdk14Logger` routes every log call through
+`logp(Level, sourceClass, sourceMethod, msg)` and the 5-arg
+`logp(..., Throwable)` overload. Added `native_jul_logger_logp` and
+`native_jul_logger_logp_throwable` in `native/java_util_logging.rs`, mirroring the
+existing `native_jul_logger_log` / `native_jul_logger_log_throwable` (level = arg 1,
+message = arg 4, thrown = arg 5; source class/method are `LogRecord` metadata that
+Duke's formatter does not render, so they are accepted and ignored). Registered both
+descriptors on `java/util/logging/Logger` in `stdlib.rs`.
+
+**Rung 3 — uncaught `InvocationTargetException` → `NullPointerException`, then a
+follow-on `getResourceAsStream(...) == null` (BOTH CLEARED).** The visible blocker was
+the generic `java exception: java/lang/reflect/InvocationTargetException`. Temporarily
+instrumenting the two wrap sites in `native/reflect.rs` (printing the discarded cause +
+the reflectively-invoked method; since reverted, `reflect.rs` byte-for-byte unchanged)
+showed the target method was the fixture's OWN `com/example/duke/ladder/LadderApplication.main`
+and the cause a `NullPointerException`. Bytecode + `DUKE_TRACE_EXEC` traced it to
+`main@28 invokevirtual java/lang/ClassLoader.getResourceAsStream` with a null receiver:
+`main@13` called `Thread.currentThread().getContextClassLoader()` which returned null.
+
+Root cause: `native_thread_current_thread` allocates a fresh, throwaway
+`java/lang/Thread` object on every call (with `contextClassLoader = null`). The Spring
+Boot launcher (`Launcher.launch@0-4`) does call
+`Thread.currentThread().setContextClassLoader(launchedLoader)`, but that write lands on a
+discarded instance and is invisible to the next `currentThread().getContextClassLoader()`
+in `main`.
+
+Fix (in-lane, `native/java_lang.rs` + `stdlib.rs`): persist the main thread's context
+loader in a new static slot `$dukeMainContextClassLoader` on the synthetic
+`java/lang/Thread` (declared in the Thread `ClassContext`, same singleton pattern as
+`$dukeSystemClassLoader` on `java/lang/ClassLoader`). `setContextClassLoader` (now a
+`register_callback` native) writes both the instance field and the static slot;
+`getContextClassLoader` (now `register_callback`) returns the instance field when set,
+else the persisted static loader, else the system class loader — the JVM default for the
+main thread (HotSpot installs it at VM startup). This also cleared the immediate
+follow-on rung: with the real `LaunchedClassLoader` restored (it carries the fat-jar
+archive path), `getResourceAsStream("META-INF/duke-ladder.properties")` resolves
+`BOOT-INF/classes/META-INF/duke-ladder.properties`. Resource resolution keys off the
+loader OBJECT's `runtime_loader_paths` (`native/common.rs`); a bare system loader has no
+paths, so returning the launched loader — not just any system loader — was load-bearing.
+
+**New LADDER frontier (HANDOFF — pinned, NOT patched; OUT OF LANE).** The ladder now
+lands on `method not found: java/lang/Class.getInterfaces()[Ljava/lang/Class;`, but that
+is only a SYMPTOM. `LogFactoryImpl.createLogFromClass@404` evaluates
+`newLogger instanceof org/apache/commons/logging/Log` on the reflectively-constructed
+`Jdk14Logger` (which genuinely `implements org.apache.commons.logging.Log,
+java.io.Serializable`). Duke's `instanceof` returns FALSE, diverting control into
+`handleFlawedHierarchy`, whose first act is `Class.getInterfaces()` and whose ultimate
+act is to throw a spurious `LogConfigurationException`. The false negative is in
+`is_assignable_from` (`crates/duke-interpreter/src/native/common.rs`, ~line 11465): a
+class's interface entries are plain internal names (`org/apache/commons/logging/Log`)
+while `to_key` is loader-qualified (`org/apache/commons/logging/Log loader:NN`), so the
+`iface == to_key` comparison never matches (the super-class comparison one line up has
+the same shape). The real fix is to normalize the interface/`to_key` comparison in
+`is_assignable_from` (`native/common.rs`) or the `Instanceof` opcode (`execution.rs`) —
+the interpreter class-identity/assignability lane, which is out of this lane's scope
+(`registry.rs` / `native/common.rs` / `execution.rs` are owned elsewhere). Adding
+`getInterfaces()` alone would be semantically WRONG: it would not boot the ladder, it
+would only swap `method not found` for a false `LogConfigurationException`, so the rung
+is pinned honestly rather than patched.
+
+`LADDER_BLOCKER` is now
+`"method not found: java/lang/Class.getInterfaces()[Ljava/lang/Class;"`
+(root cause: `instanceof(Jdk14Logger, org/apache/commons/logging/Log)` false negative in
+`is_assignable_from`, documented in the test). The ladder end-to-end canary stays
+`#[ignore]`d. `APP_BLOCKER` and the app section are untouched. Full workspace suite stays
+3096/0/4; fmt + clippy (1.97.0, pedantic + nursery) clean; HelloWorld class + jar modes
+both print `Hello, World!`. No edits to `registry.rs`, `native/common.rs`, or
+`execution.rs`.
+
+---
+
+## 2026-07-13 — instanceof loader-key fix clears the whole commons-logging wall; ladder now walls in its own `main` (wave-9 pin)
+
+The pinned `Class.getInterfaces()` frontier above was only a symptom of a false-negative
+`instanceof`. That is now **FIXED** in `is_assignable_from` (`native/common.rs`, branch
+`swarm/instanceof-loader-keys`, cherry-picked onto `swarm/ladder-objectid`/PR #1353).
+
+**Root cause (confirmed in code):** a `ClassContext`'s interface entries are stored either
+as PLAIN internal names — for classes built reflectively/synthetically via
+`build_class_context`, which never runs the loader-resolution pass — or as LOADER-QUALIFIED
+keys (`name\0loader:N`), rewritten by `ensure_loaded_inner` (`registry.rs:1281-1292`). The
+target `to_key` is loader-qualified, so the old `iface == to_key` equality silently failed
+for the plain case. commons-logging's `LogFactoryImpl.createLogFromClass` evaluated
+`newLogger instanceof org/apache/commons/logging/Log` on the reflectively-built
+`Jdk14Logger` (which genuinely `implements Log, Serializable`) and Duke returned FALSE,
+diverting into `handleFlawedHierarchy` → `Class.getInterfaces()`.
+
+**Fix (one comparison site):** compare interface entries on the PLAIN internal name —
+`class_internal_name_from_key(&iface) == to_internal` (loader separator is `\0`;
+`to_internal` already holds the plain name of `to_key`). This strips the loader qualifier
+from both sides, is loader-agnostic per Duke's interface-by-name identity model, and fixes
+BOTH `Instanceof` and `Checkcast` (both opcodes route through `is_assignable_from` at
+`execution.rs:2839`/`2871`). Regression test
+`is_assignable_from_matches_loader_qualified_interface` in `tests.rs` (plain interface
+entry vs loader-qualified target key = true; unrelated class = false) fails on trunk,
+passes with the fix.
+
+**Ladder end-to-end result:** the fix clears commons-logging entirely — `Jdk14Logger.log`
+/`info` now execute and the ladder boots ALL THE WAY THROUGH logging into its own
+`LadderApplication.main`.
+
+**NEW WALL — pinned for wave 9:** an uncaught `java/lang/reflect/InvocationTargetException`.
+Decoded from `main`'s bytecode (main@10-48) plus temporary instrumentation of the reflect
+wrap (since reverted): main does
+`new Properties().load(Thread.currentThread().getContextClassLoader().getResourceAsStream(name))`.
+Duke's synthetic `java/util/Properties.load(Ljava/io/InputStream;)V` throws
+`java/io/IOException` (it cannot read the resource `InputStream` Duke returns), which
+propagates out of `main`; the Spring Boot launcher's reflective `main.invoke` wraps it into
+the uncaught `InvocationTargetException` (the visible blocker). **Wave-9 lane:** java.util
+Properties / resource-stream I/O — teach `Properties.load(InputStream)` to actually parse
+the stream handed back by `getResourceAsStream`.
+
+`LADDER_BLOCKER` is re-pinned to `"java exception: java/lang/reflect/InvocationTargetException"`
+(the same visible string as `APP_BLOCKER`, though the two have different underlying causes —
+LADDER = `Properties.load` IOException, APP = `NoClassDefFoundError: java/util/EnumSet`).
+The ladder end-to-end canary stays `#[ignore]`d with an updated reason. `APP_BLOCKER` and
+the app section are untouched. Part-1 gate: workspace 3097/0/4 (+1 = the new test, zero
+instanceof/checkcast/reflection regressions), fmt + clippy (1.97.0 pedantic+nursery) clean,
+HelloWorld class + jar both print `Hello, World!`. No edits to `registry.rs`.
+
+---
+
+## 2026-07-13 — LADDER: two more in-lane rungs cleared; walls at reflective same-class private invoke
+
+The commons-logging ladder climbs all of commons-logging/Jdk14Logger into the fixture's own
+`LadderApplication.main` (via PRs #1347/#1354/#1355/#1353 + the cherry-picked loader-key
+`instanceof` fix). This session (branch `swarm/ladder-objectid`, PR #1353) cleared main's
+first two rungs; it now walls on the third (out of lane). The ladder canary stays
+`#[ignore]`d and the pin still asserts the (unchanged visible) `InvocationTargetException`.
+
+**Rung 1 — CLEARED — `Properties.load(InputStream)` over a classpath resource.**
+`main` does `new Properties().load(getContextClassLoader().getResourceAsStream(
+"META-INF/duke-ladder.properties"))`. `native_properties_load` (`native/java_util.rs`)
+delegated to `properties_stream_id_from_slot`, which only recognised host-file-backed
+streams (`fields[0]` = positive fd) and raised `java/io/IOException` for anything else.
+But `getResourceAsStream` returns a synthetic `duke/io/ResourceInputStream` that holds the
+already-resolved resource bytes in a backing byte-array field (+ read cursor). Fix: a shared
+`input_stream_drain_all_bytes` (`native/java_io.rs`) detects the `ResourceInputStream` by
+class name, reads its remaining bytes directly (advancing the cursor to consume the stream),
+else host-file drain; `properties_read_input_stream_bytes` delegates to it and feeds the
+pre-existing `parse_properties_bytes`. The `.properties` (`duke.ladder.name`/`rung`/
+`exercises`) now parses and `getProperty` returns real values.
+
+**Rung 2 — CLEARED — character-stream stack (`InputStreamReader` + `BufferedReader`).**
+`main` then does `new BufferedReader(new InputStreamReader(getResourceAsStream(
+"greeting.txt"), StandardCharsets.UTF_8)).readLine()`. No `java.io` Reader classes existed,
+so `InputStreamReader.<init>(InputStream, Charset)` raised `NoSuchMethodError`. Added minimal
+synthetics in `stdlib.rs` — `java/io/InputStreamReader` (fields: underlying stream, charset
+name) and `java/io/BufferedReader` (fields: fully-decoded content String, char cursor) — with
+natives in `native/java_io.rs`. `decode_bytes_with_charset` maps the ISO-8859-1/US-ASCII
+family 1:1 and everything else as UTF-8 (lossy); `readLine()` walks `\n`/`\r`/`\r\n`
+terminators and returns null at end-of-input. Documented simplification: `BufferedReader`
+eagerly drains the whole stream at construction (real `java.io` reads lazily) — fine for
+finite classpath resources.
+
+> **Regression trap (fixed during development):** both readers extend `java/lang/Object`, and
+> Duke must **not** register a synthetic `java/io/Reader`. The OSS smoke harness runs some
+> fixtures (notably gson) against the REAL JDK-21 modules via `BootstrapLoader`, where the real
+> `java/io/Reader` (which declares a `lock` field) and its real subclasses (`StringReader`,
+> `JsonReader`) load from classfiles. A 0-field synthetic `java/io/Reader` shadows the real one
+> and shifts subclass field indices, which surfaced as `InvalidFieldref { index: 0 }` in the
+> gson canary. Dropping the `Reader` registration (the `Ljava/io/Reader;` in
+> `BufferedReader.<init>` is only a descriptor type, no class-load required) fixes it.
+
+**Rung 3 — WALL (pinned for wave 9, OUT OF LANE) — reflective invoke of the class's OWN
+private static method.** `main` does `LadderApplication.class.getDeclaredMethod("summarize",
+List.class).invoke(null, List.of(...))` (main@399) with no `setAccessible(true)`. The real JVM
+permits this: `Method.invoke`'s access check is **caller-sensitive** — a class may always
+reflectively access its own (private/nestmate) members, and only CROSS-class access to a
+non-accessible member throws `IllegalAccessException`. Duke's `native_reflect_method_invoke`
+(`native/reflect.rs`) keeps the coarse `!is_public && !is_accessible → throw`, which is
+CORRECT for the cross-class case that the gson canary and
+`ReflectionTest.privateMethodRaisesIllegalAccess` (which invokes a *different* class's private
+method) depend on — I initially relaxed this guard and it BROKE both, so it was reverted. Duke
+cannot yet distinguish same-class from cross-class here: the invoking frame's class is not
+available to this native. The stack snapshot in `native_control_for_call` /
+`native_needs_stack_snapshot` (`native/common.rs`, FORBIDDEN in this lane) is captured only for
+Throwable-init and `Reflection.getCallerClass`, not `Method.invoke`. So the spurious
+`IllegalAccessException` propagates out of `main`, and the Spring Boot launcher's reflective
+`main.invoke` wraps it into the uncaught `java/lang/reflect/InvocationTargetException` (same
+visible string as `APP_BLOCKER`, different underlying cause). **Wave-9 lane:** interpreter
+reflection / native-boundary — add `Method.invoke`/`Constructor.newInstance` to
+`native_needs_stack_snapshot` so `control.stack_trace()` is populated, then allow the invoke
+when the caller frame's class equals the method's declaring class (rejecting only real
+cross-class violations). The public reflective `Math.sqrt(2809)` invoke (main@337) and the
+`IntStream.rangeClosed(1,8).mapToObj(...).collect(toList())` /
+`List.stream().mapToInt(...).sum()` pipeline already work unmodified.
+
+Root causes for rungs 2 and 3 were decoded by temporarily adding an `eprintln!` to the
+reflect-wrap arm in `native/reflect.rs` (which surfaced the wrapped cause as
+`NoSuchMethodError` then `IllegalAccessException`); that instrumentation has been reverted
+byte-for-byte.
+
+**Known divergence (separate lane, follow-up — NOT fixed here):**
+`Class.getResourceAsStream("greeting.txt")` resolves the class-relative name to
+`com/example/duke/ladder/greeting.txt` correctly, but `lookup_class_resource`
+(`native/common.rs`) looks it up against the class's runtime loader, which for the app class
+resolves to the BOOTSTRAP loader (not the `LaunchedClassLoader` that carries the fat-jar
+archive path). The lookup therefore misses `BOOT-INF/classes/...` and returns null; the
+fixture tolerates the null (`greeting.txt -> null`) and continues. This is a Class-vs-
+ClassLoader resource-loader-association gap, distinct from the `Properties.load` /
+character-stream work above.
+
+**Test / pin state.** `spring_boot_ladder_boots_end_to_end` stays `#[ignore]`d (reason updated
+to the reflection wall) with a strengthened stable-substring assertion for when the wall clears
+(starting banner, loaded props, `Math.sqrt(2809) = 53.0`, reflective `summarize`, both success
+banners; the per-run heap-address `Squares ...@NN` line and the `greeting.txt -> null`
+divergence are deliberately excluded). The ladder pin test + `LADDER_BLOCKER` const are kept
+(re-pinned to the unchanged visible blocker). `APP_BLOCKER`, the app pin, and the app canary
+are untouched (the app fixture is still blocked on `EnumSet` / `ExceptionInInitializerError`).
+Gate: `cargo test --workspace --no-fail-fast` = 3097 passed / 0 failed / 4 ignored, fmt +
+clippy (1.97.0 pedantic+nursery) clean, gson/slf4j/commons-lang3 canaries + both Spring Boot
+pins green, HelloWorld class + jar both print `Hello, World!`. No edits to
+`registry.rs` / `native/common.rs` / `execution.rs`.

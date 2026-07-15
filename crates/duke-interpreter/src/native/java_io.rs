@@ -352,6 +352,289 @@ pub(crate) fn native_resource_input_stream_close(
     heap.write_field(this_ref, RESOURCE_STREAM_CLOSED_FIELD, Slot::Int(1))?;
     Ok(None)
 }
+
+// ─── java/io/InputStreamReader + java/io/BufferedReader (ladder canary) ───────
+// Minimal synthetic character-stream stack for reading a classpath resource as
+// text, as `LadderApplication.main` does:
+//   new BufferedReader(new InputStreamReader(cl.getResourceAsStream(n), UTF_8))
+//       .readLine()
+// Duke does not model the real java.io Reader hierarchy; these two synthetics
+// cover exactly the construct-and-readLine path the fixture exercises.
+//
+// Documented simplifications:
+//   * BufferedReader eagerly drains the entire underlying stream at construction
+//     time (real java.io reads lazily / block-buffered). Fine for finite
+//     classpath resources.
+//   * Decoding honours only the byte-preserving ISO-8859-1/US-ASCII family
+//     (1:1 byte→char) vs. everything else as UTF-8 (lossy). The fixture uses
+//     UTF-8 ASCII, so both paths are exact here.
+//   * `readLine` recognises `\n`, `\r`, and `\r\n` terminators (java.io
+//     semantics) and returns null at end-of-input.
+
+/// `InputStreamReader` field layout: [0] underlying `InputStream` ref, [1]
+/// charset name String ref (nullable → UTF-8).
+const INPUT_STREAM_READER_STREAM_FIELD: usize = 0;
+const INPUT_STREAM_READER_CHARSET_FIELD: usize = 1;
+/// `BufferedReader` field layout: [0] fully-decoded content String ref, [1] read
+/// cursor (char offset) Int.
+const BUFFERED_READER_CONTENT_FIELD: usize = 0;
+const BUFFERED_READER_CURSOR_FIELD: usize = 1;
+
+/// Drain all remaining bytes from an `InputStream` reference to a byte vector.
+///
+/// Handles the synthetic `duke/io/ResourceInputStream` (backing byte-array with
+/// a read cursor, produced by `getResourceAsStream`) and host-file-backed
+/// streams (`fields[0]` = positive fd). Advances the stream to end-of-input,
+/// matching real `readAllBytes`/drain semantics.
+fn input_stream_drain_all_bytes(stream_ref: u64, heap: &mut duke_gc::Heap) -> Result<Vec<u8>> {
+    if heap.get(stream_ref)?.class_name == "duke/io/ResourceInputStream" {
+        resource_stream_ensure_open(heap, stream_ref)?;
+        let array_ref = resource_stream_array_ref(heap, stream_ref)?;
+        let cursor = resource_stream_cursor(heap, stream_ref)?;
+        let source = &heap.get(array_ref)?.fields;
+        let start = cursor.min(source.len());
+        let mut bytes = Vec::with_capacity(source.len() - start);
+        for slot in &source[start..] {
+            let byte = match slot {
+                Slot::Int(value) => u8::try_from(*value & 0xFF).unwrap_or(0),
+                _ => 0,
+            };
+            bytes.push(byte);
+        }
+        let end = source.len();
+        resource_stream_set_cursor(heap, stream_ref, end)?;
+        return Ok(bytes);
+    }
+
+    // Host-file-backed stream: fields[0] is a positive fd.
+    let file_id = match heap.get(stream_ref)?.fields.first() {
+        Some(Slot::Int(id)) if *id > 0 => *id,
+        _ => {
+            push_pending_java_exception_message(
+                "java/io/IOException",
+                "stream is not readable".to_string(),
+            );
+            return Err(Error::JavaException {
+                class_name: "java/io/IOException".to_string(),
+            });
+        }
+    };
+    let mut bytes = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = heap.read_host_file_bytes(file_id, &mut buf)?;
+        if n < 0 {
+            break;
+        }
+        let n = usize::try_from(n).unwrap_or(0);
+        bytes.extend_from_slice(&buf[..n]);
+    }
+    Ok(bytes)
+}
+
+/// Decode bytes to a Rust `String` honouring the byte-preserving charset family;
+/// everything else falls back to UTF-8 (lossy).
+fn decode_bytes_with_charset(bytes: &[u8], charset_name: Option<&str>) -> String {
+    let byte_preserving = charset_name.is_some_and(|name| {
+        let upper = name.to_ascii_uppercase();
+        upper.contains("8859") || upper.contains("ASCII") || upper == "LATIN1"
+    });
+    if byte_preserving {
+        bytes.iter().map(|&b| b as char).collect()
+    } else {
+        String::from_utf8_lossy(bytes).into_owned()
+    }
+}
+
+pub(crate) fn native_input_stream_reader_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let stream = extract_slot_arg(args, 1);
+    heap.write_field(this_ref, INPUT_STREAM_READER_STREAM_FIELD, stream)?;
+    heap.write_field(
+        this_ref,
+        INPUT_STREAM_READER_CHARSET_FIELD,
+        Slot::Reference(None),
+    )?;
+    Ok(None)
+}
+
+pub(crate) fn native_input_stream_reader_init_charset(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let stream = extract_slot_arg(args, 1);
+    // Resolve the charset name from a Charset object (string_value) if present.
+    // Read the name first (immutable borrow) before re-allocating (mutable).
+    let charset_name = match extract_slot_arg(args, 2) {
+        Slot::Reference(Some(charset_ref)) => heap
+            .get(charset_ref)
+            .ok()
+            .and_then(|obj| obj.string_value.clone()),
+        _ => None,
+    };
+    let charset_slot = charset_name.map_or(Slot::Reference(None), |name| {
+        Slot::Reference(Some(heap.allocate_string(name)))
+    });
+    heap.write_field(this_ref, INPUT_STREAM_READER_STREAM_FIELD, stream)?;
+    heap.write_field(this_ref, INPUT_STREAM_READER_CHARSET_FIELD, charset_slot)?;
+    Ok(None)
+}
+
+pub(crate) fn native_input_stream_reader_init_named(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let stream = extract_slot_arg(args, 1);
+    let charset_slot = extract_slot_arg(args, 2);
+    heap.write_field(this_ref, INPUT_STREAM_READER_STREAM_FIELD, stream)?;
+    heap.write_field(this_ref, INPUT_STREAM_READER_CHARSET_FIELD, charset_slot)?;
+    Ok(None)
+}
+
+pub(crate) fn native_buffered_reader_init(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let reader_slot = extract_slot_arg(args, 1);
+
+    // Extract the underlying stream + charset from the wrapped Reader. Only the
+    // synthetic InputStreamReader is modeled; other readers yield empty content.
+    let (stream_ref, charset_name) = match reader_slot {
+        Slot::Reference(Some(reader_ref)) => {
+            let reader = heap.get(reader_ref)?;
+            if reader.class_name == "java/io/InputStreamReader" {
+                let stream = reader.fields.get(INPUT_STREAM_READER_STREAM_FIELD).copied();
+                let charset = match reader.fields.get(INPUT_STREAM_READER_CHARSET_FIELD) {
+                    Some(Slot::Reference(Some(name_ref))) => {
+                        heap.get(*name_ref).ok().and_then(|o| o.string_value.clone())
+                    }
+                    _ => None,
+                };
+                let stream_ref = match stream {
+                    Some(Slot::Reference(Some(sref))) => Some(sref),
+                    _ => None,
+                };
+                (stream_ref, charset)
+            } else {
+                (None, None)
+            }
+        }
+        _ => (None, None),
+    };
+
+    let content = match stream_ref {
+        Some(sref) => {
+            let bytes = input_stream_drain_all_bytes(sref, heap)?;
+            decode_bytes_with_charset(&bytes, charset_name.as_deref())
+        }
+        None => String::new(),
+    };
+
+    let content_ref = heap.allocate_string(content);
+    heap.write_field(
+        this_ref,
+        BUFFERED_READER_CONTENT_FIELD,
+        Slot::Reference(Some(content_ref)),
+    )?;
+    heap.write_field(this_ref, BUFFERED_READER_CURSOR_FIELD, Slot::Int(0))?;
+    Ok(None)
+}
+
+pub(crate) fn native_buffered_reader_read_line(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let content = match heap.get(this_ref)?.fields.get(BUFFERED_READER_CONTENT_FIELD) {
+        Some(Slot::Reference(Some(content_ref))) => heap
+            .get(*content_ref)?
+            .string_value
+            .clone()
+            .unwrap_or_default(),
+        _ => String::new(),
+    };
+    let cursor = match heap.get(this_ref)?.fields.get(BUFFERED_READER_CURSOR_FIELD) {
+        Some(Slot::Int(value)) if *value >= 0 => usize::try_from(*value).unwrap_or(usize::MAX),
+        _ => 0,
+    };
+
+    let chars: Vec<char> = content.chars().collect();
+    if cursor >= chars.len() {
+        return Ok(Some(Slot::Reference(None)));
+    }
+
+    let mut idx = cursor;
+    let mut line = String::new();
+    let mut terminated = false;
+    while idx < chars.len() {
+        let ch = chars[idx];
+        if ch == '\n' {
+            idx += 1;
+            terminated = true;
+            break;
+        }
+        if ch == '\r' {
+            idx += 1;
+            if idx < chars.len() && chars[idx] == '\n' {
+                idx += 1;
+            }
+            terminated = true;
+            break;
+        }
+        line.push(ch);
+        idx += 1;
+    }
+    let _ = terminated;
+
+    heap.write_field(
+        this_ref,
+        BUFFERED_READER_CURSOR_FIELD,
+        Slot::Int(i32::try_from(idx).unwrap_or(i32::MAX)),
+    )?;
+    let line_ref = heap.allocate_string(line);
+    Ok(Some(Slot::Reference(Some(line_ref))))
+}
+
+pub(crate) fn native_buffered_reader_close(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    // Advance the cursor to the end so any post-close read yields null; the
+    // underlying stream is left as-is (resource streams are in-memory).
+    let content_len = match heap.get(this_ref)?.fields.get(BUFFERED_READER_CONTENT_FIELD) {
+        Some(Slot::Reference(Some(content_ref))) => heap
+            .get(*content_ref)?
+            .string_value
+            .as_ref()
+            .map_or(0, |s| s.chars().count()),
+        _ => 0,
+    };
+    heap.write_field(
+        this_ref,
+        BUFFERED_READER_CURSOR_FIELD,
+        Slot::Int(i32::try_from(content_len).unwrap_or(i32::MAX)),
+    )?;
+    Ok(None)
+}
 /// Native: `PrintStream.print(String)` — no newline.
 pub(crate) fn native_print_string(
     args: &[Slot],

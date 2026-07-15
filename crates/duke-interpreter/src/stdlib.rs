@@ -407,6 +407,18 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         "(Ljava/util/logging/Level;Ljava/lang/String;Ljava/lang/Throwable;)V",
         native_jul_logger_log_throwable,
     );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "logp",
+        "(Ljava/util/logging/Level;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+        native_jul_logger_logp,
+    );
+    registry.natives_mut().register(
+        "java/util/logging/Logger",
+        "logp",
+        "(Ljava/util/logging/Level;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V",
+        native_jul_logger_logp_throwable,
+    );
     for (method, handler) in [
         ("severe", native_jul_logger_severe as NativeHandler),
         ("warning", native_jul_logger_warning),
@@ -2438,6 +2450,113 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             .register("duke/io/ResourceInputStream", method, descriptor, handler);
     }
 
+    // java/io/InputStreamReader + java/io/BufferedReader — minimal synthetic
+    // character-stream stack for reading a classpath resource as text
+    // (LadderApplication.main: new BufferedReader(new InputStreamReader(
+    // getResourceAsStream(n), UTF_8)).readLine()). See java_io.rs for the field
+    // layouts and documented simplifications.
+    //
+    // IMPORTANT: super_class is `java/lang/Object`, NOT `java/io/Reader`. Duke must
+    // NOT register a synthetic `java/io/Reader`: the OSS smoke harness runs some
+    // fixtures (e.g. gson) against the REAL JDK modules via `BootstrapLoader`, where
+    // the real `java/io/Reader` (which declares a `lock` field) and its real
+    // subclasses (`StringReader`, etc.) load from classfiles; a 0-field synthetic
+    // `Reader` would shadow it and corrupt subclass field-index layout
+    // (`InvalidFieldref`). The `Ljava/io/Reader;` in `BufferedReader.<init>` is only a
+    // descriptor type (no class-load required), and Duke does not type-check the
+    // InputStreamReader passed there, so `Object` super suffices for the ladder.
+    let input_stream_reader_ctx = ClassContext {
+        class_name: "java/io/InputStreamReader".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "stream".to_string(),
+                descriptor: "Ljava/io/InputStream;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "charsetName".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(input_stream_reader_ctx);
+    for (method, descriptor, handler) in [
+        (
+            "<init>",
+            "(Ljava/io/InputStream;)V",
+            native_input_stream_reader_init as NativeHandler,
+        ),
+        (
+            "<init>",
+            "(Ljava/io/InputStream;Ljava/nio/charset/Charset;)V",
+            native_input_stream_reader_init_charset as NativeHandler,
+        ),
+        (
+            "<init>",
+            "(Ljava/io/InputStream;Ljava/lang/String;)V",
+            native_input_stream_reader_init_named as NativeHandler,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/io/InputStreamReader", method, descriptor, handler);
+    }
+
+    let buffered_reader_ctx = ClassContext {
+        class_name: "java/io/BufferedReader".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "content".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "cursor".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(buffered_reader_ctx);
+    for (method, descriptor, handler) in [
+        (
+            "<init>",
+            "(Ljava/io/Reader;)V",
+            native_buffered_reader_init as NativeHandler,
+        ),
+        (
+            "readLine",
+            "()Ljava/lang/String;",
+            native_buffered_reader_read_line as NativeHandler,
+        ),
+        (
+            "close",
+            "()V",
+            native_buffered_reader_close as NativeHandler,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/io/BufferedReader", method, descriptor, handler);
+    }
+
     let output_stream_ctx = ClassContext {
         class_name: "java/io/OutputStream".to_string(),
         super_class: Some("java/lang/Object".to_string()),
@@ -4414,8 +4533,17 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 descriptor: "Ljava/lang/ClassLoader;".to_string(),
                 is_static: false,
             },
+            // Static-only slot caching the main thread's context class loader.
+            // `currentThread()` allocates a throwaway Thread per call, so a loader
+            // set by the launcher must survive here to be observable later (see
+            // MAIN_CONTEXT_CLASS_LOADER_FIELD).
+            FieldEntry {
+                name: MAIN_CONTEXT_CLASS_LOADER_FIELD.to_string(),
+                descriptor: "Ljava/lang/ClassLoader;".to_string(),
+                is_static: true,
+            },
         ],
-        static_fields: Vec::new(),
+        static_fields: vec![Slot::Reference(None)],
         instance_field_count: 5,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
@@ -4470,13 +4598,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/lang/String;",
         native_thread_get_name,
     );
-    registry.natives_mut().register(
+    registry.natives_mut().register_callback(
         "java/lang/Thread",
         "getContextClassLoader",
         "()Ljava/lang/ClassLoader;",
         native_thread_get_context_class_loader,
     );
-    registry.natives_mut().register(
+    registry.natives_mut().register_callback(
         "java/lang/Thread",
         "setContextClassLoader",
         "(Ljava/lang/ClassLoader;)V",
@@ -5066,6 +5194,21 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(autocloseable_ctx);
+
+    // java/io/Serializable — marker interface, registered so reflective hierarchy walks / is_assignable_from resolve it instead of ClassNotFound.
+    let serializable_ctx = ClassContext {
+        class_name: "java/io/Serializable".to_string(),
+        super_class: None, // interface — no super class
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(serializable_ctx);
 
     // java/sql/Driver - marker interface for ServiceLoader-based JDBC smoke tests.
     let sql_driver_ctx = ClassContext {

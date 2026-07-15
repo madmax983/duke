@@ -294,6 +294,21 @@ pub(crate) fn native_reflect_method_invoke(
     let invoke_arg_slots = reflection_array_elements(heap, extract_slot_arg(args, 2))?;
     let method = reflected_method_handle(heap, method_ref)?;
 
+    // NOTE (reflection access control): the JVM's `Method.invoke` access check is
+    // *caller-sensitive* — a class may always reflectively access its OWN
+    // (private/nestmate) members without `setAccessible(true)`; only CROSS-class
+    // access to a non-accessible member raises IllegalAccessException. Duke cannot
+    // yet distinguish the two here because the invoking frame's class is not
+    // available to this native (the stack snapshot in `native_control_for_call` /
+    // `native_needs_stack_snapshot` is only captured for Throwable-init and
+    // `Reflection.getCallerClass`, not `Method.invoke`). We therefore keep the
+    // coarse `!is_public && !is_accessible → throw`, which is CORRECT for the
+    // cross-class case that real code (and the gson canary / ReflectionTest) rely
+    // on, but WRONG for the legitimate same-class case (e.g. the commons-logging
+    // ladder's `LadderApplication.main` reflectively invoking its own private
+    // static `summarize`). Making that case pass requires threading the caller
+    // class into this native (common.rs + interpreter lane) — see wave-9 pin in
+    // docs/findings/2026-07-10-spring-boot-real-app.md.
     if !method.is_public && !method.is_accessible {
         return Err(Error::JavaException {
             class_name: "java/lang/IllegalAccessException".to_string(),

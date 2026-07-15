@@ -112,15 +112,100 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //     superclass `LogFactory` and invoked via a Methodref bound to the subclass
 //     `LogFactoryImpl`. The invokestatic slow-path resolver now walks the super
 //     chain (JVMS §5.4.3.3) instead of flat-scanning the subclass, so the
-//     inherited static body resolves. The frontier advanced
-//     (objectId → java/io/Serializable): the ladder now lands on
-//     `class not found: java/io/Serializable`, the next real blocker.
-// If either boot advances past its pin, re-observe and update.
+//     inherited static body resolves. The frontier then advanced through a run of
+//     in-lane rungs cleared this session (objectId → java/io/Serializable →
+//     Logger.logp → Thread contextClassLoader → Class.getInterfaces):
+//       (1) `class not found: java/io/Serializable` — registered as a synthetic
+//           marker interface in stdlib.rs (like java/lang/AutoCloseable) so
+//           reflective hierarchy walks / is_assignable_from resolve it. CLEARED.
+//       (2) `method not found: java/util/logging/Logger.logp(...)` — commons-logging's
+//           Jdk14Logger routes every call through the 4-arg `logp(Level, srcClass,
+//           srcMethod, msg)` and 5-arg `logp(..., Throwable)`. Both natives added
+//           (native_jul_logger_logp / _logp_throwable in java_util_logging.rs,
+//           mirroring `log`/`log_throwable`). CLEARED.
+//       (3) An uncaught `InvocationTargetException` wrapping a
+//           `NullPointerException` inside the fixture's own reflectively-invoked
+//           `LadderApplication.main`: `Thread.currentThread().getContextClassLoader()`
+//           returned null because `currentThread()` allocates a throwaway Thread per
+//           call, so the launcher's `setContextClassLoader(LaunchedClassLoader)` was
+//           written to a discarded instance. Fixed by persisting the main thread's
+//           context loader in a static slot on the synthetic java/lang/Thread
+//           (MAIN_CONTEXT_CLASS_LOADER_FIELD): setContextClassLoader writes it,
+//           getContextClassLoader falls back to it (then to the system loader). This
+//           also cleared the follow-on `getResourceAsStream(...)` == null rung —
+//           with the LaunchedClassLoader's real archive path restored, the lookup
+//           resolves BOOT-INF/classes/META-INF/duke-ladder.properties. CLEARED.
+//     The `getInterfaces()` rung was only a SYMPTOM of a deeper `instanceof` bug:
+//     commons-logging's `LogFactoryImpl.createLogFromClass` evaluates `newLogger
+//     instanceof org/apache/commons/logging/Log` on the reflectively-constructed
+//     `Jdk14Logger`, and Duke returned false because in `is_assignable_from`
+//     (crates/duke-interpreter/src/native/common.rs) the class's interface entries are
+//     plain internal names (`org/apache/commons/logging/Log`) while `to_key` was
+//     loader-qualified (`org/apache/commons/logging/Log\0loader:NN`), so `iface ==
+//     to_key` never matched. The false negative diverted control into
+//     `handleFlawedHierarchy` → `Class.getInterfaces()`. That is now CLEARED
+//     (interpreter class-identity lane): `is_assignable_from` compares interface
+//     entries against the target's PLAIN internal name (stripping any loader
+//     qualifier from both sides), which is loader-agnostic and fixes both `Instanceof`
+//     and `Checkcast`. commons-logging now resolves `Jdk14Logger` as a real `Log`,
+//     initializes fully, and the ladder boots all the way through logging into its own
+//     `LadderApplication.main`.
+//     The ladder then ran into `LadderApplication.main` itself, which does a run of
+//     final rungs. Two are CLEARED this session; the third is the current WALL:
+//       (1) CLEARED — `new Properties().load(getContextClassLoader().getResourceAsStream(
+//           name))` threw `java/io/IOException`: `Properties.load(InputStream)` only
+//           understood host-file-backed streams (`fields[0]` = fd), but
+//           `getResourceAsStream` returns a synthetic `duke/io/ResourceInputStream`
+//           holding the resolved bytes in a backing byte-array. `native_properties_load`
+//           (java_util.rs) now drains the ResourceInputStream (shared
+//           `input_stream_drain_all_bytes` in java_io.rs) and parses via the existing
+//           `parse_properties_bytes`.
+//       (2) CLEARED — `new BufferedReader(new InputStreamReader(getResourceAsStream(
+//           "greeting.txt"), UTF_8)).readLine()` — no character-stream stack existed, so
+//           `InputStreamReader.<init>(InputStream, Charset)` raised NoSuchMethodError.
+//           Added minimal synthetic `java/io/Reader`, `java/io/InputStreamReader` and
+//           `java/io/BufferedReader` (stdlib.rs) with natives in java_io.rs: ISR stores
+//           the stream + charset; BufferedReader eagerly drains the stream at
+//           construction, decodes (UTF-8 / ISO-8859-1 family), and `readLine()` walks
+//           `\n`/`\r`/`\r\n` terminators. (NOTE: the greeting stream itself resolves to
+//           null — a *separate*, pre-existing divergence where Class.getResourceAsStream
+//           looks the class-relative name up against the bootstrap loader instead of the
+//           LaunchedClassLoader; the fixture tolerates the null and continues. Not this
+//           lane; follow-up.)
+//       (3) WALL (pinned for wave 9, OUT OF LANE) —
+//           `LadderApplication.class.getDeclaredMethod("summarize", List.class)
+//           .invoke(null, ...)` invokes the class's OWN private static method via
+//           reflection without setAccessible. The real JVM permits this: its
+//           Method.invoke access check is CALLER-SENSITIVE — a class may always
+//           reflectively access its own (private/nestmate) members, and only CROSS-class
+//           access to a non-accessible member throws IllegalAccessException. Duke's
+//           `native_reflect_method_invoke` (reflect.rs) keeps the coarse
+//           `!is_public && !is_accessible → throw`, which is CORRECT for the cross-class
+//           case the gson canary + `ReflectionTest.privateMethodRaisesIllegalAccess` rely
+//           on, but WRONG here (same-class). It cannot yet distinguish the two: the
+//           invoking frame's class is not available to this native (the stack snapshot in
+//           `native_control_for_call`/`native_needs_stack_snapshot` — common.rs, FORBIDDEN
+//           here — is only captured for Throwable-init and `Reflection.getCallerClass`,
+//           not `Method.invoke`). So the spurious IllegalAccessException propagates out of
+//           main and the Spring Boot launcher's reflective `main.invoke` wraps it into the
+//           uncaught `java/lang/reflect/InvocationTargetException`. WAVE-9 LANE: interpreter
+//           reflection / native-boundary — add `Method.invoke`/`Constructor.newInstance` to
+//           `native_needs_stack_snapshot` so `control.stack_trace()` is populated, then
+//           allow the invoke when the caller frame's class equals the method's declaring
+//           class. The public reflective `Math.sqrt(2809)` invoke (main@337) already works;
+//           the ladder walls at the `summarize` invoke (main@399). The ladder canary stays
+//           `#[ignore]`d; `LADDER_BLOCKER` re-pinned to the (unchanged visible) blocker.
+// If the app boot advances past its pin, re-observe and update.
 // See docs/findings/2026-07-10-spring-boot-real-app.md.
-// Root cause (visible only via instrumentation of the reflection wrap):
+// APP root cause (visible only via instrumentation of the reflection wrap):
 // `NoClassDefFoundError: java/util/EnumSet`, then `ExceptionInInitializerError`.
 const APP_BLOCKER: &str = "java exception: java/lang/reflect/InvocationTargetException";
-const LADDER_BLOCKER: &str = "class not found: java/io/Serializable";
+// LADDER shares the same visible blocker string as APP but a DIFFERENT underlying
+// cause: main climbs into `LadderApplication.main`, clears Properties.load + the
+// BufferedReader character-stream read, and walls on the reflective same-class
+// private `summarize` invoke (IllegalAccessException, wrapped by the launcher's
+// reflective main.invoke). Pinned for wave 9 (interpreter reflection lane).
+const LADDER_BLOCKER: &str = "java exception: java/lang/reflect/InvocationTargetException";
 
 fn run_fixture(jar: &str) -> Output {
     let jar_path = spring_boot_fixture(jar);
@@ -203,15 +288,30 @@ fn spring_boot_app_surfaces_next_missing_capability_explicitly() {
 
 /// End-to-end CANARY for the commons-logging ladder fixture. Ignored until boot
 /// completes all rungs. Un-ignore when the happy path clears.
+///
+/// The ladder now climbs all of commons-logging/Jdk14Logger into its own
+/// `LadderApplication.main` and clears main's first two rungs — `Properties.load`
+/// of the classpath `.properties` and the `BufferedReader(InputStreamReader(...))`
+/// character-stream read — but WALLS on main's reflective same-class private
+/// `summarize` invoke (an out-of-lane `IllegalAccessException`; see the LADDER
+/// progression note above). When that wall clears, the assertion below should
+/// pass end-to-end.
 #[test]
-#[ignore = "Blocked on 'class not found: java/io/Serializable' in the commons-logging \
-            bootstrap (a class-linkage blocker). The LogFactoryImpl.objectId rung is now \
-            cleared: objectId is a public static declared on the abstract superclass \
-            LogFactory and invoked via a Methodref bound to the subclass LogFactoryImpl; the \
-            invokestatic slow-path resolver now walks the super chain (JVMS §5.4.3.3) so the \
-            inherited static body resolves (frontier advanced objectId → java/io/Serializable); \
-            keep ignored until the ladder fixture completes. \
-            See docs/findings/2026-07-10-spring-boot-real-app.md"]
+#[ignore = "The ladder climbs all of commons-logging/Jdk14Logger into its own \
+            LadderApplication.main and clears main's Properties.load(InputStream) rung (now reads \
+            the duke/io/ResourceInputStream from getResourceAsStream) and its \
+            BufferedReader(InputStreamReader(getResourceAsStream(\"greeting.txt\"), UTF_8)) \
+            character-stream rung (new minimal synthetic java/io/Reader/InputStreamReader/\
+            BufferedReader). It then WALLS on main's reflective same-class private invoke: \
+            LadderApplication.class.getDeclaredMethod(\"summarize\", List.class).invoke(null, ...) \
+            without setAccessible raises a spurious IllegalAccessException (Duke's \
+            native_reflect_method_invoke cannot see the invoking frame's class, so it cannot \
+            apply the JVM's caller-sensitive rule that a class may always reflectively access \
+            its OWN private members), which the Spring Boot launcher's reflective main.invoke \
+            wraps into the uncaught java/lang/reflect/InvocationTargetException. Pinned for \
+            wave 9 (interpreter reflection / native-boundary lane: thread the caller class into \
+            Method.invoke via native_needs_stack_snapshot in common.rs). Keep ignored until the \
+            ladder completes. See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_ladder_boots_end_to_end() {
     let output = run_fixture(LADDER_JAR);
     let combined = combined_output(&output);
@@ -220,11 +320,23 @@ fn spring_boot_ladder_boots_end_to_end() {
         output.status.success(),
         "duke -jar on the ladder fixture should exit cleanly; output:\n{combined}"
     );
-    assert!(
-        combined.contains("Duke ladder fixture completed all rungs successfully.")
-            || combined.contains("Duke ladder fixture application started successfully."),
-        "expected the ladder fixture to report completion; output:\n{combined}"
-    );
+    // Assert on STABLE substrings of the real boot output only (the per-run heap
+    // address in the "Squares ...@NN sum=204" line and the known
+    // Class.getResourceAsStream/bootstrap-loader "greeting.txt -> null"
+    // divergence are deliberately excluded).
+    for expected in [
+        "Duke ladder fixture starting (commons-logging via JCL).",
+        "Loaded resource props: name=duke-spring-boot-ladder rung=intermediate",
+        "Reflection Math.sqrt(2809) = 53.0",
+        "Reflective summarize() -> LOGGING,RESOURCE-SCAN,REFLECTION,STREAMS",
+        "Duke ladder fixture completed all rungs successfully.",
+        "Duke ladder fixture application started successfully.",
+    ] {
+        assert!(
+            combined.contains(expected),
+            "expected the ladder boot output to contain {expected:?}; output:\n{combined}"
+        );
+    }
 }
 
 /// PIN: the ladder fixture still fails at the current first blocker. When boot
