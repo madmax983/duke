@@ -854,3 +854,45 @@ This next rung is **OUT OF the enum lane** — it belongs to the reference/GC la
 panics), HelloWorld class both modes print `Hello, World!`. Changes limited to
 `native/java_util.rs`, `native/reflect.rs`, `stdlib.rs`, `tests.rs` + the new fixtures.
 `APP_BLOCKER` and `tests/spring_boot_real_app.rs` untouched.
+
+### Follow-on (same day) — SoftReference rung CLEARED; APP blocker string re-pinned to `URL.openConnection`
+
+The `SoftReference.<init>` rung called out above as the next wall is now **CLEARED** on
+this same branch. A minimal **non-collecting synthetic `java/lang/ref/SoftReference`**
+landed in `stdlib.rs` (registration only, +34 lines):
+
+- super `java/lang/ref/Reference`; `load_source = Synthetic`;
+- `<init>(Ljava/lang/Object;)V` and `<init>(Ljava/lang/Object;Ljava/lang/ref/ReferenceQueue;)V`
+  both bound to the shared `native_reference_init` (the referent lives in the inherited
+  `Reference` slot 0; the `ReferenceQueue` arg is accepted and ignored, exactly as with
+  the pre-existing `WeakReference`);
+- `get()` / `clear()` are **inherited** from the `Reference` base natives — no
+  soft-reachability or GC semantics, matching the `WeakReference` precedent. Spring's
+  `ConcurrentReferenceHashMap$SoftEntryReference` only allocates one and reads the
+  referent back, which a strong slot models faithfully.
+
+This clears the `ConcurrentReferenceHashMap$SoftEntryReference.<init>` wall.
+
+**The visible APP blocker string CHANGED**, so `APP_BLOCKER` was updated and the pin
+`spring_boot_app_surfaces_next_missing_capability_explicitly` re-pinned. The reflection
+wrap is gone; the app now surfaces the next missing capability **directly**:
+
+> `duke: runtime error: method not found: java/net/URL.openConnection()Ljava/net/URLConnection;`
+
+`APP_BLOCKER` is now `"method not found: java/net/URL.openConnection()Ljava/net/URLConnection;"`
+(the pin matches via `combined.contains(APP_BLOCKER)`, mirroring the prior constant's
+prefix-less form).
+
+**NEW frontier (next rung — OUT OF the enum/reference lane, into I/O / networking):**
+missing `java/net/URL.openConnection()Ljava/net/URLConnection;` at
+`org/springframework/core/io/UrlResource::getInputStream@4 invokevirtual` (reached via
+`PropertiesLoaderUtils::fillProperties`). A `java/net/URL` synthetic and
+`native_url_open_stream` already exist, but `openConnection()` needs a **new synthetic
+abstract `java/net/URLConnection`** (`getInputStream` / `setUseCaches` plus the
+`HttpURLConnection` `instanceof` / `disconnect` path Spring probes). That is a dedicated
+I/O-lane rung, **deliberately not taken here**.
+
+The app canary stays `#[ignore]`d (the app still does not boot). Full-suite counts are
+unchanged at **3108 passed / 0 failed / 4 ignored** — SoftReference coverage is the app
+pin itself (no new unit tests). Change limited to `crates/duke-interpreter/src/stdlib.rs`
+plus the pin/comment update in `duke/tests/spring_boot_real_app.rs` and this note.
