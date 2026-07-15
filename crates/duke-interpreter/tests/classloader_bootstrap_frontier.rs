@@ -141,17 +141,23 @@ fn slf4j_real_jdk_shadow_classloader_frontier_pin() {
     // `getstatic java/lang/String.COMPACT_STRINGS` fieldref wall is cleared and real
     // String bytecode advances into `String.coder()`. That instance method is now
     // provided as a native reading real-layout slot1 (0=Latin1/1=UTF16), so the coder
-    // wall is cleared and real String bytecode advances into `String.getBytes([BIB)V`,
-    // the package-private `getBytes(byte[] dst, int dstBegin, byte coder)` copy helper
-    // the synthetic KEEP_SYNTHETIC `java/lang/String` does not provide, which surfaces
-    // as `MethodNotFound { name: "java/lang/String.getBytes", descriptor: "([BIB)V" }`.
-    // That is a separate lane (String real-layout / KEEP_SYNTHETIC allowlist), out of
-    // scope for the system-properties lane.
+    // wall is cleared and real String bytecode advances into a `String.getBytes` copy
+    // helper, one of the package-private `getBytes(byte[] dst, int dstBegin, byte coder)`
+    // / `getBytes(byte[] dst, int dstBegin, int dstEnd, byte coder)` overloads the
+    // synthetic KEEP_SYNTHETIC `java/lang/String` does not provide, which surfaces as a
+    // `MethodNotFound { name: "java/lang/String.getBytes", descriptor: ... }`. That is a
+    // separate lane (String real-layout / KEEP_SYNTHETIC allowlist), out of scope for the
+    // system-properties lane.
+    //
+    // We pin the method NAME only and deliberately do NOT pin the exact descriptor: both
+    // `([BIB)V` and `([BIIBI)V` are valid JDK-21 overloads of the package-private copy
+    // helper, and which one is the *first-missing* method in the encode path is
+    // JDK-build-specific (differs between local and CI runner JDKs). The frontier is the
+    // getBytes copy-helper wall regardless of which overload surfaces first.
     //
     // When a native pushes the wall past this point, re-run with `-- --nocapture`,
     // read the new verbatim blocker above, and update this substring to lock it in.
-    const EXPECTED_FRONTIER: &str =
-        "MethodNotFound { name: \"java/lang/String.getBytes\", descriptor: \"([BIB)V\" }";
+    const EXPECTED_FRONTIER: &str = "MethodNotFound { name: \"java/lang/String.getBytes\",";
 
     let rendered = match run_slf4j_real_jdk_shadow() {
         Ok(()) => {

@@ -64,14 +64,21 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // former `getstatic java/lang/String.COMPACT_STRINGS` fieldref wall is cleared and real String
 // bytecode advances into `String.coder()`. That instance method is now provided as a native
 // reading real-layout slot1 (0=Latin1/1=UTF16), so the coder wall is cleared and real String
-// bytecode advances into `String.getBytes([BIB)V`, the package-private
-// `getBytes(byte[] dst, int dstBegin, byte coder)` copy helper the synthetic KEEP_SYNTHETIC
-// `java/lang/String` does not provide, which surfaces as the CLI runtime error
-// `method not found: java/lang/String.getBytes([BIB)V`. That is a separate lane (String
+// bytecode advances into a `String.getBytes` copy helper, one of the package-private
+// `getBytes(byte[] dst, int dstBegin, byte coder)` / `getBytes(byte[] dst, int dstBegin,
+// int dstEnd, byte coder)` overloads the synthetic KEEP_SYNTHETIC `java/lang/String` does
+// not provide, which surfaces as the CLI runtime error
+// `method not found: java/lang/String.getBytes(...)`. That is a separate lane (String
 // real-layout / KEEP_SYNTHETIC allowlist), the SAME frontier pinned by
 // `crates/duke-interpreter/tests/classloader_bootstrap_frontier.rs`. Out of scope here.
 // If either boot advances past this, re-observe and update.
-const REAL_JDK_FRONTIER: &str = "method not found: java/lang/String.getBytes([BIB)V";
+//
+// We prefix-match on `java/lang/String.getBytes(` and deliberately do NOT pin the exact
+// descriptor: both `([BIB)V` and `([BIIBI)V` are valid JDK-21 overloads of the
+// package-private copy helper, and which one is the *first-missing* method in the encode
+// path is JDK-build-specific (differs between local and CI runner JDKs). The frontier is
+// the getBytes copy-helper wall regardless of which overload surfaces first.
+const REAL_JDK_FRONTIER: &str = "method not found: java/lang/String.getBytes(";
 
 // Markers of the OLD raw panic that this fix eliminates. None of these must appear.
 const RAW_PANIC_MARKERS: &[&str] = &["index out of bounds", "execution.rs", "panicked at"];
