@@ -756,10 +756,63 @@ impl Heap {
         self.alloc_since_gc += 1;
         self.live_count += 1;
         let idx = self.young_top as u64;
-        let obj = Self::make_obj("java/lang/String".to_string(), Vec::new(), Some(value));
+        // Real java/lang/String layout: slot0 value:[B, slot1 coder:B,
+        // slot2 hash:I, slot3 hashIsZero:Z. slot0 is filled by
+        // `set_string_layout`; slots 1-3 start at 0. `string_value` remains the
+        // authoritative side-channel that the ~285 existing readers use.
+        let fields = vec![
+            Slot::Reference(None),
+            Slot::Int(0),
+            Slot::Int(0),
+            Slot::Int(0),
+        ];
+        let obj = Self::make_obj("java/lang/String".to_string(), fields, Some(value.clone()));
         self.young.push(Some(obj));
         self.young_top += 1;
+        self.set_string_layout(idx, &value);
         idx
+    }
+
+    /// Populates the real `java/lang/String` layout slots for the String object
+    /// at `string_ref`, allocating a backing `[B` byte array for slot 0 (`value`)
+    /// and writing the coder into slot 1 (`coder`).
+    ///
+    /// The byte array uses Latin-1 encoding when every char is `<= 0xFF`
+    /// (`coder = 0`), otherwise little-endian UTF-16 (`coder = 1`). Slots 2
+    /// (`hash`) and 3 (`hashIsZero`) are left untouched at 0. The authoritative
+    /// `string_value` side-channel is not modified here.
+    ///
+    /// The slot-0 reference store goes through [`Heap::write_field`] so the
+    /// generational write barrier fires if `string_ref` has already been
+    /// promoted to old gen and the freshly allocated byte array is young.
+    pub fn set_string_layout(&mut self, string_ref: u64, value: &str) {
+        let latin1 = value.chars().all(|c| c as u32 <= 0xFF);
+        let (coder, bytes): (i32, Vec<u8>) = if latin1 {
+            (0, value.chars().map(|c| c as u8).collect())
+        } else {
+            (
+                1,
+                value.encode_utf16().flat_map(|u| u.to_le_bytes()).collect(),
+            )
+        };
+
+        let bytes_ref = self.allocate("[B".to_string(), bytes.len());
+        {
+            let arr = self
+                .get_mut(bytes_ref)
+                .expect("freshly allocated byte array must exist");
+            for (i, &b) in bytes.iter().enumerate() {
+                // Java `byte` is signed: reinterpret the raw octet as i8.
+                arr.fields[i] = Slot::Int(i32::from(i8::from_ne_bytes([b])));
+            }
+        }
+
+        // slot0 value:[B — via write_field so the old→young barrier fires.
+        self.write_field(string_ref, 0, Slot::Reference(Some(bytes_ref)))
+            .expect("String slot 0 (value) must be writable");
+        // slot1 coder:B
+        self.write_field(string_ref, 1, Slot::Int(coder))
+            .expect("String slot 1 (coder) must be writable");
     }
 
     /// Finds a live object by runtime class and string payload.
@@ -1888,7 +1941,9 @@ mod tests {
         let obj = heap.get(r).unwrap();
         assert_eq!(obj.class_name, "java/lang/String");
         assert_eq!(obj.string_value, Some("hello".to_string()));
-        assert!(obj.fields.is_empty());
+        // Real 4-slot layout: value:[B, coder:B, hash:I, hashIsZero:Z.
+        assert_eq!(obj.fields.len(), 4);
+        assert!(matches!(obj.fields[0], Slot::Reference(Some(_))));
     }
 
     #[test]
@@ -2480,10 +2535,11 @@ mod tests {
     fn allocate_string_increments_live_count() {
         let mut heap = Heap::new();
         assert_eq!(heap.len(), 0);
+        // Each allocate_string mints two objects: the String and its backing [B.
         heap.allocate_string("a".to_string());
-        assert_eq!(heap.len(), 1);
-        heap.allocate_string("b".to_string());
         assert_eq!(heap.len(), 2);
+        heap.allocate_string("b".to_string());
+        assert_eq!(heap.len(), 4);
     }
 
     #[test]
@@ -2526,11 +2582,13 @@ mod tests {
     #[test]
     fn allocate_string_increments_alloc_since_gc() {
         let mut heap = Heap::new();
-        for i in 0..255 {
+        // Each allocate_string bumps alloc_since_gc twice (String + backing [B),
+        // so the 256-allocation threshold is reached after 128 calls.
+        for i in 0..127 {
             heap.allocate_string(format!("s{i}"));
             assert!(!heap.should_gc());
         }
-        heap.allocate_string("s255".to_string());
+        heap.allocate_string("s127".to_string());
         assert!(heap.should_gc());
     }
 
