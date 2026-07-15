@@ -5302,3 +5302,496 @@ pub(crate) fn native_locale_to_string(
     };
     Ok(Some(Slot::Reference(Some(heap.allocate_string(text)))))
 }
+// ---------------------------------------------------------------------------
+// java/util/EnumSet — synthetic bitmask-backed enum set (≤64 constants).
+// Object layout: fields[0] = elementType (Ljava/lang/Class;),
+//                fields[1] = bits (J, ordinal bitmask).
+// ---------------------------------------------------------------------------
+
+/// Read an enum instance's ordinal from `fields[1]` (`Slot::Int`), else 0.
+fn enum_ordinal(heap: &duke_gc::Heap, enum_ref: u64) -> i32 {
+    match heap.get(enum_ref).ok().and_then(|obj| obj.fields.get(1).copied()) {
+        Some(Slot::Int(ord)) => ord,
+        _ => 0,
+    }
+}
+
+/// Allocate a `java/util/EnumSet` with the given element-type Class ref and bitmask.
+fn alloc_enumset(heap: &mut duke_gc::Heap, element_type_class_ref: u64, bits: i64) -> Result<u64> {
+    let set_ref = heap.allocate("java/util/EnumSet".to_string(), 2);
+    heap.get_mut(set_ref)?.fields[0] = Slot::Reference(Some(element_type_class_ref));
+    heap.get_mut(set_ref)?.fields[1] = Slot::Long(bits);
+    Ok(set_ref)
+}
+
+/// Read an `EnumSet`'s bitmask from `fields[1]` (`Slot::Long`), else 0.
+fn enumset_bits(heap: &duke_gc::Heap, set_ref: u64) -> i64 {
+    match heap.get(set_ref).ok().and_then(|obj| obj.fields.get(1).copied()) {
+        Some(Slot::Long(bits)) => bits,
+        _ => 0,
+    }
+}
+
+/// Internal name of an `EnumSet`'s element type (`fields[0]` Class ref).
+fn enumset_element_type_name(heap: &duke_gc::Heap, set_ref: u64) -> Result<String> {
+    match heap.get(set_ref)?.fields.first() {
+        Some(Slot::Reference(Some(class_ref))) => class_internal_name_from_ref(heap, *class_ref),
+        _ => Ok(String::new()),
+    }
+}
+
+/// Determine the declaring enum class of an enum instance, mirroring
+/// `Enum.getDeclaringClass` for constant-body subclasses.
+fn declaring_enum_class(ops: &mut dyn CallbackOps, heap: &duke_gc::Heap, enum_ref: u64) -> Result<String> {
+    let c = heap.get(enum_ref)?.class_name.clone();
+    match ops.inspect_class(&c) {
+        Ok(info) if info.super_class.as_deref() == Some("java/lang/Enum") => Ok(c),
+        Ok(info) => Ok(info.super_class.unwrap_or(c)),
+        Err(_) => Ok(c),
+    }
+}
+
+/// Collect all instantiated constants of an enum, ordered by ordinal.
+#[allow(clippy::unnecessary_wraps)]
+fn enum_constants_in_order(heap: &duke_gc::Heap, enum_internal_name: &str) -> Result<Vec<u64>> {
+    let mut found: Vec<(i32, u64)> = Vec::new();
+    let obj_count = heap.len();
+    for i in 0..obj_count {
+        let Ok(obj) = heap.get(i as u64) else {
+            continue;
+        };
+        if obj.class_name == enum_internal_name && obj.fields.len() >= 2 {
+            let ord = match obj.fields.get(1) {
+                Some(Slot::Int(ord)) => *ord,
+                _ => continue,
+            };
+            found.push((ord, i as u64));
+        }
+    }
+    found.sort_by_key(|(ord, _)| *ord);
+    Ok(found.into_iter().map(|(_, r)| r).collect())
+}
+
+/// Native: `EnumSet.noneOf(Ljava/lang/Class;)Ljava/util/EnumSet;`
+pub(crate) fn native_enumset_none_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let set_ref = alloc_enumset(heap, class_ref, 0)?;
+    Ok(Some(Slot::Reference(Some(set_ref))))
+}
+
+/// Native: `EnumSet.allOf(Ljava/lang/Class;)Ljava/util/EnumSet;`
+pub(crate) fn native_enumset_all_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let name = class_internal_name_from_ref(heap, class_ref)?;
+    ops.ensure_class_initialized(heap, out, &name)?;
+    let universe = enum_constants_in_order(heap, &name)?;
+    let mut bits: i64 = 0;
+    for r in universe {
+        let ord = enum_ordinal(heap, r);
+        if (0..64).contains(&ord) {
+            bits |= 1i64 << ord;
+        }
+    }
+    let set_ref = alloc_enumset(heap, class_ref, bits)?;
+    Ok(Some(Slot::Reference(Some(set_ref))))
+}
+
+/// Shared helper: build an `EnumSet` from a slice of enum instance refs.
+fn enumset_of(ops: &mut dyn CallbackOps, heap: &mut duke_gc::Heap, enum_refs: &[u64]) -> Result<Option<Slot>> {
+    let first = match enum_refs.first() {
+        Some(r) => *r,
+        None => return Err(Error::NullPointerException),
+    };
+    let element_name = declaring_enum_class(ops, heap, first)?;
+    let element_class_ref = allocate_class_object(heap, &element_name)?;
+    let mut bits: i64 = 0;
+    for &r in enum_refs {
+        let ord = enum_ordinal(heap, r);
+        if (0..64).contains(&ord) {
+            bits |= 1i64 << ord;
+        }
+    }
+    let set_ref = alloc_enumset(heap, element_class_ref, bits)?;
+    Ok(Some(Slot::Reference(Some(set_ref))))
+}
+
+/// Native: `EnumSet.of(Ljava/lang/Enum;)Ljava/util/EnumSet;`
+pub(crate) fn native_enumset_of_1(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let e0 = extract_ref_arg(args, 0)?;
+    enumset_of(ops, heap, &[e0])
+}
+
+/// Native: `EnumSet.of(Ljava/lang/Enum;Ljava/lang/Enum;)Ljava/util/EnumSet;`
+pub(crate) fn native_enumset_of_2(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let e0 = extract_ref_arg(args, 0)?;
+    let e1 = extract_ref_arg(args, 1)?;
+    enumset_of(ops, heap, &[e0, e1])
+}
+
+/// Native: `EnumSet.of(Enum,Enum,Enum)Ljava/util/EnumSet;`
+pub(crate) fn native_enumset_of_3(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let e0 = extract_ref_arg(args, 0)?;
+    let e1 = extract_ref_arg(args, 1)?;
+    let e2 = extract_ref_arg(args, 2)?;
+    enumset_of(ops, heap, &[e0, e1, e2])
+}
+
+/// Native: `EnumSet.of(Enum,Enum,Enum,Enum)Ljava/util/EnumSet;`
+pub(crate) fn native_enumset_of_4(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let e0 = extract_ref_arg(args, 0)?;
+    let e1 = extract_ref_arg(args, 1)?;
+    let e2 = extract_ref_arg(args, 2)?;
+    let e3 = extract_ref_arg(args, 3)?;
+    enumset_of(ops, heap, &[e0, e1, e2, e3])
+}
+
+/// Native: `EnumSet.of(Enum,Enum,Enum,Enum,Enum)Ljava/util/EnumSet;`
+pub(crate) fn native_enumset_of_5(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let e0 = extract_ref_arg(args, 0)?;
+    let e1 = extract_ref_arg(args, 1)?;
+    let e2 = extract_ref_arg(args, 2)?;
+    let e3 = extract_ref_arg(args, 3)?;
+    let e4 = extract_ref_arg(args, 4)?;
+    enumset_of(ops, heap, &[e0, e1, e2, e3, e4])
+}
+
+/// Native: `EnumSet.of(Ljava/lang/Enum;[Ljava/lang/Enum;)Ljava/util/EnumSet;` (varargs).
+pub(crate) fn native_enumset_of_varargs(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let first = extract_ref_arg(args, 0)?;
+    let mut refs = vec![first];
+    let rest_ref = extract_ref_arg(args, 1)?;
+    let elements: Vec<Slot> = heap.get(rest_ref)?.fields.clone();
+    for slot in elements {
+        if let Slot::Reference(Some(r)) = slot {
+            refs.push(r);
+        }
+    }
+    enumset_of(ops, heap, &refs)
+}
+
+/// Native: `EnumSet.range(Ljava/lang/Enum;Ljava/lang/Enum;)Ljava/util/EnumSet;`
+pub(crate) fn native_enumset_range(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let from = extract_ref_arg(args, 0)?;
+    let to = extract_ref_arg(args, 1)?;
+    let o0 = enum_ordinal(heap, from);
+    let o1 = enum_ordinal(heap, to);
+    if o0 > o1 {
+        return Err(Error::JavaException {
+            class_name: "java/lang/IllegalArgumentException".to_string(),
+        });
+    }
+    let mut bits: i64 = 0;
+    for ord in o0..=o1 {
+        if (0..64).contains(&ord) {
+            bits |= 1i64 << ord;
+        }
+    }
+    let element_name = declaring_enum_class(ops, heap, from)?;
+    let element_class_ref = allocate_class_object(heap, &element_name)?;
+    let set_ref = alloc_enumset(heap, element_class_ref, bits)?;
+    Ok(Some(Slot::Reference(Some(set_ref))))
+}
+
+/// Native: `EnumSet.copyOf(Ljava/util/Collection;)Ljava/util/EnumSet;`
+pub(crate) fn native_enumset_copy_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let src_ref = extract_ref_arg(args, 0)?;
+    let src_class = heap.get(src_ref)?.class_name.clone();
+    if src_class == "java/util/EnumSet" {
+        let bits = enumset_bits(heap, src_ref);
+        let element_class_ref = match heap.get(src_ref)?.fields.first() {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(Error::NullPointerException),
+        };
+        let set_ref = alloc_enumset(heap, element_class_ref, bits)?;
+        return Ok(Some(Slot::Reference(Some(set_ref))));
+    }
+    let elements = collection_elements_from_ref(heap, src_ref)?;
+    let mut refs: Vec<u64> = Vec::new();
+    for slot in elements {
+        if let Slot::Reference(Some(r)) = slot {
+            refs.push(r);
+        }
+    }
+    if refs.is_empty() {
+        return Err(Error::JavaException {
+            class_name: "java/lang/IllegalArgumentException".to_string(),
+        });
+    }
+    enumset_of(ops, heap, &refs)
+}
+
+/// Native: `EnumSet.contains(Ljava/lang/Object;)Z`
+pub(crate) fn native_enumset_contains(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let elem_slot = extract_slot_arg(args, 1);
+    let Slot::Reference(Some(elem_ref)) = elem_slot else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let element_name = enumset_element_type_name(heap, this_ref)?;
+    if heap.get(elem_ref)?.class_name != element_name {
+        return Ok(Some(Slot::Int(0)));
+    }
+    let ord = enum_ordinal(heap, elem_ref);
+    let bits = enumset_bits(heap, this_ref);
+    let present = (0..64).contains(&ord) && (bits >> ord) & 1 == 1;
+    Ok(Some(Slot::Int(i32::from(present))))
+}
+
+/// Native: `EnumSet.add(Ljava/lang/Object;)Z`
+pub(crate) fn native_enumset_add(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let elem_ref = extract_ref_arg(args, 1)?;
+    let ord = enum_ordinal(heap, elem_ref);
+    if !(0..64).contains(&ord) {
+        return Ok(Some(Slot::Int(0)));
+    }
+    let bits = enumset_bits(heap, this_ref);
+    if (bits >> ord) & 1 == 1 {
+        return Ok(Some(Slot::Int(0)));
+    }
+    heap.get_mut(this_ref)?.fields[1] = Slot::Long(bits | (1i64 << ord));
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `EnumSet.remove(Ljava/lang/Object;)Z`
+pub(crate) fn native_enumset_remove(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let elem_slot = extract_slot_arg(args, 1);
+    let Slot::Reference(Some(elem_ref)) = elem_slot else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let element_name = enumset_element_type_name(heap, this_ref)?;
+    if heap.get(elem_ref)?.class_name != element_name {
+        return Ok(Some(Slot::Int(0)));
+    }
+    let ord = enum_ordinal(heap, elem_ref);
+    if !(0..64).contains(&ord) {
+        return Ok(Some(Slot::Int(0)));
+    }
+    let bits = enumset_bits(heap, this_ref);
+    if (bits >> ord) & 1 == 0 {
+        return Ok(Some(Slot::Int(0)));
+    }
+    heap.get_mut(this_ref)?.fields[1] = Slot::Long(bits & !(1i64 << ord));
+    Ok(Some(Slot::Int(1)))
+}
+
+/// Native: `EnumSet.size()I`
+#[allow(clippy::cast_possible_wrap)]
+pub(crate) fn native_enumset_size(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let bits = enumset_bits(heap, this_ref);
+    Ok(Some(Slot::Int(bits.count_ones() as i32)))
+}
+
+/// Native: `EnumSet.isEmpty()Z`
+pub(crate) fn native_enumset_is_empty(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let bits = enumset_bits(heap, this_ref);
+    Ok(Some(Slot::Int(i32::from(bits == 0))))
+}
+
+/// Collect the member enum refs of an `EnumSet` in ordinal order.
+fn enumset_members(heap: &duke_gc::Heap, this_ref: u64) -> Result<Vec<u64>> {
+    let element_name = enumset_element_type_name(heap, this_ref)?;
+    let bits = enumset_bits(heap, this_ref);
+    let universe = enum_constants_in_order(heap, &element_name)?;
+    let mut members = Vec::new();
+    for r in universe {
+        let ord = enum_ordinal(heap, r);
+        if (0..64).contains(&ord) && (bits >> ord) & 1 == 1 {
+            members.push(r);
+        }
+    }
+    Ok(members)
+}
+
+/// Native: `EnumSet.iterator()Ljava/util/Iterator;`
+pub(crate) fn native_enumset_iterator(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    _ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let members = enumset_members(heap, this_ref)?;
+    let len = i32::try_from(members.len()).unwrap_or(0);
+    let array_ref = allocate_reference_array(heap, "[Ljava/lang/Object;", &members)?;
+    let iter_ref = heap.allocate("duke/util/EnumSetIterator".to_string(), 3);
+    heap.get_mut(iter_ref)?.fields[0] = Slot::Reference(Some(array_ref));
+    heap.get_mut(iter_ref)?.fields[1] = Slot::Int(0);
+    heap.get_mut(iter_ref)?.fields[2] = Slot::Int(len);
+    Ok(Some(Slot::Reference(Some(iter_ref))))
+}
+
+/// Native: `EnumSet.toArray()[Ljava/lang/Object;`
+pub(crate) fn native_enumset_to_array(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    _ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let members = enumset_members(heap, this_ref)?;
+    let array_ref = allocate_reference_array(heap, "[Ljava/lang/Object;", &members)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+/// Native: `EnumSetIterator.<init>()V` — no-op; fields set by `native_enumset_iterator`.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_enumset_iter_init(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(None)
+}
+
+/// Native: `EnumSetIterator.hasNext()Z`
+pub(crate) fn native_enumset_iter_hasnext(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get(this_ref)?;
+    let cursor = match obj.fields.get(1) {
+        Some(Slot::Int(c)) => *c,
+        _ => 0,
+    };
+    let size = match obj.fields.get(2) {
+        Some(Slot::Int(s)) => *s,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(i32::from(cursor < size))))
+}
+
+/// Native: `EnumSetIterator.next()Ljava/lang/Object;`
+#[allow(clippy::cast_sign_loss)]
+pub(crate) fn native_enumset_iter_next(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let (array_ref, cursor, size) = {
+        let obj = heap.get(this_ref)?;
+        let ar = match obj.fields.first() {
+            Some(Slot::Reference(Some(r))) => *r,
+            _ => return Err(Error::NullPointerException),
+        };
+        let c = match obj.fields.get(1) {
+            Some(Slot::Int(c)) => *c,
+            _ => 0,
+        };
+        let s = match obj.fields.get(2) {
+            Some(Slot::Int(s)) => *s,
+            _ => 0,
+        };
+        (ar, c, s)
+    };
+    if cursor >= size {
+        return Err(Error::JavaException {
+            class_name: "java/util/NoSuchElementException".to_string(),
+        });
+    }
+    let element = match heap.get(array_ref)?.fields.get(cursor as usize) {
+        Some(slot) => *slot,
+        None => {
+            return Err(Error::JavaException {
+                class_name: "java/util/NoSuchElementException".to_string(),
+            });
+        }
+    };
+    heap.get_mut(this_ref)?.fields[1] = Slot::Int(cursor + 1);
+    Ok(Some(element))
+}
