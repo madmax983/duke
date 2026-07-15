@@ -3569,6 +3569,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/Class", "isArray", "()Z", native_class_is_array);
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "isEnum",
+        "()Z",
+        native_class_is_enum,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getEnumConstants",
+        "()[Ljava/lang/Object;",
+        native_class_get_enum_constants,
+    );
     registry.natives_mut().register(
         "java/lang/Class",
         "getPrimitiveClass",

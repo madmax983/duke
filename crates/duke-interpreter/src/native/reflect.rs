@@ -778,3 +778,47 @@ fn class_is_assignable_via_callback(from: &str, to: &str, ops: &mut dyn Callback
     }
     false
 }
+
+/// True when the class is an enum: `ACC_ENUM` set or its direct superclass is
+/// `java/lang/Enum`.
+fn class_is_enum(ops: &mut dyn CallbackOps, internal_name: &str) -> bool {
+    ops.inspect_class(internal_name).is_ok_and(|info| {
+        info.access_flags & 0x4000 != 0 || info.super_class.as_deref() == Some("java/lang/Enum")
+    })
+}
+
+/// Native: `Class.isEnum()Z`.
+pub(crate) fn native_class_is_enum(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    Ok(Some(Slot::Int(i32::from(class_is_enum(ops, &internal_name)))))
+}
+
+/// Native: `Class.getEnumConstants()[Ljava/lang/Object;` — fresh array of this
+/// enum's constants in ordinal order, or `null` when the class is not an enum.
+pub(crate) fn native_class_get_enum_constants(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    if !class_is_enum(ops, &internal_name) {
+        return Ok(Some(Slot::Reference(None)));
+    }
+    ops.ensure_class_initialized(heap, out, &internal_name)?;
+    let universe = enum_constants_in_order(heap, &internal_name)?;
+    // Real getEnumConstants returns a T[] of the enum's own type; javac inserts a
+    // checkcast to `[L<enum>;` at the call site, so the array must carry that type.
+    let array_class_name = format!("[L{internal_name};");
+    let array_ref = allocate_reference_array(heap, &array_class_name, &universe)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
