@@ -14833,6 +14833,40 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_reference_init,
     );
 
+    // java/lang/ref/SoftReference — same NON-COLLECTING, strong-ref-backed model as
+    // WeakReference (referent lives in the inherited Reference slot 0; get() returns
+    // it until clear(); no soft-reachability/GC semantics). Spring's
+    // ConcurrentReferenceHashMap$SoftEntryReference allocates one and only reads the
+    // referent back, which a strong slot models faithfully.
+    let soft_reference_ctx = ClassContext {
+        class_name: "java/lang/ref/SoftReference".to_string(),
+        super_class: Some("java/lang/ref/Reference".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(soft_reference_ctx);
+    // SoftReference(referent) and SoftReference(referent, queue) both just store the
+    // referent (the queue is accepted and ignored, as with WeakReference). get()/
+    // clear() are inherited from the Reference base natives registered above.
+    registry.natives_mut().register(
+        "java/lang/ref/SoftReference",
+        "<init>",
+        "(Ljava/lang/Object;)V",
+        native_reference_init,
+    );
+    registry.natives_mut().register(
+        "java/lang/ref/SoftReference",
+        "<init>",
+        "(Ljava/lang/Object;Ljava/lang/ref/ReferenceQueue;)V",
+        native_reference_init,
+    );
+
     // java/lang/ref/ReferenceQueue — non-collecting stub. Nothing is ever enqueued
     // (Duke never clears a Reference implicitly), so the constructor is a no-op and
     // poll() always returns null. Real WeakHashMap-style classes loaded from a jar
