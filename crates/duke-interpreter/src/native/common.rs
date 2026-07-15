@@ -7822,6 +7822,18 @@ fn ensure_initialized(
     // per-thread "in progress" state machine — the recursion guard is a plain
     // membership flag, and on failure we move the class to the erroneous set.)
     registry.mark_initialized(class_name);
+
+    // JVMS §5.5 step 7: a class's direct superclass must be initialized before
+    // the class itself. The `mark_initialized` guard above makes this
+    // cycle-safe; an erroneous/failed superclass propagates via `?`.
+    if let Some(super_name) = registry
+        .get(class_name)
+        .ok()
+        .and_then(|c| c.super_class.clone())
+    {
+        ensure_initialized(registry, loader, heap, stdout, &super_name, class_name)?;
+    }
+
     initialize_primitive_wrapper_type_field(registry, heap, class_name)?;
 
     // Check if the class has a <clinit> method.
@@ -12359,6 +12371,39 @@ fn static_field_idx(ctx: &ClassContext, name: &str) -> Result<usize> {
         .filter(|f| f.is_static)
         .position(|f| f.name == name)
         .ok_or(Error::InvalidFieldref { index: 0 })
+}
+
+/// Resolve a static field by walking the superclass chain (JVMS §5.4.3.2).
+///
+/// Returns the declaring class (where the static is physically stored) and the
+/// local index into THAT class's `static_fields`. Static storage is per-class,
+/// so callers must index the declaring class's `static_fields`, not the
+/// subclass's (there is no cumulative offset as there is for instance fields).
+fn resolve_static_field(
+    registry: &ClassRegistry,
+    target_class: &str,
+    name: &str,
+) -> Result<(String, usize)> {
+    let mut current = target_class;
+
+    while let Ok(ctx) = registry.get(current) {
+        if let Some(idx) = ctx
+            .fields
+            .iter()
+            .filter(|f| f.is_static)
+            .position(|f| f.name == name)
+        {
+            return Ok((current.to_string(), idx));
+        }
+
+        if let Some(ref sc) = ctx.super_class {
+            current = sc;
+        } else {
+            break;
+        }
+    }
+
+    Err(Error::InvalidFieldref { index: 0 })
 }
 
 // ---------------------------------------------------------------------------

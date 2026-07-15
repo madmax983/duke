@@ -1868,8 +1868,9 @@ pub fn run_execution(
                     &target_class_key,
                     current_class,
                 ));
-                let sidx = static_field_idx(registry.get(&target_class_key)?, &field_name)?;
-                let val = registry.get(&target_class_key)?.static_fields[sidx];
+                let (decl_class, sidx) =
+                    resolve_static_field(registry, &target_class_key, &field_name)?;
+                let val = registry.get(&decl_class)?.static_fields[sidx];
                 frame.push(val)?;
             }
             Instruction::Putstatic(cp_idx) => {
@@ -1889,8 +1890,9 @@ pub fn run_execution(
                     &target_class_key,
                     current_class,
                 ));
-                let sidx = static_field_idx(registry.get(&target_class_key)?, &field_name)?;
-                registry.get_mut(&target_class_key)?.static_fields[sidx] = val;
+                let (decl_class, sidx) =
+                    resolve_static_field(registry, &target_class_key, &field_name)?;
+                registry.get_mut(&decl_class)?.static_fields[sidx] = val;
             }
 
             // ---- Instance method dispatch ----
