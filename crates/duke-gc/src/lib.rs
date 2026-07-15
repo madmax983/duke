@@ -766,10 +766,19 @@ impl Heap {
             Slot::Int(0),
             Slot::Int(0),
         ];
-        let obj = Self::make_obj("java/lang/String".to_string(), fields, Some(value.clone()));
+        // Move `value` into the object as its authoritative `string_value`
+        // side-channel; the real-layout slots are then populated by re-reading
+        // that stored payload, single-sourcing the encoding through
+        // `set_string_layout` rather than cloning `value` here.
+        let obj = Self::make_obj("java/lang/String".to_string(), fields, Some(value));
         self.young.push(Some(obj));
         self.young_top += 1;
-        self.set_string_layout(idx, &value);
+        let contents = self
+            .get(idx)
+            .ok()
+            .and_then(|obj| obj.string_value.clone())
+            .unwrap_or_default();
+        self.set_string_layout(idx, &contents);
         idx
     }
 
@@ -785,15 +794,18 @@ impl Heap {
     /// The slot-0 reference store goes through [`Heap::write_field`] so the
     /// generational write barrier fires if `string_ref` has already been
     /// promoted to old gen and the freshly allocated byte array is young.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `string_ref` does not refer to a live object whose slots 0 and
+    /// 1 are writable, or if the freshly allocated backing byte array cannot be
+    /// found immediately after allocation (both indicate heap corruption).
     pub fn set_string_layout(&mut self, string_ref: u64, value: &str) {
         let latin1 = value.chars().all(|c| c as u32 <= 0xFF);
         let (coder, bytes): (i32, Vec<u8>) = if latin1 {
             (0, value.chars().map(|c| c as u8).collect())
         } else {
-            (
-                1,
-                value.encode_utf16().flat_map(|u| u.to_le_bytes()).collect(),
-            )
+            (1, value.encode_utf16().flat_map(u16::to_le_bytes).collect())
         };
 
         let bytes_ref = self.allocate("[B".to_string(), bytes.len());
