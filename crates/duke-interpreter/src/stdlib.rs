@@ -3586,6 +3586,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/Class", "isArray", "()Z", native_class_is_array);
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "isEnum",
+        "()Z",
+        native_class_is_enum,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getEnumConstants",
+        "()[Ljava/lang/Object;",
+        native_class_get_enum_constants,
+    );
     registry.natives_mut().register(
         "java/lang/Class",
         "getPrimitiveClass",
@@ -7002,6 +7014,188 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "next",
         "()Ljava/lang/Object;",
         native_arraylist_iter_next,
+    );
+
+    // java/util/EnumSet — bitmask-backed enum set (≤64 constants)
+    // fields[0] = elementType (Ljava/lang/Class;), fields[1] = bits (J)
+    let enumset_ctx = ClassContext {
+        class_name: "java/util/EnumSet".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "elementType".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "bits".to_string(),
+                descriptor: "J".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec![
+            "java/util/Set".to_string(),
+            "java/util/Collection".to_string(),
+            "java/lang/Iterable".to_string(),
+            "java/lang/Cloneable".to_string(),
+            "java/io/Serializable".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(enumset_ctx);
+    registry.natives_mut().register(
+        "java/util/EnumSet",
+        "noneOf",
+        "(Ljava/lang/Class;)Ljava/util/EnumSet;",
+        native_enumset_none_of,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/EnumSet",
+        "allOf",
+        "(Ljava/lang/Class;)Ljava/util/EnumSet;",
+        native_enumset_all_of,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/EnumSet",
+        "of",
+        "(Ljava/lang/Enum;)Ljava/util/EnumSet;",
+        native_enumset_of_1,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/EnumSet",
+        "of",
+        "(Ljava/lang/Enum;Ljava/lang/Enum;)Ljava/util/EnumSet;",
+        native_enumset_of_2,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/EnumSet",
+        "of",
+        "(Ljava/lang/Enum;Ljava/lang/Enum;Ljava/lang/Enum;)Ljava/util/EnumSet;",
+        native_enumset_of_3,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/EnumSet",
+        "of",
+        "(Ljava/lang/Enum;Ljava/lang/Enum;Ljava/lang/Enum;Ljava/lang/Enum;)Ljava/util/EnumSet;",
+        native_enumset_of_4,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/EnumSet",
+        "of",
+        "(Ljava/lang/Enum;Ljava/lang/Enum;Ljava/lang/Enum;Ljava/lang/Enum;Ljava/lang/Enum;)Ljava/util/EnumSet;",
+        native_enumset_of_5,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/EnumSet",
+        "of",
+        "(Ljava/lang/Enum;[Ljava/lang/Enum;)Ljava/util/EnumSet;",
+        native_enumset_of_varargs,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/EnumSet",
+        "range",
+        "(Ljava/lang/Enum;Ljava/lang/Enum;)Ljava/util/EnumSet;",
+        native_enumset_range,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/EnumSet",
+        "copyOf",
+        "(Ljava/util/Collection;)Ljava/util/EnumSet;",
+        native_enumset_copy_of,
+    );
+    registry.natives_mut().register(
+        "java/util/EnumSet",
+        "contains",
+        "(Ljava/lang/Object;)Z",
+        native_enumset_contains,
+    );
+    registry.natives_mut().register(
+        "java/util/EnumSet",
+        "add",
+        "(Ljava/lang/Object;)Z",
+        native_enumset_add,
+    );
+    registry.natives_mut().register(
+        "java/util/EnumSet",
+        "remove",
+        "(Ljava/lang/Object;)Z",
+        native_enumset_remove,
+    );
+    registry
+        .natives_mut()
+        .register("java/util/EnumSet", "size", "()I", native_enumset_size);
+    registry.natives_mut().register(
+        "java/util/EnumSet",
+        "isEmpty",
+        "()Z",
+        native_enumset_is_empty,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/EnumSet",
+        "iterator",
+        "()Ljava/util/Iterator;",
+        native_enumset_iterator,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/EnumSet",
+        "toArray",
+        "()[Ljava/lang/Object;",
+        native_enumset_to_array,
+    );
+
+    // duke/util/EnumSetIterator — iterator over EnumSet members
+    // fields[0] = members array, fields[1] = cursor (Int), fields[2] = size (Int)
+    let enumset_iter_ctx = ClassContext {
+        class_name: "duke/util/EnumSetIterator".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "members".to_string(),
+                descriptor: "[Ljava/lang/Object;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "cursor".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "size".to_string(),
+                descriptor: "I".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 3,
+        interfaces: vec!["java/util/Iterator".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(enumset_iter_ctx);
+    registry.natives_mut().register(
+        "duke/util/EnumSetIterator",
+        "<init>",
+        "()V",
+        native_enumset_iter_init,
+    );
+    registry.natives_mut().register(
+        "duke/util/EnumSetIterator",
+        "hasNext",
+        "()Z",
+        native_enumset_iter_hasnext,
+    );
+    registry.natives_mut().register(
+        "duke/util/EnumSetIterator",
+        "next",
+        "()Ljava/lang/Object;",
+        native_enumset_iter_next,
     );
 
     // java/util/concurrent/CopyOnWriteArrayList — synthetic list that mirrors the
@@ -14680,6 +14874,40 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     // non-collecting model never enqueues, so only the referent slot is stored.
     registry.natives_mut().register(
         "java/lang/ref/WeakReference",
+        "<init>",
+        "(Ljava/lang/Object;Ljava/lang/ref/ReferenceQueue;)V",
+        native_reference_init,
+    );
+
+    // java/lang/ref/SoftReference — same NON-COLLECTING, strong-ref-backed model as
+    // WeakReference (referent lives in the inherited Reference slot 0; get() returns
+    // it until clear(); no soft-reachability/GC semantics). Spring's
+    // ConcurrentReferenceHashMap$SoftEntryReference allocates one and only reads the
+    // referent back, which a strong slot models faithfully.
+    let soft_reference_ctx = ClassContext {
+        class_name: "java/lang/ref/SoftReference".to_string(),
+        super_class: Some("java/lang/ref/Reference".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(soft_reference_ctx);
+    // SoftReference(referent) and SoftReference(referent, queue) both just store the
+    // referent (the queue is accepted and ignored, as with WeakReference). get()/
+    // clear() are inherited from the Reference base natives registered above.
+    registry.natives_mut().register(
+        "java/lang/ref/SoftReference",
+        "<init>",
+        "(Ljava/lang/Object;)V",
+        native_reference_init,
+    );
+    registry.natives_mut().register(
+        "java/lang/ref/SoftReference",
         "<init>",
         "(Ljava/lang/Object;Ljava/lang/ref/ReferenceQueue;)V",
         native_reference_init,
