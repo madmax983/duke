@@ -7468,6 +7468,85 @@ fn enum_equality() {
     );
 }
 
+// ---- EnumSet + enum-reflection tests ----
+// Expected values verified against real `java` (JDK 21) golden run.
+
+#[test]
+fn enumset_of_contains() {
+    assert_eq!(
+        run_bootstrap_int("EnumSetTest.class", "testOfContains", "()I"),
+        1
+    );
+}
+
+#[test]
+fn enumset_of_not_contains() {
+    assert_eq!(
+        run_bootstrap_int("EnumSetTest.class", "testOfNotContains", "()I"),
+        0
+    );
+}
+
+#[test]
+fn enumset_none_of_size() {
+    assert_eq!(
+        run_bootstrap_int("EnumSetTest.class", "testNoneOfSize", "()I"),
+        0
+    );
+}
+
+#[test]
+fn enumset_all_of_size() {
+    assert_eq!(
+        run_bootstrap_int("EnumSetTest.class", "testAllOfSize", "()I"),
+        7
+    );
+}
+
+#[test]
+fn enumset_range_size() {
+    assert_eq!(
+        run_bootstrap_int("EnumSetTest.class", "testRangeSize", "()I"),
+        3
+    );
+}
+
+#[test]
+fn enumset_add_remove() {
+    assert_eq!(
+        run_bootstrap_int("EnumSetTest.class", "testAddRemove", "()I"),
+        3
+    );
+}
+
+#[test]
+fn enumset_iterator_count() {
+    assert_eq!(
+        run_bootstrap_int("EnumSetTest.class", "testIteratorCount", "()I"),
+        3
+    );
+}
+
+#[test]
+fn enumset_class_is_enum() {
+    assert_eq!(
+        run_bootstrap_int("EnumSetTest.class", "testIsEnum", "()I"),
+        1
+    );
+    assert_eq!(
+        run_bootstrap_int("EnumSetTest.class", "testStringNotEnum", "()I"),
+        0
+    );
+}
+
+#[test]
+fn enumset_get_enum_constants_len() {
+    assert_eq!(
+        run_bootstrap_int("EnumSetTest.class", "testGetEnumConstantsLen", "()I"),
+        7
+    );
+}
+
 // ---- StringBuilder tests ----
 
 #[test]
