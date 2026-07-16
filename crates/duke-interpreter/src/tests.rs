@@ -7375,6 +7375,100 @@ fn resource_loading_fixture_runs_directory_cases() {
 }
 
 #[test]
+fn url_connection_open_connection_reads_resource() {
+    // URL.openConnection().getInputStream() reads the classpath resource
+    // end-to-end through the synthetic java/net/URLConnection, matching the
+    // exact 27-byte content of ResourceLoadingTestData.txt.
+    assert_eq!(
+        run_bootstrap_int_completion(
+            "UrlConnectionProbe.class",
+            "openConnectionReadsResource",
+            "()I"
+        ),
+        0
+    );
+}
+
+#[test]
+fn url_connection_natives_dispatch_directly() {
+    // Direct-dispatch coverage: mint a spec-backed URL, call openConnection,
+    // then getInputStream on the resulting URLConnection, and assert the exact
+    // resource bytes flow through the ResourceInputStream.
+    let data_path = fixtures_dir().join("ResourceLoadingTestData.txt");
+    let expected = std::fs::read(&data_path).expect("read fixture data");
+    let spec = format!("file://{}", data_path.to_string_lossy());
+
+    let mut heap = duke_gc::Heap::new();
+    let url_ref = allocate_string_backed_object(&mut heap, "java/net/URL", spec.clone())
+        .expect("mint URL object");
+
+    // openConnection() returns a java/net/URLConnection carrying the same spec.
+    let conn_slot = native_url_open_connection(
+        &[Slot::Reference(Some(url_ref))],
+        &mut heap,
+        &mut std::io::sink(),
+        &mut NativeControl::default(),
+    )
+    .expect("openConnection succeeds")
+    .expect("openConnection returns a reference");
+    let conn_ref = match conn_slot {
+        Slot::Reference(Some(r)) => r,
+        other => panic!("expected URLConnection reference, got {other:?}"),
+    };
+    assert_eq!(
+        heap.get(conn_ref).unwrap().class_name,
+        "java/net/URLConnection"
+    );
+    assert_eq!(
+        string_backed_object_value(&heap, conn_ref).expect("connection spec"),
+        spec
+    );
+
+    // setUseCaches(false) is a no-op that returns without a value.
+    let use_caches = native_url_connection_set_use_caches(
+        &[Slot::Reference(Some(conn_ref)), Slot::Int(0)],
+        &mut heap,
+        &mut std::io::sink(),
+        &mut NativeControl::default(),
+    )
+    .expect("setUseCaches succeeds");
+    assert!(use_caches.is_none());
+
+    // getInputStream() returns a duke/io/ResourceInputStream over the bytes.
+    let stream_slot = native_url_connection_get_input_stream(
+        &[Slot::Reference(Some(conn_ref))],
+        &mut heap,
+        &mut std::io::sink(),
+        &mut NativeControl::default(),
+    )
+    .expect("getInputStream succeeds")
+    .expect("getInputStream returns a reference");
+    let stream_ref = match stream_slot {
+        Slot::Reference(Some(r)) => r,
+        other => panic!("expected ResourceInputStream reference, got {other:?}"),
+    };
+    assert_eq!(
+        heap.get(stream_ref).unwrap().class_name,
+        "duke/io/ResourceInputStream"
+    );
+    let array_ref = match heap.get(stream_ref).unwrap().fields[0] {
+        Slot::Reference(Some(r)) => r,
+        other => panic!("expected byte array reference, got {other:?}"),
+    };
+    let actual: Vec<u8> = heap
+        .get(array_ref)
+        .unwrap()
+        .fields
+        .iter()
+        .map(|slot| match slot {
+            Slot::Int(byte) => u8::try_from(*byte & 0xFF).unwrap(),
+            other => panic!("expected int byte slot, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn resource_loading_meta_inf_fixture_runs_from_directory_loader() {
     assert_eq!(
         run_bootstrap_int_completion("ResourceLoadingJarTest.class", "readMetaInfMessage", "()I",),

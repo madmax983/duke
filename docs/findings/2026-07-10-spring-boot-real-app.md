@@ -975,3 +975,123 @@ invoke still throws. Documented in a one-line code comment; follow-up if a fixtu
 
 No edits to `registry.rs` / `execution.rs`, and none to the String/heap/EnumSet/threading
 regions of `native/common.rs` — only its reflection-region `native_needs_stack_snapshot`.
+
+## 2026-07-16 — APP: URL resource-loading lane CLEARED (synthetic `java/net/URLConnection` family); next rung is `ArrayDeque.<init>(I)V` (branch `swarm/urlconnection`)
+
+Off `origin/trunk` `ea73d26` (with EnumSet PR #1368 `ce76385`, thread-identity
+#1370, and pin-fix #1371 all present).
+
+### What the app walled on and why
+
+With EnumSet + SoftReference already in trunk, the app booted onto the URL
+resource-loading lane and walled — verbatim, deterministic across runs — at:
+
+```
+duke: runtime error: method not found: java/net/URL.openConnection()Ljava/net/URLConnection;
+```
+
+This is `org/springframework/core/io/UrlResource::getInputStream@4 invokevirtual`,
+reached via `PropertiesLoaderUtils::fillProperties`. `javap` of the shipped
+`UrlResource` (spring-core 6.2.17) shows the exact shape:
+
+```
+getInputStream():        openConnection() -> customizeConnection(con) -> con.getInputStream()
+customizeConnection():   AbstractFileResolvingResource.customizeConnection(con)
+                         url.getUserInfo()  // null -> skip Basic-auth header
+                         (else setRequestProperty("Authorization", ...))
+useCachesIfNecessary():  con.setUseCaches(false)
+```
+
+### What was added (all in `native/java_net.rs` + `stdlib.rs`; no forbidden edits)
+
+A minimal synthetic `java/net/URLConnection`, mirroring the existing 1-slot
+spec-backed `java/net/URL` layout, and the two `URL` methods the Spring path
+invokes:
+
+- **`java/net/URLConnection`** — synthetic class, super `java/lang/Object`, one
+  instance field `spec:Ljava/lang/String;`, `ClassLoadSource::Synthetic`. No
+  `KEEP_SYNTHETIC`/registry.rs entry needed — it is a fresh synthetic never
+  shadowed by real bytecode.
+- **`URL.openConnection()Ljava/net/URLConnection;`** (`native_url_open_connection`)
+  — reads the URL's spec via `string_backed_object_value`, mints the connection
+  via `allocate_string_backed_object(heap, "java/net/URLConnection", spec)`.
+- **`URLConnection.getInputStream()Ljava/io/InputStream;`**
+  (`native_url_connection_get_input_stream`) — mirrors `native_url_open_stream`
+  exactly: `read_resource_bytes_from_url_spec(&spec)` +
+  `allocate_resource_input_stream(heap, bytes)`, handing back a
+  `duke/io/ResourceInputStream` (the same type `Properties.load` /
+  `fillProperties` already consume end to end).
+- **`URLConnection.setUseCaches(Z)V`** (`native_url_connection_set_use_caches`) —
+  no-op; Duke reads resource bytes fresh on each `getInputStream`.
+- **`URL.getUserInfo()Ljava/lang/String;`** (`native_url_get_user_info`) —
+  returns null. Duke's synthetic URLs name classpath/jar/file resources and
+  never carry a `user:password@` component, so `customizeConnection` correctly
+  skips the Base64 Basic-auth header path. This was the wall that surfaced
+  **after** `openConnection` dispatched — `getUserInfo` is invoked inside
+  `customizeConnection` **before** `getInputStream`, so it had to return before
+  the app could exercise `getInputStream`.
+
+**No `HttpURLConnection` was required.** `getUserInfo()` returning null means the
+app never takes the auth path, and `getInputStream()` succeeds before the
+`catch (IOException) { if (con instanceof HttpURLConnection) httpConn.disconnect(); }`
+branch is ever reached. The `instanceof HttpURLConnection` in the catch handler
+is only evaluated on failure, which does not occur.
+
+Everything reuses the existing resource-stream machinery in `common.rs` by name
+(`string_backed_object_value`, `allocate_string_backed_object`,
+`read_resource_bytes_from_url_spec`, `allocate_resource_input_stream`) — no edit
+to `common.rs`, `execution.rs`, or `registry.rs`.
+
+### Targeted-fixture proof (committed evidence, independent of the app)
+
+`tests/fixtures/UrlConnectionProbe.java` drives the exact Spring shape against a
+real classpath resource (`/ResourceLoadingTestData.txt`, a `file:`-scheme URL):
+
+```java
+URL url = UrlConnectionProbe.class.getResource("/ResourceLoadingTestData.txt");
+URLConnection connection = url.openConnection();
+connection.setUseCaches(false);
+try (InputStream in = connection.getInputStream()) { /* read all -> compare */ }
+```
+
+- `tests::url_connection_open_connection_reads_resource` — runs the fixture and
+  asserts an exact-content match (return 0 requires `lastLength == 27` **and** the
+  27 bytes equal `"hello duke\nresource line 2\n"`).
+- `tests::url_connection_natives_dispatch_directly` — direct-dispatch unit test:
+  mints a spec-backed URL, calls `native_url_open_connection` (asserts the result
+  is a `java/net/URLConnection` carrying the same spec), `native_url_connection_set_use_caches`
+  (asserts no-op returns `None`), then `native_url_connection_get_input_stream`
+  (asserts a `duke/io/ResourceInputStream` whose `[B` bytes equal the file
+  content verbatim).
+
+Both pass: `test result: ok. 2 passed`.
+
+### App frontier — pin MOVED
+
+The app now genuinely reaches **and passes** `openConnection` + `setUseCaches` +
+`getUserInfo` + `getInputStream` (resource read end to end into `fillProperties`),
+and advances to a new, deterministic, far-deeper honest frontier in the
+collections lane:
+
+```
+duke: runtime error: method not found: java/util/ArrayDeque.<init>(I)V
+```
+
+`APP_BLOCKER` (`duke/tests/spring_boot_real_app.rs`) is re-pinned from
+`java/net/URL.openConnection()...` to `java/util/ArrayDeque.<init>(I)V` (the
+initial-capacity `ArrayDeque` ctor — a `java.util` collections-lane rung, not
+owned by this URL/IO lane). The app canary stays `#[ignore]`d; the
+`_surfaces_next_missing_capability_explicitly` pin and the ignore reason are
+updated to the new wall.
+
+### Gate (local; all green)
+
+- `cargo build` — clean.
+- `cargo test --workspace` — see branch summary (all pass; +3 vs baseline: the two
+  new URLConnection unit tests plus the still-green app pin at the new blocker).
+- `cargo fmt --all --check` — clean.
+- `RUSTFLAGS="-D warnings" cargo +1.97.0 clippy --workspace --all-targets -- -W clippy::pedantic -W clippy::nursery` — clean.
+- HelloWorld — synthetic / `DUKE_REAL_JDK=1` / `+DUKE_LAYOUT_CHECK=fail` all exit 0.
+- real-jdk fixtures — green.
+
+No edits to `native/common.rs`, `execution.rs`, or `registry.rs`.

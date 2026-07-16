@@ -3894,6 +3894,52 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/net/URLStreamHandlerFactory;)V",
         native_url_set_url_stream_handler_factory,
     );
+    registry.natives_mut().register(
+        "java/net/URL",
+        "openConnection",
+        "()Ljava/net/URLConnection;",
+        native_url_open_connection,
+    );
+    registry.natives_mut().register(
+        "java/net/URL",
+        "getUserInfo",
+        "()Ljava/lang/String;",
+        native_url_get_user_info,
+    );
+
+    // Synthetic `java/net/URLConnection`: a 1-slot spec-backed object mirroring
+    // the URL layout, so Spring's `UrlResource.getInputStream()` path
+    // (`url.openConnection().getInputStream()`) reads a classpath/jar resource
+    // through the existing resource-stream machinery.
+    let url_connection_ctx = ClassContext {
+        class_name: "java/net/URLConnection".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "spec".to_string(),
+            descriptor: "Ljava/lang/String;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(url_connection_ctx);
+    registry.natives_mut().register(
+        "java/net/URLConnection",
+        "getInputStream",
+        "()Ljava/io/InputStream;",
+        native_url_connection_get_input_stream,
+    );
+    registry.natives_mut().register(
+        "java/net/URLConnection",
+        "setUseCaches",
+        "(Z)V",
+        native_url_connection_set_use_caches,
+    );
 
     let url_class_path_ctx = ClassContext {
         class_name: "jdk/internal/loader/URLClassPath".to_string(),

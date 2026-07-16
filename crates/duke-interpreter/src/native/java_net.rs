@@ -161,3 +161,57 @@ pub(crate) fn native_socket_close(
     obj.fields[1] = Slot::Int(0);
     Ok(None)
 }
+/// Native: `URL.openConnection()` — mints a spec-backed `java/net/URLConnection`
+/// carrying the same resource spec String as this URL, mirroring the URL's
+/// 1-slot spec-backed layout. The connection defers resource I/O until
+/// `getInputStream()` is called.
+pub(crate) fn native_url_open_connection(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let spec = string_backed_object_value(heap, this_ref)?;
+    let conn_ref = allocate_string_backed_object(heap, "java/net/URLConnection", spec)?;
+    Ok(Some(Slot::Reference(Some(conn_ref))))
+}
+/// Native: `URL.getUserInfo()` — returns null. Duke's synthetic URLs name
+/// classpath/jar/file resources and never carry a `user:password@` userinfo
+/// component, so Spring's `AbstractFileResolvingResource.customizeConnection`
+/// correctly skips its Basic-auth header path.
+#[allow(clippy::unnecessary_wraps)] // signature must match `NativeHandler`
+pub(crate) fn native_url_get_user_info(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(Slot::Reference(None)))
+}
+/// Native: `URLConnection.getInputStream()` — reads the resource named by the
+/// connection's spec String and returns a `duke/io/ResourceInputStream`,
+/// mirroring `native_url_open_stream`.
+pub(crate) fn native_url_connection_get_input_stream(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let spec = string_backed_object_value(heap, this_ref)?;
+    let bytes = read_resource_bytes_from_url_spec(&spec)?;
+    let stream_ref = allocate_resource_input_stream(heap, bytes)?;
+    Ok(Some(Slot::Reference(Some(stream_ref))))
+}
+/// Native: `URLConnection.setUseCaches(boolean)` — no-op; Duke's resource
+/// streams are read fresh on each `getInputStream()` call.
+#[allow(clippy::unnecessary_wraps)] // signature must match `NativeHandler`
+pub(crate) fn native_url_connection_set_use_caches(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(None)
+}
