@@ -471,8 +471,8 @@ pub(crate) fn native_hashmap_compute_if_absent(
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
-    let key = extract_slot_arg(args, 1);
+    let mut this_ref = extract_ref_arg(args, 0)?;
+    let mut key = extract_slot_arg(args, 1);
     // Check if key already present.
     let existing = native_hashmap_get(&[Slot::Reference(Some(this_ref)), key], heap, out, control)?;
     if let Some(v) = existing
@@ -491,6 +491,10 @@ pub(crate) fn native_hashmap_compute_if_absent(
         "(Ljava/lang/Object;)Ljava/lang/Object;",
         vec![Slot::Reference(Some(fn_ref)), key],
     )?;
+    // The mapping function ran arbitrary bytecode which may have triggered a GC
+    // that relocated `this_ref`/`key`; re-resolve them before the heap store.
+    patch_forwarded_ref_if_needed(heap, &mut this_ref);
+    patch_forwarded_slot_if_needed(heap, &mut key);
     if let Some(value) = computed
         && !matches!(value, Slot::Reference(None))
     {
@@ -3444,6 +3448,8 @@ pub(crate) fn native_optional_filter(
         return Ok(Some(Slot::Reference(Some(result_ref))));
     };
     let pred_class = heap.get(pred_ref)?.class_name.clone();
+    let mut value = value;
+    let mut result_ref = result_ref;
     let test_result = ops.invoke(
         heap,
         out,
@@ -3452,6 +3458,10 @@ pub(crate) fn native_optional_filter(
         "(Ljava/lang/Object;)Z",
         vec![pred_slot, value],
     )?;
+    // The predicate may have triggered a GC that relocated the freshly allocated
+    // result Optional and/or the filtered value; re-resolve both before the store.
+    patch_forwarded_ref_if_needed(heap, &mut result_ref);
+    patch_forwarded_slot_if_needed(heap, &mut value);
     let passes = matches!(test_result, Some(Slot::Int(n)) if n != 0);
     let stored = if passes { value } else { Slot::Reference(None) };
     heap.get_mut(result_ref)?.fields[0] = stored;
@@ -3551,8 +3561,8 @@ pub(crate) fn native_hashmap_compute(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
-    let key = extract_slot_arg(args, 1);
+    let mut this_ref = extract_ref_arg(args, 0)?;
+    let mut key = extract_slot_arg(args, 1);
     let fn_slot = extract_slot_arg(args, 2);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(None)));
@@ -3572,6 +3582,10 @@ pub(crate) fn native_hashmap_compute(
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
         vec![fn_slot, key, old_value],
     )?;
+    // The remapping function may have triggered a GC that relocated
+    // `this_ref`/`key`; re-resolve them before the subsequent heap reads/writes.
+    patch_forwarded_ref_if_needed(heap, &mut this_ref);
+    patch_forwarded_slot_if_needed(heap, &mut key);
     // null return means remove the key
     let is_null = matches!(new_value, None | Some(Slot::Reference(None)));
     let new_val = new_value.unwrap_or(Slot::Reference(None));
@@ -3611,7 +3625,7 @@ pub(crate) fn native_hashmap_merge(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
+    let mut this_ref = extract_ref_arg(args, 0)?;
     let key = extract_slot_arg(args, 1);
     let new_val_slot = extract_slot_arg(args, 2);
     let fn_slot = extract_slot_arg(args, 3);
@@ -3631,6 +3645,10 @@ pub(crate) fn native_hashmap_merge(
             "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
             vec![fn_slot, old_value, new_val_slot],
         )?;
+        // The merge function may have triggered a GC that relocated `this_ref`;
+        // re-resolve it before storing the merged value. `ki` is a field index
+        // (stable across GC, which moves whole objects, not their field order).
+        patch_forwarded_ref_if_needed(heap, &mut this_ref);
         let merged_raw = merged.unwrap_or(Slot::Reference(None));
         // Box primitive results so the stored value is always a Reference (matches Java generics)
         let merged_val = box_primitive_slot(merged_raw, heap);
@@ -5119,8 +5137,8 @@ pub(crate) fn native_hashmap_compute_if_present(
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
-    let key = extract_slot_arg(args, 1);
+    let mut this_ref = extract_ref_arg(args, 0)?;
+    let mut key = extract_slot_arg(args, 1);
     // Look up existing value.
     let existing = native_hashmap_get(&[Slot::Reference(Some(this_ref)), key], heap, out, control)?;
     let old_value = match existing {
@@ -5138,6 +5156,10 @@ pub(crate) fn native_hashmap_compute_if_present(
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
         vec![Slot::Reference(Some(fn_ref)), key, old_value],
     )?;
+    // The remapping function may have triggered a GC that relocated
+    // `this_ref`/`key`; re-resolve them before the heap store/remove.
+    patch_forwarded_ref_if_needed(heap, &mut this_ref);
+    patch_forwarded_slot_if_needed(heap, &mut key);
     match new_value {
         Some(v) if !matches!(v, Slot::Reference(None)) => {
             native_hashmap_put(

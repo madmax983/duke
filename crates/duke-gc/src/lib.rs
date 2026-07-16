@@ -756,10 +756,75 @@ impl Heap {
         self.alloc_since_gc += 1;
         self.live_count += 1;
         let idx = self.young_top as u64;
-        let obj = Self::make_obj("java/lang/String".to_string(), Vec::new(), Some(value));
+        // Real java/lang/String layout: slot0 value:[B, slot1 coder:B,
+        // slot2 hash:I, slot3 hashIsZero:Z. slot0 is filled by
+        // `set_string_layout`; slots 1-3 start at 0. `string_value` remains the
+        // authoritative side-channel that the ~285 existing readers use.
+        let fields = vec![
+            Slot::Reference(None),
+            Slot::Int(0),
+            Slot::Int(0),
+            Slot::Int(0),
+        ];
+        // Move `value` into the object as its authoritative `string_value`
+        // side-channel; the real-layout slots are then populated by re-reading
+        // that stored payload, single-sourcing the encoding through
+        // `set_string_layout` rather than cloning `value` here.
+        let obj = Self::make_obj("java/lang/String".to_string(), fields, Some(value));
         self.young.push(Some(obj));
         self.young_top += 1;
+        let contents = self
+            .get(idx)
+            .ok()
+            .and_then(|obj| obj.string_value.clone())
+            .unwrap_or_default();
+        self.set_string_layout(idx, &contents);
         idx
+    }
+
+    /// Populates the real `java/lang/String` layout slots for the String object
+    /// at `string_ref`, allocating a backing `[B` byte array for slot 0 (`value`)
+    /// and writing the coder into slot 1 (`coder`).
+    ///
+    /// The byte array uses Latin-1 encoding when every char is `<= 0xFF`
+    /// (`coder = 0`), otherwise little-endian UTF-16 (`coder = 1`). Slots 2
+    /// (`hash`) and 3 (`hashIsZero`) are left untouched at 0. The authoritative
+    /// `string_value` side-channel is not modified here.
+    ///
+    /// The slot-0 reference store goes through [`Heap::write_field`] so the
+    /// generational write barrier fires if `string_ref` has already been
+    /// promoted to old gen and the freshly allocated byte array is young.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `string_ref` does not refer to a live object whose slots 0 and
+    /// 1 are writable, or if the freshly allocated backing byte array cannot be
+    /// found immediately after allocation (both indicate heap corruption).
+    pub fn set_string_layout(&mut self, string_ref: u64, value: &str) {
+        let latin1 = value.chars().all(|c| c as u32 <= 0xFF);
+        let (coder, bytes): (i32, Vec<u8>) = if latin1 {
+            (0, value.chars().map(|c| c as u8).collect())
+        } else {
+            (1, value.encode_utf16().flat_map(u16::to_le_bytes).collect())
+        };
+
+        let bytes_ref = self.allocate("[B".to_string(), bytes.len());
+        {
+            let arr = self
+                .get_mut(bytes_ref)
+                .expect("freshly allocated byte array must exist");
+            for (i, &b) in bytes.iter().enumerate() {
+                // Java `byte` is signed: reinterpret the raw octet as i8.
+                arr.fields[i] = Slot::Int(i32::from(i8::from_ne_bytes([b])));
+            }
+        }
+
+        // slot0 value:[B — via write_field so the old→young barrier fires.
+        self.write_field(string_ref, 0, Slot::Reference(Some(bytes_ref)))
+            .expect("String slot 0 (value) must be writable");
+        // slot1 coder:B
+        self.write_field(string_ref, 1, Slot::Int(coder))
+            .expect("String slot 1 (coder) must be writable");
     }
 
     /// Finds a live object by runtime class and string payload.
@@ -1888,7 +1953,9 @@ mod tests {
         let obj = heap.get(r).unwrap();
         assert_eq!(obj.class_name, "java/lang/String");
         assert_eq!(obj.string_value, Some("hello".to_string()));
-        assert!(obj.fields.is_empty());
+        // Real 4-slot layout: value:[B, coder:B, hash:I, hashIsZero:Z.
+        assert_eq!(obj.fields.len(), 4);
+        assert!(matches!(obj.fields[0], Slot::Reference(Some(_))));
     }
 
     #[test]
@@ -2480,10 +2547,11 @@ mod tests {
     fn allocate_string_increments_live_count() {
         let mut heap = Heap::new();
         assert_eq!(heap.len(), 0);
+        // Each allocate_string mints two objects: the String and its backing [B.
         heap.allocate_string("a".to_string());
-        assert_eq!(heap.len(), 1);
-        heap.allocate_string("b".to_string());
         assert_eq!(heap.len(), 2);
+        heap.allocate_string("b".to_string());
+        assert_eq!(heap.len(), 4);
     }
 
     #[test]
@@ -2526,12 +2594,159 @@ mod tests {
     #[test]
     fn allocate_string_increments_alloc_since_gc() {
         let mut heap = Heap::new();
-        for i in 0..255 {
+        // Each allocate_string bumps alloc_since_gc twice (String + backing [B),
+        // so the 256-allocation threshold is reached after 128 calls.
+        for i in 0..127 {
             heap.allocate_string(format!("s{i}"));
             assert!(!heap.should_gc());
         }
-        heap.allocate_string("s255".to_string());
+        heap.allocate_string("s127".to_string());
         assert!(heap.should_gc());
+    }
+
+    // ── real String layout (value:[B / coder:B) ───────────────────────────────
+
+    #[test]
+    fn allocate_string_latin1_layout_and_coder() {
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("abc".to_string());
+        let obj = heap.get(s).unwrap();
+        assert_eq!(obj.fields.len(), 4);
+        // coder = 0 (Latin-1) when every char is <= 0xFF.
+        assert_eq!(obj.fields[1], Slot::Int(0), "Latin-1 coder must be 0");
+        // hash / hashIsZero start at 0.
+        assert_eq!(obj.fields[2], Slot::Int(0));
+        assert_eq!(obj.fields[3], Slot::Int(0));
+        // value:[B — a reference to a 3-byte array (1 byte/char for Latin-1).
+        let bytes_ref = obj.fields[0]
+            .as_reference()
+            .expect("value slot must be a [B reference");
+        let bytes = heap.get(bytes_ref).unwrap();
+        assert_eq!(bytes.class_name, "[B");
+        assert_eq!(bytes.fields.len(), 3);
+        assert_eq!(bytes.fields[0], Slot::Int(i32::from(b'a')));
+        assert_eq!(bytes.fields[1], Slot::Int(i32::from(b'b')));
+        assert_eq!(bytes.fields[2], Slot::Int(i32::from(b'c')));
+    }
+
+    #[test]
+    fn allocate_string_utf16_layout_and_coder() {
+        let mut heap = Heap::new();
+        // U+4E2D (中) is a non-Latin-1 BMP char → UTF-16 coder, 2 bytes/unit.
+        let value = "a中b";
+        let s = heap.allocate_string(value.to_string());
+        let obj = heap.get(s).unwrap();
+        assert_eq!(
+            obj.fields[1],
+            Slot::Int(1),
+            "non-Latin-1 content must use coder 1 (UTF-16)"
+        );
+        let bytes_ref = obj.fields[0].as_reference().unwrap();
+        let bytes = heap.get(bytes_ref).unwrap();
+        // 3 UTF-16 code units × 2 bytes = 6 bytes.
+        assert_eq!(bytes.fields.len(), value.encode_utf16().count() * 2);
+        assert_eq!(bytes.fields.len(), 6);
+    }
+
+    #[test]
+    fn allocate_string_stores_signed_java_bytes() {
+        // A Latin-1 char > 0x7F is stored as a NEGATIVE Java byte (signed).
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("\u{00E9}".to_string()); // é = 0xE9
+        let obj = heap.get(s).unwrap();
+        assert_eq!(obj.fields[1], Slot::Int(0), "é is Latin-1 → coder 0");
+        let bytes_ref = obj.fields[0].as_reference().unwrap();
+        let bytes = heap.get(bytes_ref).unwrap();
+        assert_eq!(bytes.fields.len(), 1);
+        assert_eq!(
+            bytes.fields[0],
+            Slot::Int(i32::from(i8::from_ne_bytes([0xE9])))
+        );
+        assert_eq!(bytes.fields[0], Slot::Int(-23));
+    }
+
+    #[test]
+    fn string_layout_survives_gc_promotion_with_stable_identity() {
+        let mut heap = Heap::new();
+        heap.promotion_age = 0; // promote survivors to old on the first collect
+        let value = "héllo中"; // mixed BMP → UTF-16
+        let s = heap.allocate_string(value.to_string());
+        let hash_before = heap.identity_hash(s).unwrap();
+
+        // Full collect: minor GC promotes the String AND its backing [B (reachable
+        // only through slot0) to old gen, rewriting slot0 to the promoted [B.
+        heap.collect(&[Slot::Reference(Some(s))]);
+        let moved = remap(&heap, s);
+        assert_ne!(
+            moved & OLD_BIT,
+            0,
+            "String must have been promoted to old gen"
+        );
+
+        let obj = heap.get(moved).unwrap();
+        // string_value side-channel rode along on the object move.
+        assert_eq!(obj.string_value.as_deref(), Some(value));
+        // coder unchanged; slot0 [B was traced + forwarded to a live object.
+        assert_eq!(obj.fields[1], Slot::Int(1));
+        let bytes_ref = obj.fields[0]
+            .as_reference()
+            .expect("value [B must survive GC");
+        let bytes = heap.get(bytes_ref).unwrap();
+        assert_eq!(bytes.class_name, "[B");
+        assert_eq!(bytes.fields.len(), value.encode_utf16().count() * 2);
+        // Identity hash is stable across the move.
+        assert_eq!(heap.identity_hash(moved).unwrap(), hash_before);
+    }
+
+    #[test]
+    fn string_value_byte_array_edge_rewritten_by_old_compaction() {
+        // Old gen: [garbage@0, [B@1, String@2]. Freeing the garbage hole makes the
+        // [B slide down during compaction, so the String's slot0 value:[B edge must
+        // be rewritten to the [B's new location (#1312 forwarding through the new slot).
+        let mut heap = Heap::new();
+        let garbage = push_old(&mut heap, "Garbage", vec![]);
+        let bytes = push_old(
+            &mut heap,
+            "[B",
+            vec![Slot::Int(i32::from(b'h')), Slot::Int(i32::from(b'i'))],
+        );
+        let string = push_old(
+            &mut heap,
+            "java/lang/String",
+            vec![
+                Slot::Reference(Some(bytes)),
+                Slot::Int(0),
+                Slot::Int(0),
+                Slot::Int(0),
+            ],
+        );
+        heap.get_mut(string).unwrap().string_value = Some("hi".to_string());
+        let _ = garbage;
+
+        // Root only the String; the garbage hole is unrooted → freed → the [B slides.
+        heap.compact_old(&[Slot::Reference(Some(string))]);
+
+        let string_after = remap(&heap, string);
+        let bytes_after = remap(&heap, bytes);
+        assert_ne!(
+            bytes_after, bytes,
+            "the backing [B must have slid during compaction"
+        );
+        // The String's slot0 edge was rewritten to the [B's new address.
+        let slot0 = heap.get(string_after).unwrap().fields[0]
+            .as_reference()
+            .unwrap();
+        assert_eq!(
+            slot0, bytes_after,
+            "String value:[B edge must be rewritten by compaction"
+        );
+        // Content intact after the move.
+        let arr = heap.get(bytes_after).unwrap();
+        assert_eq!(arr.fields.len(), 2);
+        assert_eq!(
+            heap.get(string_after).unwrap().string_value.as_deref(),
+            Some("hi")
+        );
     }
 
     // ── promote_to_old free-list path ─────────────────────────────────────────
