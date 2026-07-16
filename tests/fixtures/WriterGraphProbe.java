@@ -13,9 +13,15 @@ import java.io.*;
  * {@code ByteArrayOutputStream} and the {@code Sink} subclass are non-allowlisted
  * real bytecode. The success marker is stored in a static field so the tail cannot
  * itself be a blocker that obscures the writer-graph walls.
+ *
+ * On completion the exact bytes drained into the sink are exposed via the static
+ * {@code BYTES} field, so the harness can assert the real UTF-8 encoding of
+ * {@code "hello\n"} ({@code {104,101,108,108,111,10}}) end-to-end rather than only
+ * the byte count.
  */
 public class WriterGraphProbe {
     static int RESULT = -1;
+    static byte[] BYTES = null;
 
     static final class Sink extends OutputStream {
         final ByteArrayOutputStream buf = new ByteArrayOutputStream();
@@ -28,7 +34,8 @@ public class WriterGraphProbe {
         OutputStreamWriter w = new OutputStreamWriter(s, "UTF-8");
         w.write("hello\n");
         w.flush();
-        // success marker if we ever get here (cannot fail):
+        // success markers if we ever get here (cannot fail):
         RESULT = s.buf.size();
+        BYTES = s.buf.toByteArray();
     }
 }

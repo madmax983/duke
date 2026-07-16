@@ -226,12 +226,15 @@ from the allowlist and update the two locked tests (§4).
 > the **committed tree** the writer graph now clears the `ByteBuffer.UNSAFE` wall and
 > runs through all three stage-c natives (now **LIVE-COVERED**, no longer dormant):
 > `ScopedMemoryAccess.registerNatives`, `Unsafe.isBigEndian`, and
-> `JavaLangAccess.encodeASCII` (encodes all 6 bytes of `"hello\n"`). The remaining
-> honest committed-tree wall is the **wave-9 (C)** fix — a heap-scoped stable
-> `Thread.currentThread()` — surfacing as a `ReentrantLock`
-> `IllegalMonitorStateException` on lock release. The `PrintStream` / `System`
-> migration additionally needs the `KEEP_SYNTHETIC` allowlist edit and the
-> `String.COMPACT_STRINGS` work.
+> `JavaLangAccess.encodeASCII` (encodes all 6 bytes of `"hello\n"`).
+>
+> **Update (2026-07-13, wave-9 (C) — DONE):** the heap-scoped stable
+> `Thread.currentThread()` landed, so the `ReentrantLock` owner-check now balances and
+> the writer graph runs to **COMPLETION** on the committed tree — `main` returns and
+> the sink receives the exact UTF-8 bytes `[104,101,108,108,111,10]`. This is now a
+> real end-to-end assertion in `writer_graph_frontier.rs` (no longer a frontier guard).
+> The remaining gap for the `PrintStream` / `System` migration is the `KEEP_SYNTHETIC`
+> allowlist edit and the `String.COMPACT_STRINGS` work.
 
 ---
 
@@ -509,7 +512,8 @@ entire chain to a working writer graph:
    at that index). [ADDED]
 5. **`ReentrantLock` `IllegalMonitorStateException`** from an unstable
    `Thread.currentThread()` identity (lock/unlock saw different carrier-thread objects).
-   [REVERTED — needs a heap-scoped stable `currentThread` fix]
+   [DONE (2026-07-13, wave-9 (C)) — heap-scoped, GC-rooted stable `currentThread`
+   seeded at bootstrap into `$dukeMainThread` on `java/lang/Thread`]
 
 **Milestone proof:** with all five crossed, `WriterGraphProbe` runs to completion —
 `w.write("hello\n"); w.flush()` encodes and writes exactly
@@ -552,21 +556,29 @@ now runs to `@29 return`, and the graph flows through walls #2–#4.
   `sp=0 dp=0 len=6`, encoding all six bytes of `"hello\n"` inside
   `StreamEncoder.implWrite@18` (`CharsetEncoder.encode`).
 
-**NEW honest committed-tree wall = wall #5.** After the encode, `StreamEncoder.write`
-releases its `ReentrantLock`; `ReentrantLock$Sync.tryRelease@24` throws because the
-exclusive-owner check `getExclusiveOwnerThread() != Thread.currentThread()` fails —
-Duke's `Thread.currentThread()` allocates a fresh throwaway identity per call, so the
-acquiring and releasing threads are not `==`. VERBATIM:
+**Wall #5 — CLEARED (2026-07-13, wave-9 fix (C)).** After the encode, `StreamEncoder.write`
+releases its `ReentrantLock`; `ReentrantLock$Sync.tryRelease@24` used to throw because the
+exclusive-owner check `getExclusiveOwnerThread() != Thread.currentThread()` failed —
+Duke's `Thread.currentThread()` allocated a fresh throwaway identity per call, so the
+acquiring and releasing threads were not `==`. The former VERBATIM wall was:
 
 ```
 JavaException { class_name: "java/lang/IllegalMonitorStateException" }
 ```
 
-at `java/util/concurrent/locks/ReentrantLock$Sync::tryRelease@24 athrow`. Now pinned by
-`writer_graph_frontier.rs` (`EXPECTED_FRONTIER`). Crossing it needs the deferred wave-9
-fix **(C)** below — a heap-scoped, stable `Thread.currentThread()` — which is out of
-this lane. `streamencoder_writer_frontier.rs` (the `FileOutputStream(FileDescriptor)`
-allowlist wall) is unaffected by #1354 and stays green.
+at `java/util/concurrent/locks/ReentrantLock$Sync::tryRelease@24 athrow`.
+
+Fix (C) makes `Thread.currentThread()` (and `JavaLangAccess.currentCarrierThread()`)
+return a **single, stable, GC-rooted** main-thread object: it is seeded once at
+`bootstrap_stdlib` into a synthetic `$dukeMainThread` static field on `java/lang/Thread`
+(static fields are GC roots — see `gather_roots` — and get forwarding applied by
+`patch_forwarded_slots`, so it survives collection and compaction), and both natives
+now read that stable ref back on every call. With acquire-owner `==` release-owner, the
+lock balances and the writer graph runs to **COMPLETION**: `main` returns and the sink
+receives the exact UTF-8 bytes `[104,101,108,108,111,10]`. `writer_graph_frontier.rs` is
+now a real end-to-end assertion (sink bytes + reported size), not a frontier guard.
+`streamencoder_writer_frontier.rs` (the `FileOutputStream(FileDescriptor)` allowlist
+wall) is a separate, still-guarded frontier and stays green.
 
 ### HANDOFF to `swarm/arcstr-interning`
 
@@ -581,15 +593,22 @@ That lane owns the three forbidden files (`registry.rs` / `native/common.rs` /
 - **(B) Eager direct-superclass `<clinit>`.** `ensure_initialized` must initialize the
   direct superclass **before** the class itself, per JVMS 5.5.
   **DONE — landed in PR #1354.**
-- **(C, deferred — REMAINING wave-9 wall) Heap-scoped stable `Thread.currentThread()`.**
-  `currentThread` must return a stable identity across calls so `ReentrantLock`
-  lock/unlock balance. This is now the honest committed-tree wall (see the 2026-07-13
-  update above): `ReentrantLock$Sync.tryRelease` throws
-  `java/lang/IllegalMonitorStateException` on the writer graph.
+- **(C) Heap-scoped stable `Thread.currentThread()`. DONE (2026-07-13).**
+  `currentThread` now returns a stable identity across calls so `ReentrantLock`
+  lock/unlock balance. The main-thread object is seeded once at `bootstrap_stdlib`
+  into a GC-rooted `$dukeMainThread` static field on `java/lang/Thread`;
+  `Thread.currentThread` and `JavaLangAccess.currentCarrierThread` (both callback
+  natives now) read it back. This cleared wall #5 and drove the writer graph to
+  completion (`main` returns; sink = `[104,101,108,108,111,10]`). Landed on
+  `swarm/thread-identity`; it touched only Thread-identity natives + the stdlib
+  Thread bootstrap (no forbidden-region edits).
 
 Exact throwaway patches for (A)+(B) are saved at
-`scratchpad/stage-c-forbidden-fixes.diff`; the reverted (C) patch at
-`scratchpad/stage-c-thread-identity-throwaway.diff`.
+`scratchpad/stage-c-forbidden-fixes.diff`. The earlier reverted (C) `thread_local`
+attempt (rejected as unsound: stale across reused worker threads, frozen interrupted
+flag) is at `scratchpad/stage-c-thread-identity-throwaway.diff`; the shipped (C) fix
+instead uses a GC-rooted static-field seed (see above) and needed no forbidden-region
+edits.
 
 ---
 

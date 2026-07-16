@@ -4585,14 +4585,29 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 descriptor: "Ljava/lang/ClassLoader;".to_string(),
                 is_static: true,
             },
+            // Static-only slot holding the process-stable main-thread identity
+            // returned by every `Thread.currentThread()` /
+            // `JavaLangAccess.currentCarrierThread()` call. Seeded once below via
+            // `seed_main_thread`; see MAIN_THREAD_FIELD. Declared AFTER
+            // MAIN_CONTEXT_CLASS_LOADER_FIELD, so the static-field order is
+            // [context-loader, main-thread] to match `static_fields` below.
+            FieldEntry {
+                name: MAIN_THREAD_FIELD.to_string(),
+                descriptor: "Ljava/lang/Thread;".to_string(),
+                is_static: true,
+            },
         ],
-        static_fields: vec![Slot::Reference(None)],
+        static_fields: vec![Slot::Reference(None), Slot::Reference(None)],
         instance_field_count: 5,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(thread_ctx);
+    // Seed the single, stable main-thread identity into its GC-rooted static slot
+    // so `currentThread()`/`currentCarrierThread()` return the same object on every
+    // call (ReentrantLock owner-check balance — wave-9 fix C).
+    seed_main_thread(registry, heap);
     registry
         .natives_mut()
         .register("java/lang/Thread", "<init>", "()V", native_thread_init);
@@ -4602,7 +4617,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Runnable;)V",
         native_thread_init_runnable,
     );
-    registry.natives_mut().register(
+    registry.natives_mut().register_callback(
         "java/lang/Thread",
         "currentThread",
         "()Ljava/lang/Thread;",
@@ -15214,7 +15229,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     // It is not a `jdk/internal/misc/CarrierThread`, so `Blocker.begin()` takes the
     // `-1` (no-compensation) branch and `Blocker.end(-1)` is a no-op — the correct
     // behavior for a plain platform thread.
-    registry.natives_mut().register(
+    registry.natives_mut().register_callback(
         "jdk/internal/access/JavaLangAccess",
         "currentCarrierThread",
         "()Ljava/lang/Thread;",

@@ -1651,19 +1651,93 @@ pub(crate) fn native_system_nano_time(
 ) -> Result<Option<Slot>> {
     Ok(Some(Slot::Long(monotonic_nano_time_now())))
 }
+/// Static-field name on the synthetic `java/lang/Thread` holding the process's
+/// single, stable main-thread identity. `Thread.currentThread()` and
+/// `JavaLangAccess.currentCarrierThread()` return THIS ref on every call, so the
+/// object identity is stable across calls. That is required for `ReentrantLock`'s
+/// exclusive-owner check to balance: the lock records `Thread.currentThread()` at
+/// acquire and compares it against `Thread.currentThread()` on release
+/// (`getExclusiveOwnerThread() == currentThread`); a fresh identity per call makes
+/// acquire-owner != release-owner and throws `IllegalMonitorStateException`.
+///
+/// Stored in a static field so it is a GC root (see `gather_roots`, which extends
+/// the root set with every class's `static_fields`) and survives collection and
+/// compaction (`patch_forwarded_slots` applies forwarding to static fields). It is
+/// heap/registry-scoped — a fresh `Heap`+`ClassRegistry` starts with the field
+/// unset and re-seeds it, so no stale ref leaks across test worker threads.
+pub(crate) const MAIN_THREAD_FIELD: &str = "$dukeMainThread";
+
+/// Allocate a fresh synthetic `java/lang/Thread` and seed its five instance fields
+/// to the main-thread defaults. Factored so the bootstrap seed and the
+/// `currentThread()` lazy fallback build identical objects. Returning a real heap
+/// object (rather than caching a frozen snapshot) keeps `interrupted` mutable:
+/// `Thread.interrupt()` writes this object's field and `isInterrupted()` reads it,
+/// while host-thread interruption is still observed via `THREAD_HOST_KEY_SLOT`.
+fn allocate_main_thread(heap: &mut duke_gc::Heap) -> Result<u64> {
+    let thread_ref = heap.allocate("java/lang/Thread".to_string(), 5);
+    let thread = heap.get_mut(thread_ref)?;
+    thread.fields[THREAD_TARGET_SLOT] = Slot::Reference(None);
+    thread.fields[THREAD_ID_SLOT] = Slot::Int(-1);
+    thread.fields[THREAD_INTERRUPTED_SLOT] =
+        Slot::Int(i32::from(current_host_thread_is_interrupted()));
+    thread.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(java_host_key_for_current_host().unwrap_or(-1));
+    thread.fields[THREAD_CONTEXT_CLASS_LOADER_SLOT] = Slot::Reference(None);
+    Ok(thread_ref)
+}
+
+/// Seed the process-stable main-thread identity into the GC-rooted
+/// `MAIN_THREAD_FIELD` static on `java/lang/Thread`. Called once from
+/// `bootstrap_stdlib` (registry + heap are both available there) so that even the
+/// earliest `Thread.currentThread()` returns a stable object. Idempotent: if the
+/// field is already populated it does nothing.
+pub(crate) fn seed_main_thread(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
+    let Ok(idx) = registry
+        .get("java/lang/Thread")
+        .and_then(|ctx| static_field_idx(ctx, MAIN_THREAD_FIELD))
+    else {
+        return;
+    };
+    let already_seeded = matches!(
+        registry
+            .get("java/lang/Thread")
+            .ok()
+            .and_then(|ctx| ctx.static_fields.get(idx).copied()),
+        Some(Slot::Reference(Some(_)))
+    );
+    if already_seeded {
+        return;
+    }
+    let Ok(thread_ref) = allocate_main_thread(heap) else {
+        return;
+    };
+    if let Ok(ctx) = registry.get_mut("java/lang/Thread") {
+        ctx.static_fields[idx] = Slot::Reference(Some(thread_ref));
+    }
+}
+
 pub(crate) fn native_thread_current_thread(
     _args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let thread_ref = heap.allocate("java/lang/Thread".to_string(), 5);
-    let thread = heap.get_mut(thread_ref)?;
-    thread.fields[THREAD_TARGET_SLOT] = Slot::Reference(None);
-    thread.fields[THREAD_ID_SLOT] = Slot::Int(-1);
-    thread.fields[THREAD_INTERRUPTED_SLOT] = Slot::Int(i32::from(current_host_thread_is_interrupted()));
-    thread.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(java_host_key_for_current_host().unwrap_or(-1));
-    thread.fields[THREAD_CONTEXT_CLASS_LOADER_SLOT] = Slot::Reference(None);
+    // Return the process-stable main-thread identity so successive calls yield the
+    // SAME heap object (see MAIN_THREAD_FIELD). Seeded once at bootstrap; the block
+    // below is a defensive lazy re-seed for the case where the static field is
+    // still unset (e.g. a heap/registry constructed without going through the
+    // bootstrap seed).
+    if let Slot::Reference(Some(existing)) =
+        ops.read_static_field("java/lang/Thread", MAIN_THREAD_FIELD)?
+    {
+        return Ok(Some(Slot::Reference(Some(existing))));
+    }
+    let thread_ref = allocate_main_thread(heap)?;
+    ops.write_static_field(
+        "java/lang/Thread",
+        MAIN_THREAD_FIELD,
+        Slot::Reference(Some(thread_ref)),
+    )?;
     Ok(Some(Slot::Reference(Some(thread_ref))))
 }
 #[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature

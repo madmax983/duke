@@ -23112,21 +23112,58 @@ fn native_attributes_get_value_reads_manifest_key() {
 }
 
 #[test]
-fn native_thread_current_thread_returns_thread_object() {
+fn native_thread_current_thread_returns_stable_thread_object() {
+    let mut registry = ClassRegistry::new();
     let mut heap = duke_gc::Heap::new();
-    let mut sink: Vec<u8> = Vec::new();
+    // Bootstrap registers the synthetic `java/lang/Thread` (with the GC-rooted
+    // `$dukeMainThread` static slot) and seeds the stable main-thread identity.
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let loader = fixtures_loader();
 
-    let result =
-        native_thread_current_thread(&[], &mut heap, &mut sink, &mut NativeControl::default())
-            .expect("Thread.currentThread should succeed")
-            .expect("Thread.currentThread should return a thread");
+    let call_current_thread = |registry: &mut ClassRegistry, heap: &mut duke_gc::Heap| -> Slot {
+        let mut sink: Vec<u8> = Vec::new();
+        let mut ops = InterpreterCallbackOps {
+            registry,
+            loader: &loader,
+        };
+        native_thread_current_thread(
+            &[],
+            heap,
+            &mut sink,
+            &mut NativeControl::default(),
+            &mut ops,
+        )
+        .expect("Thread.currentThread should succeed")
+        .expect("Thread.currentThread should return a thread")
+    };
 
-    let Slot::Reference(Some(thread_ref)) = result else {
+    let first = call_current_thread(&mut registry, &mut heap);
+    let second = call_current_thread(&mut registry, &mut heap);
+
+    // Wave-9 fix (C): the identity must be STABLE — both calls return the SAME
+    // heap ref, so `ReentrantLock`'s acquire-owner == release-owner check balances.
+    assert_eq!(
+        first, second,
+        "Thread.currentThread() must return a stable identity across calls"
+    );
+
+    let Slot::Reference(Some(thread_ref)) = first else {
         panic!("expected Thread reference");
     };
     let thread = heap.get(thread_ref).unwrap();
     assert_eq!(thread.class_name, "java/lang/Thread");
     assert_eq!(thread.fields[THREAD_ID_SLOT], Slot::Int(-1));
+}
+
+#[test]
+fn thread_current_thread_identity_is_stable_through_invokestatic() {
+    // End-to-end via real `invokestatic` dispatch: `ThreadIdentityProbe.sameIdentity`
+    // calls `Thread.currentThread()` twice and returns 1 iff `a == b` (reference
+    // equality). Wave-9 fix (C) makes the identity stable, so this returns 1.
+    assert_eq!(
+        run_bootstrap_int("ThreadIdentityProbe.class", "sameIdentity", "()I"),
+        1
+    );
 }
 
 #[test]
