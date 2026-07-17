@@ -19,6 +19,8 @@ mod html;
 mod html_jar;
 mod jar_analyze;
 #[cfg(feature = "nova")]
+mod jar_clone_detect;
+#[cfg(feature = "nova")]
 mod jar_diff;
 #[cfg(feature = "nova")]
 mod jar_search;
@@ -399,6 +401,8 @@ fn main() {
         eprintln!("       duke jar-dead-code <file.jar>");
         #[cfg(feature = "nova")]
         eprintln!("       duke jar-search <file.jar> <query>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke jar-clone-detect <file.jar> [threshold]");
         eprintln!("       duke -jar <file.jar> [string-arg...]");
         eprintln!("Options: --telemetry[=path]  dump telemetry JSON after execution");
         eprintln!("         --telemetry-md[=p]  dump telemetry Markdown report after execution");
@@ -425,6 +429,31 @@ fn main() {
         #[cfg(not(feature = "nova"))]
         {
             eprintln!("duke: unknown subcommand 'jar-dead-code'");
+            std::process::exit(1);
+        }
+    }
+
+    // Dispatch `jar-clone-detect`
+    if args.len() > 1 && args[1] == "jar-clone-detect" {
+        if args.len() < 3 {
+            eprintln!("Usage: duke jar-clone-detect <file.jar> [threshold]");
+            std::process::exit(1);
+        }
+
+        let threshold = if args.len() > 3 {
+            args[3].parse::<f64>().unwrap_or(0.9)
+        } else {
+            0.9
+        };
+
+        #[cfg(feature = "nova")]
+        {
+            jar_clone_detect::dump_jar_clone_detect(&args[2], threshold);
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: 'jar-clone-detect' command requires the 'nova' feature flag.");
             std::process::exit(1);
         }
     }
