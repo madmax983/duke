@@ -440,6 +440,7 @@ fn main() {
             std::process::exit(1);
         }
 
+        #[allow(unused_variables)]
         let threshold = if args.len() > 3 {
             args[3].parse::<f64>().unwrap_or(0.9)
         } else {
