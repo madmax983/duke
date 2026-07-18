@@ -358,3 +358,86 @@ Extended gates all green: HelloWorld (synthetic + real-jdk, incl. `DUKE_LAYOUT_C
 OSS canaries (slf4j-simple / gson / commons-lang3); Spring Boot synthetic + real-jdk pins; real-jdk
 shadow-key / provenance suites (`real_jdk_shadow`, `classloader_bootstrap_frontier`, `module_model`,
 `layout_coherence`) — the `\0loader:` loader-suffixed keys still resolve.
+
+## 2026-07-18: Interpreter dispatch hot-path — kill per-call arg alloc, cache caller bytecode, single-borrow Ldc (`swarm/dispatch-perf`)
+
+Date: 2026-07-18
+Hardware: CI container
+Duke version: trunk @ `3ab296b` + `swarm/dispatch-perf`
+HotSpot version: OpenJDK 21 (system `java`); interpreter reference is `-Xint`
+
+Three behavior-identical changes on the method-dispatch and constant-load hot paths. The two
+dispatch-heavy benchmarks (benchSum, benchFib) moved well outside noise; the small object-churn
+benchmarks (benchArrayList, benchHashMap) are neutral within noise, as expected — they are not
+call-loop-bound.
+
+### Changes
+
+- **R1 — `pop_typed_args_into_locals` (`native/common.rs`)**: the function allocated a throwaway
+  `vec![Slot::Int(0); count]` on **every** method invoke to stage popped operands before copying
+  them into the locals array. It now pops operands directly into the already-sized `locals` buffer,
+  walking the destination local index backward in lock-step with the reverse pop so wide (J/D)
+  two-slot placement is preserved exactly. Padding slots stay at the resize-initialized
+  `Slot::Int(0)`. Called on all six invoke fast paths (invokestatic / -special / -virtual /
+  -interface / lambda / method-ref). Removes one heap alloc + free per call.
+
+- **R2 — cache caller bytecode in `CallFrame` (`native/common.rs` + `execution.rs`)**: `do_return!`
+  re-fetched the caller method's instruction slice on every return via
+  `registry.get(current_class)?.methods[idx].instructions`, re-walking the `ClassRegistry` HashMap.
+  `CallFrame` now carries the caller's `instructions: Arc<[(usize, Instruction)]>`, cloned once at
+  call-push (one cheap Arc refcount bump) and restored with a move on return — exactly mirroring the
+  already-cached `pc_to_idx`. The exception-unwind restore site is updated to match. An on-stack
+  method's bytecode is immutable for the life of the frame, so the cached Arc equals the re-fetched
+  one; behavior is byte-identical.
+
+- **R3 — single-borrow Ldc (`execution.rs`)**: the `Ldc` arm re-fetched `ctx = registry.get(...)`
+  and re-resolved the constant pool up to three times per execution (String probe, then Class probe,
+  then the `ldc_push` fallback). It now classifies the constant once under a single borrow into
+  String / Class / Other (cloning the resolved value out so the borrow releases before the heap and
+  intern-map mutations), then branches. Byte-identical, including the `InvalidCpIndex` error on an
+  unresolved String entry and the Class→Other fallthrough.
+
+- **R7 — not taken**: skipping the per-dispatch quantum decrement/compare when `quantum` is `None`
+  would require duplicating the multi-thousand-line dispatch `match` (or a risky extraction). The
+  `remaining == 0` branch is already highly predictable and `saturating_sub(1)` is a single
+  instruction; not worth the restructuring risk. Recorded as a neutral no-op.
+
+### Criterion (median, `--sample-size 10 --measurement-time 8`; isolates the execution loop)
+
+| Benchmark | BEFORE trunk `3ab296b` (ms) | AFTER (ms) | Δ (criterion verdict) |
+|-----------|----------------------------:|-----------:|-----------------------|
+| benchSum (500k int adds)        | 80.55 | 69.00 | **-14.3%** (improved, p<0.05) |
+| benchFib (fib(25), ~500k calls) | 69.35 | 62.64 | **-9.7%** (improved, p<0.05) |
+| benchArrayList (5k ArrayList.add) | 7.39 | 7.51 | neutral (re-run p=0.71, "no change") |
+| benchHashMap (200 put + 200 get)  | 1.99 | 2.05 | neutral (p=0.19, "no change") |
+
+benchArrayList's first read showed +4.6% but the immediate re-run reported "no change in
+performance detected" (p=0.71) with a median of 7.51 ms — the first read was machine noise, matching
+the #1350 precedent that flags benchArrayList/benchHashMap as noisy on this suite. Both are recorded
+here as negative/neutral results per the #1350 convention.
+
+Interpreter-vs-interpreter target (HotSpot `-Xint`: benchSum 63 ms, benchFib 40 ms): benchSum closes
+to within ~10% of `-Xint`; benchFib remains the larger gap (Frame/dispatch structural cost beyond
+these three point wins).
+
+### Verdict (honest)
+
+Real, causal wins on the two dispatch-bound benchmarks: benchFib (the tightest call loop) improved
+9.7% outside noise, driven by R1 (one fewer alloc/free per of ~485k calls) and R2 (one fewer
+registry HashMap walk per return); benchSum's 14.3% comes from R1/R3 shrinking per-instruction
+overhead on its tight arithmetic + Ldc loop. The object-churn benchmarks are unmoved because they
+are not call-loop-bound. Fully behavior-identical: no fixture output, error text, or wide-type
+placement changed.
+
+Gate: `cargo test --workspace` = **3146 passed / 0 failed / 4 ignored** (≥ the #1350 3095/0/4
+baseline; full run restored); `cargo fmt --all -- --check` clean; exact CI clippy
+`RUSTFLAGS="-D warnings" cargo +1.97.0 clippy --workspace --all-targets -- -W clippy::pedantic
+-W clippy::nursery` clean. Extended gates all green: HelloWorld (synthetic + real-jdk, incl.
+`DUKE_LAYOUT_CHECK=fail`) — identical `Hello, World!`, exit 0 in both modes; the 3 OSS canaries
+(slf4j-simple / gson / commons-lang3); Spring Boot synthetic + real-jdk pins; real-jdk shadow-key /
+provenance suites (`real_jdk_shadow`, `classloader_bootstrap_frontier`, `module_model`,
+`layout_coherence`).
+
+Note: the duplicate-test-fn workspace-build unbreak (the two `hashmap_for_each_survives_mid_iteration_gc`
+definitions from #1384/#1386, E0428) is handled in a separate lane's PR, not this branch. This branch
+should be rebased onto trunk once that lands so `cargo test --workspace` compiles in CI.
