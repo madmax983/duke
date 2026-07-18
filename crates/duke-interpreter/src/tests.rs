@@ -229,13 +229,11 @@ fn native_hashset_init_from_collection_copies_to_array_elements() {
 /// A stale (moved) young reference resolves to the empty forwarding stub, so
 /// the field read fails — surfacing the use-after-move as a wrong value.
 fn gc_probe_int_field0(heap: &duke_gc::Heap, r: u64) -> i32 {
-    match heap.get(r) {
-        Ok(obj) => match obj.fields.first().copied() {
+    heap.get(r)
+        .map_or(i32::MIN, |obj| match obj.fields.first().copied() {
             Some(Slot::Int(n)) => n,
             _ => i32::MIN,
-        },
-        Err(_) => i32::MIN,
-    }
+        })
 }
 
 fn gc_probe_ref_arg(args: &[Slot], idx: usize) -> u64 {
