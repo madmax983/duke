@@ -267,10 +267,54 @@ fn path_from_string_slot(
 }
 
 fn string_value_from_ref(heap: &duke_gc::Heap, string_ref: u64) -> Result<String> {
-    heap.get(string_ref)?
-        .string_value
-        .clone()
-        .ok_or(Error::NullPointerException)
+    read_string_bytes(heap, string_ref)
+}
+
+/// Decodes the real `java/lang/String` heap layout — slot 0 (`value:[B`) and
+/// slot 1 (`coder:B`) — back into a Rust `String`, inverting the encoding that
+/// [`duke_gc::Heap::set_string_layout`] applies: Latin-1 when `coder == 0`,
+/// little-endian UTF-16 when `coder == 1`. Java `byte`s are signed, so the
+/// backing-array octets are recovered through [`byte_from_slot`] (via
+/// [`full_byte_array`]).
+///
+/// This is the slot-0 "source of truth" counterpart to reading the
+/// `string_value` side-channel. A null `value` array (slot 0 is not a live `[B`
+/// reference) yields `NullPointerException`, matching how the previous
+/// [`string_value_from_ref`] treated a missing `string_value`.
+///
+/// In debug builds the decoded result is cross-checked against the
+/// `string_value` side-channel (when present); a mismatch flags a String mint
+/// path that populated the side-channel but not slot 0.
+///
+/// # Errors
+/// Returns `Error::NullPointerException` if `string_ref` is not a live object
+/// or its slot-0 `value` array is null.
+fn read_string_bytes(heap: &duke_gc::Heap, string_ref: u64) -> Result<String> {
+    let obj = heap.get(string_ref)?;
+    let Some(Slot::Reference(Some(bytes_ref))) = obj.fields.first().copied() else {
+        return Err(Error::NullPointerException);
+    };
+    let coder = match obj.fields.get(1) {
+        Some(Slot::Int(c)) => *c,
+        _ => 0,
+    };
+    let bytes = full_byte_array(heap, bytes_ref)?;
+    let decoded: String = if coder == 1 {
+        decode_utf16_bytes(&bytes, Utf16Endian::Little)
+    } else {
+        bytes.iter().map(|&b| char::from(b)).collect()
+    };
+
+    #[cfg(debug_assertions)]
+    if let Some(expected) = obj.string_value.as_deref() {
+        debug_assert_eq!(
+            decoded.as_str(),
+            expected,
+            "read_string_bytes slot-0 decode disagreed with the string_value side-channel"
+        );
+    }
+
+    Ok(decoded)
 }
 
 const JUL_LEVEL_VALUE_FIELD: usize = 0;
@@ -6265,7 +6309,10 @@ fn parse_i128_decode(s: &str) -> Result<i128> {
 
 fn extract_string_arg_value(args: &[Slot], index: usize, heap: &duke_gc::Heap) -> Result<String> {
     let str_ref = extract_ref_arg(args, index)?;
-    Ok(heap.get(str_ref)?.string_value.clone().unwrap_or_default())
+    // Propagate a genuine invalid-reference error before defaulting; a live
+    // String with a null `value` slot (no content) decodes to the empty string.
+    heap.get(str_ref)?;
+    Ok(read_string_bytes(heap, str_ref).unwrap_or_default())
 }
 
 fn extract_parse_radix_arg(args: &[Slot], index: usize) -> Result<u32> {
