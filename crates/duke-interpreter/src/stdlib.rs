@@ -9152,6 +9152,14 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_arrays_sort_objects,
     );
 
+    // Arrays.hashCode(Object[]) — contract element hash
+    registry.natives_mut().register_callback(
+        "java/util/Arrays",
+        "hashCode",
+        "([Ljava/lang/Object;)I",
+        native_arrays_hash_code_objects,
+    );
+
     // Arrays.copyOfRange (int[] and Object[] variants)
     registry.natives_mut().register(
         "java/util/Arrays",
@@ -15240,6 +15248,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getModifiers",
         "()I",
         native_class_get_modifiers,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getSuperclass",
+        "()Ljava/lang/Class;",
+        native_class_get_superclass,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getInterfaces",
+        "()[Ljava/lang/Class;",
+        native_class_get_interfaces,
     );
     registry.natives_mut().register(
         "java/lang/Class",

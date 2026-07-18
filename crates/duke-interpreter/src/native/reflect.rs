@@ -570,6 +570,76 @@ pub(crate) fn native_class_get_modifiers(
     ))))
 }
 
+/// Native: `Class.getSuperclass()Ljava/lang/Class;`.
+///
+/// Returns the `Class` mirror of the direct superclass, or `null` for
+/// `java.lang.Object`, interfaces, and primitive types (per the JLS). Array
+/// classes report `Object`. The superclass name is normalized to its bare
+/// internal form so the mirror interns consistently with every other `Class`
+/// mirror Duke mints. Reached from Spring's annotation-hierarchy scanning.
+pub(crate) fn native_class_get_superclass(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    // An array class's superclass is Object.
+    if internal_name.starts_with('[') {
+        let object_ref = allocate_class_object(heap, "java/lang/Object")?;
+        return Ok(Some(Slot::Reference(Some(object_ref))));
+    }
+    // Primitive mirrors (single-character descriptor keys) have no superclass.
+    if internal_name.len() == 1 {
+        return Ok(Some(Slot::Reference(None)));
+    }
+    let Ok(info) = ops.inspect_class(&internal_name) else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    // Interfaces report null even though their classfile super is Object.
+    if info.access_flags & 0x0200 != 0 {
+        return Ok(Some(Slot::Reference(None)));
+    }
+    match info.super_class {
+        Some(super_name) => {
+            let bare = internal_name_fragment(&super_name).to_string();
+            let super_ref = allocate_class_object(heap, &bare)?;
+            Ok(Some(Slot::Reference(Some(super_ref))))
+        }
+        None => Ok(Some(Slot::Reference(None))),
+    }
+}
+
+/// Native: `Class.getInterfaces()[Ljava/lang/Class;`.
+///
+/// Returns the `Class` mirrors of the interfaces this class/interface directly
+/// declares, in declaration order (an empty array when there are none). Each
+/// interface name is normalized to its bare internal form so the mirrors intern
+/// consistently. Reached from Spring's annotation-hierarchy scanning.
+pub(crate) fn native_class_get_interfaces(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let interfaces = ops
+        .inspect_class(&internal_name)
+        .map(|info| info.interfaces)
+        .unwrap_or_default();
+    let mut class_refs = Vec::with_capacity(interfaces.len());
+    for iface in interfaces {
+        let bare = internal_name_fragment(&iface).to_string();
+        class_refs.push(allocate_class_object(heap, &bare)?);
+    }
+    let array_ref = allocate_reference_array(heap, "[Ljava/lang/Class;", &class_refs)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
 /// Native: `Class.isAnonymousClass()Z` — false for every named class Duke loads.
 #[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
 pub(crate) fn native_class_is_anonymous_class(

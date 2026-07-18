@@ -2150,6 +2150,63 @@ pub(crate) fn native_arrays_sort_objects(
     }
     Ok(None)
 }
+/// Dispatch `element.hashCode()` for one array element, mirroring how
+/// `java.util.Arrays.hashCode` hashes each slot.
+///
+/// `null` hashes to 0. A reference dispatches its virtual `hashCode()` through
+/// `ops.invoke` (so `String`/boxed values yield their real value hashes). If the
+/// element's runtime class only inherits `Object.hashCode` and that inherited
+/// native cannot be reached through the directed callback path, fall back to the
+/// identity hash — which is exactly what `Object.hashCode` returns — so the
+/// result stays consistent instead of raising.
+fn arrays_element_hash_code(
+    slot: Slot,
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+) -> Result<i32> {
+    let Slot::Reference(Some(element_ref)) = slot else {
+        return Ok(0);
+    };
+    let class_name = heap.get(element_ref)?.class_name.clone();
+    match ops.invoke(
+        heap,
+        out,
+        &class_name,
+        "hashCode",
+        "()I",
+        vec![Slot::Reference(Some(element_ref))],
+    ) {
+        Ok(Some(Slot::Int(hash))) => Ok(hash),
+        Ok(_) => Ok(0),
+        Err(Error::MethodNotFound { .. }) => Ok(heap.identity_hash(element_ref)?),
+        Err(err) => Err(err),
+    }
+}
+
+/// Native: `Arrays.hashCode([Ljava/lang/Object;)I` — the contract hash
+/// `result = 31*result + element.hashCode()` seeded at 1, with a null array
+/// hashing to 0. Reached from Spring's `PackagesAnnotationFilter` constructor,
+/// which hashes its `String[]` of package prefixes.
+pub(crate) fn native_arrays_hash_code_objects(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let Some(Slot::Reference(Some(arr_ref))) = args.first().copied() else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let len = heap.get(arr_ref)?.fields.len();
+    let mut result: i32 = 1;
+    for i in 0..len {
+        let element = heap.get(arr_ref)?.fields[i];
+        let hash = arrays_element_hash_code(element, heap, out, ops)?;
+        result = result.wrapping_mul(31).wrapping_add(hash);
+    }
+    Ok(Some(Slot::Int(result)))
+}
 /// Native: `Collections.singletonList(Object)List` — returns a one-element `ArrayList`.
 pub(crate) fn native_collections_singleton_list(
     args: &[Slot],

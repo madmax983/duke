@@ -8645,21 +8645,32 @@ fn prepare_execution_state(
         }
         Err(err) => return Err(err),
     };
-    let entry_idx = {
+    // Resolve the method on the exact class first (fast path, unchanged
+    // behaviour). If the class does not declare it, the method is inherited, so
+    // walk the superclass chain exactly like the main interpreter dispatch does.
+    // This fallback only fires on inputs that previously raised `MethodNotFound`
+    // (a directed `ops.invoke` for an inherited method — e.g. a native calling a
+    // Comparator's `compare` that lives on a superclass), so it cannot alter any
+    // call that already resolved.
+    let own_idx = {
         let ctx = registry.get(&class_name)?;
         ctx.methods
             .iter()
             .position(|m| m.name == method_name && m.descriptor == descriptor)
+    };
+    let (dispatch_class, entry_idx) = match own_idx {
+        Some(idx) => (class_name.clone(), idx),
+        None => resolve_method_in_hierarchy(registry, loader, &class_name, method_name, descriptor)
             .ok_or_else(|| Error::MethodNotFound {
                 name: format!("{class_name}.{method_name}"),
                 descriptor: descriptor.to_string(),
-            })?
+            })?,
     };
 
-    let class_loader = registry.class_loader(&class_name).cloned();
+    let class_loader = registry.class_loader(&dispatch_class).cloned();
     let init_loader = class_loader.as_deref().map_or(loader, |v| v);
-    ensure_initialized(registry, init_loader, heap, stdout, &class_name, "")?;
-    ExecutionState::new(registry, &class_name, method_name, entry_idx, args)
+    ensure_initialized(registry, init_loader, heap, stdout, &dispatch_class, "")?;
+    ExecutionState::new(registry, &dispatch_class, method_name, entry_idx, args)
 }
 
 #[cfg(feature = "telemetry")]
