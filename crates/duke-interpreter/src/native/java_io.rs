@@ -17,8 +17,7 @@ pub(crate) fn native_println_string(
             });
         }
     };
-    let obj = heap.get(string_ref)?;
-    let text = obj.string_value.as_deref().unwrap_or("null");
+    let text = string_value_from_ref(heap, string_ref).unwrap_or_else(|_| "null".to_string());
     writeln!(out, "{text}").ok();
     Ok(None)
 }
@@ -562,11 +561,9 @@ pub(crate) fn native_buffered_reader_read_line(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let content = match heap.get(this_ref)?.fields.get(BUFFERED_READER_CONTENT_FIELD) {
-        Some(Slot::Reference(Some(content_ref))) => heap
-            .get(*content_ref)?
-            .string_value
-            .clone()
-            .unwrap_or_default(),
+        Some(Slot::Reference(Some(content_ref))) => {
+            string_value_from_ref(heap, *content_ref).unwrap_or_default()
+        }
         _ => String::new(),
     };
     let cursor = match heap.get(this_ref)?.fields.get(BUFFERED_READER_CURSOR_FIELD) {
@@ -621,11 +618,9 @@ pub(crate) fn native_buffered_reader_close(
     // Advance the cursor to the end so any post-close read yields null; the
     // underlying stream is left as-is (resource streams are in-memory).
     let content_len = match heap.get(this_ref)?.fields.get(BUFFERED_READER_CONTENT_FIELD) {
-        Some(Slot::Reference(Some(content_ref))) => heap
-            .get(*content_ref)?
-            .string_value
-            .as_ref()
-            .map_or(0, |s| s.chars().count()),
+        Some(Slot::Reference(Some(content_ref))) => {
+            read_string_bytes(heap, *content_ref).map_or(0, |s| s.chars().count())
+        }
         _ => 0,
     };
     heap.write_field(
@@ -655,8 +650,7 @@ pub(crate) fn native_print_string(
             });
         }
     };
-    let obj = heap.get(string_ref)?;
-    let text = obj.string_value.as_deref().unwrap_or("null");
+    let text = string_value_from_ref(heap, string_ref).unwrap_or_else(|_| "null".to_string());
     write!(out, "{text}").ok();
     Ok(None)
 }
