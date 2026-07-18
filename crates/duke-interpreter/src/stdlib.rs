@@ -9245,6 +9245,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/util/UnmodifiableMap",
+        "getOrDefault",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_get_or_default,
+    );
+    registry.natives_mut().register(
+        "java/util/UnmodifiableMap",
         "containsKey",
         "(Ljava/lang/Object;)Z",
         native_hashmap_contains_key,

@@ -768,10 +768,27 @@ pub(crate) fn native_class_cast(
     }
 }
 
+/// Strip a class key's `\0`-delimited provenance suffix (e.g. `\0loader:<id>` or
+/// `\0code:<hash>`) down to the bare internal name.
+///
+/// Classes loaded through a runtime `ClassLoader` (the Spring Boot fat-jar
+/// `LaunchedClassLoader`, for instance) are keyed as `internal/Name\0loader:<id>`,
+/// and `CallbackOps::inspect_class` reports their superclass/interface names in
+/// that same loader-qualified form. The `Class` mirrors that reflection compares
+/// against (`from`/`to` here) carry the bare internal name, so an un-normalized
+/// walk never matches a loader-qualified supertype. Duke models one logical type
+/// per internal name, so comparing on the bare fragment is the faithful behaviour
+/// (it mirrors the registry's own `class_internal_name_fragment`).
+fn internal_name_fragment(name: &str) -> &str {
+    name.split_once('\0').map_or(name, |(bare, _)| bare)
+}
+
 /// Walk `from`'s superclass/interface closure looking for `to`, resolving each level
 /// through `CallbackOps::inspect_class`. Inspection failures are treated as "no such
 /// supertype" rather than propagated, so this cannot itself error.
 fn class_is_assignable_via_callback(from: &str, to: &str, ops: &mut dyn CallbackOps) -> bool {
+    let from = internal_name_fragment(from);
+    let to = internal_name_fragment(to);
     if from == to || to == "java/lang/Object" {
         return true;
     }
@@ -794,10 +811,10 @@ fn class_is_assignable_via_callback(from: &str, to: &str, ops: &mut dyn Callback
             continue;
         };
         if let Some(super_class) = info.super_class {
-            queue.push_back(super_class);
+            queue.push_back(internal_name_fragment(&super_class).to_string());
         }
         for iface in info.interfaces {
-            queue.push_back(iface);
+            queue.push_back(internal_name_fragment(&iface).to_string());
         }
     }
     false
