@@ -204,6 +204,23 @@ pub(crate) fn native_reflection_member_set_accessible(
     )?;
     Ok(None)
 }
+/// Native: `AccessibleObject.isAccessible()Z` (Field / Method / Constructor) —
+/// reads back the `accessibleFlag` last written by `setAccessible`. Spring's
+/// `ReflectionUtils.makeAccessible` calls it to avoid a redundant
+/// `setAccessible(true)` on an already-accessible member.
+pub(crate) fn native_reflection_member_is_accessible(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let member_ref = extract_ref_arg(args, 0)?;
+    let accessible = matches!(
+        heap.get(member_ref)?.fields.get(REFLECTION_MEMBER_ACCESSIBLE_FIELD),
+        Some(Slot::Int(flag)) if *flag != 0
+    );
+    Ok(Some(Slot::Int(i32::from(accessible))))
+}
 pub(crate) fn native_reflect_field_get(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -701,6 +718,167 @@ pub(crate) fn native_reflect_field_get_modifiers(
         field_modifiers_from_access_flags,
     );
     Ok(Some(Slot::Int(modifiers)))
+}
+
+/// Native: `Method.getModifiers()I` / `Constructor.getModifiers()I` — the
+/// public/static modifier bits recorded on the reflected-member mirror.
+///
+/// `ReflectedMethodInfo` (unlike `ReflectedFieldInfo`) does not carry the raw
+/// classfile `access_flags`, so the honest, available signal is the
+/// `publicFlag`/`staticFlag` the `Method`/`Constructor` mirror was minted with.
+/// That is exactly the set callers like Spring's
+/// `SpringFactoriesLoader.instantiateFactory` test
+/// (`Modifier.isPublic(constructor.getModifiers())`); other bits (`final`,
+/// `abstract`, `private` vs package-private) are not modelled and read as 0.
+pub(crate) fn native_reflect_method_get_modifiers(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let method_ref = extract_ref_arg(args, 0)?;
+    let method = reflected_method_handle(heap, method_ref)?;
+    let mut modifiers = 0;
+    if method.is_public {
+        modifiers |= 0x0001; // ACC_PUBLIC
+    }
+    if method.is_static {
+        modifiers |= 0x0008; // ACC_STATIC
+    }
+    Ok(Some(Slot::Int(modifiers)))
+}
+
+// ─── java/lang/reflect/Modifier predicates ───────────────────────────────────
+// Pure access-flag bit tests over a modifier `int`, exactly as
+// `java.lang.reflect.Modifier` defines them (JVMS §4 access_flags values). First
+// reached from Spring's `ReflectionUtils.makeAccessible`, which gates
+// `setAccessible(true)` on `Modifier.isPublic(ctor.getModifiers())`. Append-only,
+// no heap/callback interaction.
+
+/// Return `Slot::Int(1)` when `(modifier & bit) != 0`, else `Slot::Int(0)`.
+fn modifier_bit_test(args: &[Slot], bit: i32) -> Result<Option<Slot>> {
+    let modifiers = extract_int_arg(args, 0)?;
+    Ok(Some(Slot::Int(i32::from(modifiers & bit != 0))))
+}
+
+/// Native: `Modifier.isPublic(I)Z`.
+pub(crate) fn native_modifier_is_public(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0001)
+}
+
+/// Native: `Modifier.isPrivate(I)Z`.
+pub(crate) fn native_modifier_is_private(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0002)
+}
+
+/// Native: `Modifier.isProtected(I)Z`.
+pub(crate) fn native_modifier_is_protected(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0004)
+}
+
+/// Native: `Modifier.isStatic(I)Z`.
+pub(crate) fn native_modifier_is_static(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0008)
+}
+
+/// Native: `Modifier.isFinal(I)Z`.
+pub(crate) fn native_modifier_is_final(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0010)
+}
+
+/// Native: `Modifier.isSynchronized(I)Z`.
+pub(crate) fn native_modifier_is_synchronized(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0020)
+}
+
+/// Native: `Modifier.isVolatile(I)Z`.
+pub(crate) fn native_modifier_is_volatile(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0040)
+}
+
+/// Native: `Modifier.isTransient(I)Z`.
+pub(crate) fn native_modifier_is_transient(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0080)
+}
+
+/// Native: `Modifier.isNative(I)Z`.
+pub(crate) fn native_modifier_is_native(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0100)
+}
+
+/// Native: `Modifier.isInterface(I)Z`.
+pub(crate) fn native_modifier_is_interface(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0200)
+}
+
+/// Native: `Modifier.isAbstract(I)Z`.
+pub(crate) fn native_modifier_is_abstract(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0400)
+}
+
+/// Native: `Modifier.isStrict(I)Z`.
+pub(crate) fn native_modifier_is_strict(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0800)
 }
 
 /// Native: `Field.isSynthetic()Z` — Duke does not track the `ACC_SYNTHETIC` flag;
