@@ -217,6 +217,316 @@ fn native_hashset_init_from_collection_copies_to_array_elements() {
     assert_eq!(hashset.fields[2], Slot::Reference(Some(second)));
 }
 
+// ---- Regression: relocating GC inside a callback native must not leave the
+// native holding stale (moved) heap references. Each test drives a real native
+// with a `CallbackOps` double whose `invoke` fires a promoting collection on the
+// first callback, so every reference the native captured before/inside its loop
+// is relocated (young -> old, `promotion_age = 0`). Post-fix the native
+// re-resolves through the forward map; pre-fix it dereferences a freed slot and
+// the recorded/returned values are wrong (or it panics). ----
+
+/// Read `fields[0]` of `r` as an `i32`, or a sentinel if `r` is stale/invalid.
+/// A stale (moved) young reference resolves to the empty forwarding stub, so
+/// the field read fails — surfacing the use-after-move as a wrong value.
+fn gc_probe_int_field0(heap: &duke_gc::Heap, r: u64) -> i32 {
+    match heap.get(r) {
+        Ok(obj) => match obj.fields.first().copied() {
+            Some(Slot::Int(n)) => n,
+            _ => i32::MIN,
+        },
+        Err(_) => i32::MIN,
+    }
+}
+
+fn gc_probe_ref_arg(args: &[Slot], idx: usize) -> u64 {
+    match args.get(idx) {
+        Some(Slot::Reference(Some(r))) => *r,
+        other => panic!("expected reference arg at {idx}, got {other:?}"),
+    }
+}
+
+fn gc_probe_reflected_class_info() -> ReflectedClassInfo {
+    ReflectedClassInfo {
+        internal_name: String::new(),
+        binary_name: String::new(),
+        super_class: None,
+        interfaces: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        access_flags: 0,
+        annotations: Vec::new(),
+    }
+}
+
+/// Allocate a `java/lang/Integer`-shaped box holding `value` in `fields[0]`.
+fn gc_probe_boxed_int(heap: &mut duke_gc::Heap, value: i32) -> u64 {
+    let r = heap.allocate("java/lang/Integer".to_string(), 1);
+    heap.get_mut(r).unwrap().fields[0] = Slot::Int(value);
+    r
+}
+
+/// Allocate `n` unreachable young-gen objects. Because they occupy the low young
+/// indices and are dropped by the next `collect`, the live survivors compact to
+/// lower indices — guaranteeing their references actually change (a single-hop
+/// young->young relocation recorded in the forward map), so the re-resolution
+/// path is genuinely exercised rather than a no-op.
+fn gc_probe_alloc_garbage(heap: &mut duke_gc::Heap, n: usize) {
+    for _ in 0..n {
+        let _ = heap.allocate("Garbage".to_string(), 0);
+    }
+}
+
+#[test]
+fn arraylist_for_each_re_resolves_snapshot_after_gc() {
+    struct GcConsumerOps {
+        roots: Vec<Slot>,
+        gc_fired: bool,
+        seen: Vec<i32>,
+    }
+    impl CallbackOps for GcConsumerOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            assert_eq!(method, "accept");
+            let elem = gc_probe_ref_arg(&args, 1);
+            // Record the element's value while its reference is still the one the
+            // native handed us this iteration.
+            self.seen.push(gc_probe_int_field0(heap, elem));
+            if !self.gc_fired {
+                heap.collect(&self.roots);
+                self.gc_fired = true;
+            }
+            Ok(None)
+        }
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(gc_probe_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    heap.young_capacity = 1_000_000; // never auto-GC while we build the fixture
+    gc_probe_alloc_garbage(&mut heap, 8);
+    let list_ref = heap.allocate("java/util/ArrayList".to_string(), 4);
+    let e0 = gc_probe_boxed_int(&mut heap, 10);
+    let e1 = gc_probe_boxed_int(&mut heap, 20);
+    let e2 = gc_probe_boxed_int(&mut heap, 30);
+    {
+        let list = heap.get_mut(list_ref).unwrap();
+        list.fields = vec![
+            Slot::Int(3),
+            Slot::Reference(Some(e0)),
+            Slot::Reference(Some(e1)),
+            Slot::Reference(Some(e2)),
+        ];
+    }
+    let consumer_ref = heap.allocate("Consumer".to_string(), 0);
+
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+    let mut ops = GcConsumerOps {
+        roots: vec![
+            Slot::Reference(Some(list_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+        gc_fired: false,
+        seen: Vec::new(),
+    };
+
+    native_arraylist_for_each(
+        &[
+            Slot::Reference(Some(list_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .expect("forEach must not error");
+
+    assert_eq!(
+        ops.seen,
+        vec![10, 20, 30],
+        "consumer must observe every element by its live (re-resolved) reference"
+    );
+}
+
+#[test]
+fn hashmap_for_each_re_resolves_pair_snapshot_after_gc() {
+    struct GcBiConsumerOps {
+        roots: Vec<Slot>,
+        gc_fired: bool,
+        seen: Vec<(i32, i32)>,
+    }
+    impl CallbackOps for GcBiConsumerOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            assert_eq!(method, "accept");
+            let key = gc_probe_ref_arg(&args, 1);
+            let val = gc_probe_ref_arg(&args, 2);
+            self.seen.push((
+                gc_probe_int_field0(heap, key),
+                gc_probe_int_field0(heap, val),
+            ));
+            if !self.gc_fired {
+                heap.collect(&self.roots);
+                self.gc_fired = true;
+            }
+            Ok(None)
+        }
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(gc_probe_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    heap.young_capacity = 1_000_000;
+    gc_probe_alloc_garbage(&mut heap, 8);
+    let map_ref = heap.allocate("java/util/HashMap".to_string(), 5);
+    let k0 = gc_probe_boxed_int(&mut heap, 1);
+    let v0 = gc_probe_boxed_int(&mut heap, 100);
+    let k1 = gc_probe_boxed_int(&mut heap, 2);
+    let v1 = gc_probe_boxed_int(&mut heap, 200);
+    {
+        let map = heap.get_mut(map_ref).unwrap();
+        map.fields = vec![
+            Slot::Int(2),
+            Slot::Reference(Some(k0)),
+            Slot::Reference(Some(v0)),
+            Slot::Reference(Some(k1)),
+            Slot::Reference(Some(v1)),
+        ];
+    }
+    let consumer_ref = heap.allocate("BiConsumer".to_string(), 0);
+
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+    let mut ops = GcBiConsumerOps {
+        roots: vec![
+            Slot::Reference(Some(map_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+        gc_fired: false,
+        seen: Vec::new(),
+    };
+
+    native_hashmap_for_each(
+        &[
+            Slot::Reference(Some(map_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .expect("forEach must not error");
+
+    assert_eq!(
+        ops.seen,
+        vec![(1, 100), (2, 200)],
+        "biconsumer must observe every key/value pair by its live reference"
+    );
+}
+
+#[test]
+fn collections_min_re_resolves_accumulator_after_gc() {
+    struct GcCompareOps {
+        roots: Vec<Slot>,
+        gc_fired: bool,
+    }
+    impl CallbackOps for GcCompareOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            assert_eq!(method, "compareTo");
+            let a = gc_probe_ref_arg(&args, 0);
+            let b = gc_probe_ref_arg(&args, 1);
+            let av = i64::from(gc_probe_int_field0(heap, a));
+            let bv = i64::from(gc_probe_int_field0(heap, b));
+            let cmp = (av - bv).signum() as i32;
+            if !self.gc_fired {
+                heap.collect(&self.roots);
+                self.gc_fired = true;
+            }
+            Ok(Some(Slot::Int(cmp)))
+        }
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(gc_probe_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    heap.young_capacity = 1_000_000;
+    gc_probe_alloc_garbage(&mut heap, 8);
+    let coll_ref = heap.allocate("java/util/ArrayList".to_string(), 4);
+    let e0 = gc_probe_boxed_int(&mut heap, 30);
+    let e1 = gc_probe_boxed_int(&mut heap, 10);
+    let e2 = gc_probe_boxed_int(&mut heap, 20);
+    {
+        let coll = heap.get_mut(coll_ref).unwrap();
+        coll.fields = vec![
+            Slot::Int(3),
+            Slot::Reference(Some(e0)),
+            Slot::Reference(Some(e1)),
+            Slot::Reference(Some(e2)),
+        ];
+    }
+
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+    let mut ops = GcCompareOps {
+        roots: vec![Slot::Reference(Some(coll_ref))],
+        gc_fired: false,
+    };
+
+    let result = native_collections_min(
+        &[Slot::Reference(Some(coll_ref))],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .expect("min must not error");
+
+    let Some(Slot::Reference(Some(min_ref))) = result else {
+        panic!("min returned non-reference: {result:?}");
+    };
+    assert_eq!(
+        gc_probe_int_field0(&heap, min_ref),
+        10,
+        "min must return the live (re-resolved) minimum after a relocating GC"
+    );
+}
+
 // ---- Unit tests: hand-crafted instruction streams ----
 
 #[test]
