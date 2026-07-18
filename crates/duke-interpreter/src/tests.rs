@@ -34715,3 +34715,368 @@ fn native_encode_ascii_stops_at_non_ascii() {
         "bytes at and past the non-ASCII char are left for the slow path"
     );
 }
+
+// ===========================================================================
+// GC native-handle regression tests (swarm/gc-native-handle-scope)
+//
+// These two tests capture the exact failure modes of the old post-invoke
+// `patch_forwarded_*` idiom when a native holds heap references across a
+// callback that triggers MORE THAN ONE collection:
+//
+//   (A) Insufficiency  — not-yet-visited snapshot references go stale and the
+//                        callback is handed dangling refs (InvalidRef → i32::MIN
+//                        or a relocated/aliased wrong object).
+//   (B) Corruption     — the one-shot post-invoke patch rewrites a held ref onto
+//                        an UNRELATED live object, because its stale from-address
+//                        is a live from-key in the NEXT collection's rebuilt map.
+//
+// Both drive the REAL `gather_roots` / `heap.collect` / `patch_forwarded_slots`
+// pipeline from a `CallbackOps` double, exactly as the interpreter's `new`/
+// `newarray` GC sites do. They FAIL on trunk (natives don't register handles)
+// and PASS once the natives adopt `NativeRootScope`.
+// ===========================================================================
+
+/// Minimal `inspect_class` payload reused by the GC-handle test doubles.
+fn empty_reflected_class_info() -> ReflectedClassInfo {
+    ReflectedClassInfo {
+        internal_name: String::new(),
+        binary_name: String::new(),
+        super_class: None,
+        interfaces: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        access_flags: 0,
+        annotations: Vec::new(),
+    }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn hashmap_for_each_survives_two_gcs_during_callback() {
+    // (A) Insufficiency. `HashMap.forEach` snapshots (key, value) pairs and
+    // invokes the consumer once per pair. This consumer double forces TWO full
+    // collections per callback (crossing the multi-GC regime). With the old
+    // idiom the not-yet-visited pairs go stale and the consumer observes wrong
+    // tags / i32::MIN; with `NativeRootScope` the pinned snapshot is forwarded in
+    // place after every collect and every value is observed correctly.
+    use std::collections::HashMap;
+
+    struct ForEachGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_tags: Vec<i32>,
+    }
+
+    impl CallbackOps for ForEachGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            // Record the tag of the value the native handed us THIS iteration.
+            let tag = match args.get(2) {
+                Some(Slot::Reference(Some(r))) => heap
+                    .get(*r)
+                    .ok()
+                    .and_then(|o| match o.fields.first() {
+                        Some(Slot::Int(n)) => Some(*n),
+                        _ => None,
+                    })
+                    .unwrap_or(i32::MIN),
+                _ => i32::MIN,
+            };
+            self.observed_tags.push(tag);
+
+            // Two full collections, mirroring the interpreter's GC site.
+            for _ in 0..2 {
+                // Unrooted garbage tagged distinctly so an aliased stale ref
+                // reads an obviously-wrong value rather than coincidentally
+                // matching the expected tag.
+                for _ in 0..4 {
+                    let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                    if let Ok(o) = heap.get_mut(g) {
+                        o.fields[0] = Slot::Int(-777);
+                    }
+                }
+                let roots =
+                    gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                heap.collect(&roots);
+                patch_forwarded_slots(
+                    &mut self.caller_frame,
+                    &mut [],
+                    &mut self.registry,
+                    heap,
+                    &mut self.string_intern,
+                );
+            }
+            Ok(None)
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let map_ref = heap.allocate("java/util/HashMap".to_string(), 7); // size + 3*(k,v)
+    let consumer_ref = heap.allocate("duke/test/Consumer".to_string(), 0);
+
+    let mut kv = Vec::new();
+    for i in 0..3i32 {
+        let k = heap.allocate_string(format!("k{i}"));
+        let v = heap.allocate("duke/test/Val".to_string(), 1);
+        heap.get_mut(v).unwrap().fields[0] = Slot::Int(100 + i);
+        kv.push((k, v));
+    }
+    {
+        let m = heap.get_mut(map_ref).unwrap();
+        m.fields[0] = Slot::Int(3);
+        for (i, (k, v)) in kv.iter().enumerate() {
+            m.fields[1 + i * 2] = Slot::Reference(Some(*k));
+            m.fields[2 + i * 2] = Slot::Reference(Some(*v));
+        }
+    }
+
+    // Caller frame roots the live map + consumer (as an interpreter frame would),
+    // so the LIVE map stays correct across collections; only the native's private
+    // snapshot is at risk.
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(map_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = ForEachGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_tags: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    native_hashmap_for_each(
+        &[
+            Slot::Reference(Some(map_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_tags,
+        vec![100, 101, 102],
+        "consumer observed stale/relocated values after multiple GCs \
+         (dangling snapshot references)"
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn hashmap_compute_if_absent_does_not_corrupt_key_across_two_gcs() {
+    // (B) Corruption. `HashMap.computeIfAbsent` holds `key` across the mapping
+    // function, then (on trunk) re-resolves it with a ONE-SHOT post-invoke patch.
+    // Under two collections the key's stale from-address becomes a live from-key
+    // in the second collection's rebuilt map, so the one-shot patch silently
+    // rewrites `key` onto an UNRELATED live object (the decoy) and the map stores
+    // the wrong key. With `NativeRootScope`, `key` is forwarded from its CURRENT
+    // value at each collect and the original key is stored.
+    use std::collections::HashMap;
+
+    const KEY_TAG: i32 = 777;
+    const DECOY_TAG: i32 = 888;
+    const VALUE_TAG: i32 = 555;
+
+    struct ComputeGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        key_idx: u64,
+    }
+
+    impl ComputeGcOps {
+        fn collect_once(&mut self, heap: &mut duke_gc::Heap) {
+            let roots = gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+            heap.collect(&roots);
+            patch_forwarded_slots(
+                &mut self.caller_frame,
+                &mut [],
+                &mut self.registry,
+                heap,
+                &mut self.string_intern,
+            );
+        }
+    }
+
+    impl CallbackOps for ComputeGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            _args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            // GC1: relocates `key` (its native-local copy goes stale).
+            self.collect_once(heap);
+
+            // Place a live, rooted decoy at the key's now-freed original young
+            // index, so that index becomes a live from-key in GC2's rebuilt map.
+            let decoy = loop {
+                let idx = heap.allocate("duke/test/Decoy".to_string(), 1);
+                assert!(
+                    idx <= self.key_idx,
+                    "overshot the freed key index while placing the decoy"
+                );
+                if idx == self.key_idx {
+                    heap.get_mut(idx).unwrap().fields[0] = Slot::Int(DECOY_TAG);
+                    break idx;
+                }
+            };
+            // Root the decoy (local slot 3) so GC2 forwards it (making the stale
+            // key index a live from-key).
+            self.caller_frame
+                .store_local(3, Slot::Reference(Some(decoy)))
+                .unwrap();
+
+            // GC2: forwards the decoy from `key_idx`. On trunk the one-shot patch
+            // will now rewrite `key` (== key_idx) onto the decoy.
+            self.collect_once(heap);
+
+            // Return the freshly-computed value (allocated after the last GC, so
+            // it is stable through the native's post-invoke store).
+            let v = heap.allocate("duke/test/Val".to_string(), 1);
+            heap.get_mut(v).unwrap().fields[0] = Slot::Int(VALUE_TAG);
+            Ok(Some(Slot::Reference(Some(v))))
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+
+    // Promote the map to the old gen so `this_ref` is address-stable across the
+    // minor collections, isolating the test on `key` corruption.
+    let mut map_ref = heap.allocate("java/util/HashMap".to_string(), 1);
+    heap.get_mut(map_ref).unwrap().fields[0] = Slot::Int(0);
+    for _ in 0..8 {
+        if map_ref & (1u64 << 63) != 0 {
+            break;
+        }
+        heap.collect(&[Slot::Reference(Some(map_ref))]);
+        let mut s = Slot::Reference(Some(map_ref));
+        heap.apply_forward(&mut s);
+        map_ref = s.as_reference().unwrap();
+    }
+    assert!(
+        map_ref & (1u64 << 63) != 0,
+        "map should have been promoted to the old generation"
+    );
+
+    // Mapping function object (young).
+    let fn_ref = heap.allocate("duke/test/Fn".to_string(), 0);
+    // Padding so the key lands at a high young index that is freed after GC1.
+    for _ in 0..8 {
+        let _ = heap.allocate("duke/test/Pad".to_string(), 1);
+    }
+    let key_ref = heap.allocate("duke/test/Val".to_string(), 1);
+    heap.get_mut(key_ref).unwrap().fields[0] = Slot::Int(KEY_TAG);
+    assert_eq!(
+        key_ref & (1u64 << 63),
+        0,
+        "key must be a young reference for the index-reuse scenario"
+    );
+
+    // Caller frame roots: [map, key, fn, <decoy slot>].
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        8,
+        vec![
+            Slot::Reference(Some(map_ref)),
+            Slot::Reference(Some(key_ref)),
+            Slot::Reference(Some(fn_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = ComputeGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        key_idx: key_ref,
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    native_hashmap_compute_if_absent(
+        &[
+            Slot::Reference(Some(map_ref)),
+            Slot::Reference(Some(key_ref)),
+            Slot::Reference(Some(fn_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    // The map (old-gen, stable) must now map the ORIGINAL key to the value.
+    let stored = heap.get(map_ref).unwrap();
+    assert_eq!(stored.fields[0], Slot::Int(1), "one entry should be stored");
+    let stored_key = match stored.fields[1] {
+        Slot::Reference(Some(r)) => r,
+        other => panic!("stored key is not a reference: {other:?}"),
+    };
+    let stored_key_tag = match heap.get(stored_key).unwrap().fields.first() {
+        Some(Slot::Int(n)) => *n,
+        other => panic!("stored key has no int tag: {other:?}"),
+    };
+    assert_eq!(
+        stored_key_tag, KEY_TAG,
+        "computeIfAbsent stored a CORRUPTED key (decoy) after two GCs; \
+         the one-shot post-invoke patch rewrote the held key onto an unrelated object"
+    );
+}
+
+/// Acceptance (end-to-end bytecode): fixture from the banner-climb lane
+/// (`swarm/gc-callback-frontier`). `HashMapForEachGcTest.run` builds a 12-entry
+/// map and, from the `forEach` consumer, retains ~40 `int[512]` arrays per
+/// iteration so old-gen live grows past the 2x major-GC threshold and MULTIPLE
+/// major collections fire mid-iteration. It returns 0 only if all 12 entries are
+/// handed to the consumer intact. This exercises the converted
+/// `native_hashmap_for_each` through the real interpreter GC sites and is the
+/// end-to-end proof that the `NativeRootScope` handle API fixes the family-wide
+/// hazard. (The companion `PropertiesForEachGcTest` needs the Properties native's
+/// conversion, owned by the banner-climb lane, and is intentionally NOT included.)
+#[test]
+fn hashmap_for_each_survives_mid_iteration_gc() {
+    assert_eq!(
+        run_bootstrap_int_completion("HashMapForEachGcTest.class", "run", "()I"),
+        0
+    );
+}
