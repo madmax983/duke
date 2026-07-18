@@ -6349,7 +6349,10 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         ("isProtected", native_modifier_is_protected as NativeHandler),
         ("isStatic", native_modifier_is_static as NativeHandler),
         ("isFinal", native_modifier_is_final as NativeHandler),
-        ("isSynchronized", native_modifier_is_synchronized as NativeHandler),
+        (
+            "isSynchronized",
+            native_modifier_is_synchronized as NativeHandler,
+        ),
         ("isVolatile", native_modifier_is_volatile as NativeHandler),
         ("isTransient", native_modifier_is_transient as NativeHandler),
         ("isNative", native_modifier_is_native as NativeHandler),
