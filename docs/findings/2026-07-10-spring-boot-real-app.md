@@ -1095,3 +1095,117 @@ updated to the new wall.
 - real-jdk fixtures — green.
 
 No edits to `native/common.rs`, `execution.rs`, or `registry.rs`.
+
+---
+
+## 2026-07-18 — "Banner climb": APP clears ArrayDeque(int) + URLDecoder + the SpringFactoriesLoader collections shape; walls on a GC-root-completeness hazard in nested native callbacks (branch `swarm/banner-climb`)
+
+Off `origin/trunk` `bb53eb6` (post URLConnection PR #1373). Starting APP pin:
+`method not found: java/util/ArrayDeque.<init>(I)V`.
+
+### Rungs cleared (each observed by re-running `duke -jar` on the app fixture)
+
+1. **`java/util/ArrayDeque.<init>(I)V`** — the initial-capacity ctor. The deque is a
+   flat growable element array (front at index 1), so the capacity is a pure sizing
+   hint; the ctor maps to the existing empty-init native (`native_arraydeque_init`),
+   mirroring `LinkedBlockingQueue.<init>(I)V`. Registration only, no new body.
+   New frontier: `java exception: java/lang/reflect/InvocationTargetException`,
+   root cause (via reflect-wrap instrumentation, since reverted)
+   `NoClassDefFoundError: java/net/URLDecoder`.
+
+2. **`java/net/URLDecoder.decode(Ljava/lang/String;Ljava/nio/charset/Charset;)Ljava/lang/String;`**
+   — reached from `UrlResource.getFilename` (`javap`: `URLDecoder.decode(filename,
+   StandardCharsets.UTF_8)`). New synthetic static-only `java/net/URLDecoder` +
+   `native_url_decoder_decode_charset` (`native/java_net.rs`): shared
+   `www_form_url_decode` (`+`->space, `%XX`->byte, other bytes verbatim, decode as
+   UTF-8; malformed `%` -> `IllegalArgumentException`). The charset arg is UTF-8 (the
+   only value Spring passes) and Duke Strings are UTF-8/Latin-1, so it is honest.
+   New frontier: another wrapped `InvocationTargetException`, root cause a
+   `NullPointerException` in `DukeApplication.main`.
+
+3. **`java/util/Properties.forEach(BiConsumer)` — layout bug (real fix, not a gap).**
+   `DUKE_TRACE_EXEC` traced the NPE to `SpringFactoriesLoader.lambda$loadFactoriesResource$4@13
+   String.trim()` on a **null** receiver — the property KEY the consumer was handed was
+   null. Root cause: `Properties` has its own field layout (`fields[0]`=size,
+   `fields[1]`=defaults, `fields[2..]`=key/value pairs), but no Properties-specific
+   `forEach` was registered, so dispatch fell through the super chain to the
+   Hashtable/HashMap `native_hashmap_for_each`, which reads `fields[1+i*2]` — i.e.
+   `fields[1]`, the *defaults* slot (null), as the first key. Added
+   `native_properties_for_each` (`native/java_util.rs`) iterating the correct entries
+   via the existing `properties_local_entries`, registered as a `register_callback`
+   forEach on `java/util/Properties`.
+   New frontier: `method not found: java/util/LinkedHashMap.computeIfAbsent(...)`.
+
+4. **`java/util/LinkedHashMap` Map-default family.** LinkedHashMap uses the exact
+   HashMap layout but only had put/get/containsKey/size/remove/isEmpty/getOrDefault/
+   keySet/values/entrySet (+ a forEach). Registered the rest of the Map-default family
+   reusing the HashMap natives (identical layout), mirroring the Hashtable precedent:
+   `clear`, `putIfAbsent`, `replace`, `containsValue`, `putAll`, and the callback
+   family `computeIfAbsent`/`computeIfPresent`/`compute`/`merge`/`replaceAll`.
+   (`SpringFactoriesLoader` populates a LinkedHashMap via
+   `computeIfAbsent(name, k -> new ArrayList<>(names.length))`.)
+
+### New APP frontier — GC-root-completeness hazard in nested native callbacks (PINNED, out of lane)
+
+After the four rungs, boot advances into `SpringFactoriesLoader.loadFactoriesResource`
+and walls on a `NullPointerException` (wrapped as `InvocationTargetException`). The full
+nesting is:
+
+```
+ConcurrentReferenceHashMap.computeIfAbsent(loader, key ->      // real spring-core bytecode
+  Properties.forEach((name, value) ->                          // native callback (ops.invoke)
+    result.computeIfAbsent(name.trim(), k -> new ArrayList<>(names.length))))  // native callback
+```
+
+The innermost `new ArrayList<>()` triggers a **major GC** (`heap.should_gc()` at the
+`new` opcode). At that moment the `result` `LinkedHashMap` is reachable ONLY through
+(a) outer interpreter frames that are **not** part of the nested `ops.invoke` /
+`execute_class` call-stack (each `ops.invoke` starts a fresh interpreter loop whose
+`gather_roots` sees only the nested frames), and (b) native-held Rust locals
+(`this_ref` in `native_hashmap_compute_if_absent`), which are **not** GC roots. So
+`result` is **collected** (not merely relocated) mid-callback; the existing
+`patch_forwarded_ref_if_needed` only fixes up survivors, it cannot resurrect a collected
+object. The resumed `LinkedHashMap.computeIfAbsent` `put` then dereferences a dangling
+ref and throws NPE.
+
+**Confirmed diagnosis:** forcing GC off (temporary `DUKE_NO_GC` short-circuit in
+`Heap::should_gc`, since reverted) makes the NPE vanish and boot climbs several rungs
+further — next visible gap `method not found: java/util/UnmodifiableMap.getOrDefault`,
+then Spring's own `SpringFactoriesLoader$FailureHandler` throwing an
+`IllegalArgumentException` while instantiating factory implementations (deep reflective
+bean-instantiation territory, findings blocker #4).
+
+**Ownership:** the fix is a GC-root-completeness change in nested native-callback
+re-entrancy — either thread the caller's frames through `CallbackOps::invoke` /
+`execute_class` into `gather_roots`, or add a native temp-root pin API and have the
+map callback natives use it. That touches `execution.rs` (root gathering / dispatch)
+and the GC core, and the GC-hazard map natives' interiors — all other lanes and a
+cross-lane change. **Pinned, not patched.**
+
+`APP_BLOCKER` re-pinned from `java/util/ArrayDeque.<init>(I)V` to
+`java exception: java/lang/reflect/InvocationTargetException` (the visible reflective
+wrap; root cause documented above). The app end-to-end canary stays `#[ignore]`d.
+
+### Distance-to-banner
+
+Still substantial. Under GC-off, boot reaches Spring's `SpringFactoriesLoader` factory
+**instantiation** phase (past classpath scanning), but has not printed the banner or
+reached `SpringApplication.run` user code — it fails inside Spring's own failure
+handler while creating a factory. Ahead lie: the GC-root fix (gates the default path),
+then findings blockers #4–#6 (reflective bean instantiation + annotations, the full
+collections/streams volume, `System`/`Unsafe`/`AccessController`). **No banner yet.**
+
+### Files touched
+
+- `native/java_net.rs` — `www_form_url_decode` + `native_url_decoder_decode_charset`.
+- `native/java_util.rs` — `native_properties_for_each`.
+- `stdlib.rs` — registrations: `ArrayDeque.<init>(I)V`; `java/net/URLDecoder` class +
+  `decode`; `Properties.forEach`; the LinkedHashMap Map-default family.
+- `tests/fixtures/SpringFactoriesShapeTest.{java,class}` — end-to-end fixture for the
+  Properties.forEach + LinkedHashMap.computeIfAbsent + ArrayDeque(int) shape.
+- `crates/duke-interpreter/src/tests.rs` — `url_decoder_decode_charset_unescapes_form_encoding`
+  (direct dispatch) and `spring_factories_collections_shape_fixture_runs` (fixture).
+- `duke/tests/spring_boot_real_app.rs` — `APP_BLOCKER` + ignore reason updated.
+
+No edits to `native/common.rs`, `execution.rs`, `registry.rs`, or the GC-hazard map
+native bodies (only NEW natives appended to `java_util.rs`/`java_net.rs`).

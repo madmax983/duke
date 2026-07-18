@@ -4039,6 +4039,40 @@ pub(crate) fn native_properties_load(
     }
     Ok(None)
 }
+/// Native: `Properties.forEach(BiConsumer<Object,Object>) -> void`.
+///
+/// Properties has its OWN field layout — `fields[0]` = size, `fields[1]` =
+/// defaults, `fields[2..]` = key/value pairs — which differs from the plain
+/// `HashMap`/`Hashtable` layout (`fields[1..]` = key/value pairs). Without a
+/// Properties-specific override, `forEach` resolved up the super chain to
+/// `native_hashmap_for_each`, which read `fields[1]` (the *defaults* slot, null)
+/// as the first key and handed the consumer a null key — an NPE for any consumer
+/// that dereferences it (e.g. Spring's `SpringFactoriesLoader`, which calls
+/// `name.trim()`). This override iterates the correct entries via
+/// `properties_local_entries`.
+pub(crate) fn native_properties_for_each(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let consumer_ref = extract_ref_arg(args, 1)?;
+    let pairs = properties_local_entries(heap, this_ref)?;
+    let consumer_class = heap.get(consumer_ref)?.class_name.clone();
+    for (key, val) in pairs {
+        ops.invoke(
+            heap,
+            out,
+            &consumer_class,
+            "accept",
+            "(Ljava/lang/Object;Ljava/lang/Object;)V",
+            vec![Slot::Reference(Some(consumer_ref)), key, val],
+        )?;
+    }
+    Ok(None)
+}
 
 /// Drain a `java.util.Properties.load(InputStream)` source to raw bytes.
 ///
