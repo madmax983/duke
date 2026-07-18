@@ -258,11 +258,7 @@ fn path_from_string_slot(
     heap: &duke_gc::Heap,
 ) -> Result<std::path::PathBuf> {
     let path_ref = extract_ref_arg(args, idx)?;
-    let path = heap
-        .get(path_ref)?
-        .string_value
-        .clone()
-        .ok_or(Error::NullPointerException)?;
+    let path = string_value_from_ref(heap, path_ref)?;
     Ok(std::path::PathBuf::from(path))
 }
 
@@ -1455,12 +1451,8 @@ fn string_bytes_for_arg(
     charset: StandardCharset,
 ) -> Result<Vec<u8>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let value = heap
-        .get(this_ref)?
-        .string_value
-        .as_deref()
-        .unwrap_or_default();
-    Ok(encode_string_with_charset(value, charset))
+    let value = string_value_from_ref(heap, this_ref).unwrap_or_default();
+    Ok(encode_string_with_charset(&value, charset))
 }
 
 /// Populate a freshly-constructed `java/lang/String` receiver on a `<init>`
@@ -2163,7 +2155,7 @@ fn optional_string_slot(heap: &mut duke_gc::Heap, value: Option<&str>) -> Slot {
 
 fn slot_string(heap: &duke_gc::Heap, slot: Slot) -> Result<Option<String>> {
     match slot {
-        Slot::Reference(Some(r)) => Ok(heap.get(r)?.string_value.clone()),
+        Slot::Reference(Some(r)) => Ok(Some(string_value_from_ref(heap, r)?)),
         _ => Ok(None),
     }
 }
@@ -11171,16 +11163,8 @@ fn reflected_field_handle(heap: &duke_gc::Heap, field_ref: u64) -> Result<Reflec
 
     Ok(ReflectedFieldHandle {
         declaring_class_key: class_key_from_ref(heap, declaring_class_ref)?,
-        field_name: heap
-            .get(name_ref)?
-            .string_value
-            .clone()
-            .ok_or(Error::NullPointerException)?,
-        descriptor: heap
-            .get(descriptor_ref)?
-            .string_value
-            .clone()
-            .ok_or(Error::NullPointerException)?,
+        field_name: string_value_from_ref(heap, name_ref)?,
+        descriptor: string_value_from_ref(heap, descriptor_ref)?,
         is_public,
         is_static,
         is_accessible,
@@ -11241,16 +11225,8 @@ fn reflected_method_handle(
 
     Ok(ReflectedMethodHandle {
         declaring_class_key: class_key_from_ref(heap, declaring_class_ref)?,
-        method_name: heap
-            .get(name_ref)?
-            .string_value
-            .clone()
-            .ok_or(Error::NullPointerException)?,
-        descriptor: heap
-            .get(descriptor_ref)?
-            .string_value
-            .clone()
-            .ok_or(Error::NullPointerException)?,
+        method_name: string_value_from_ref(heap, name_ref)?,
+        descriptor: string_value_from_ref(heap, descriptor_ref)?,
         is_public,
         is_static,
         is_accessible,
