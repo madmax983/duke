@@ -254,9 +254,21 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // instantiating factory implementations — deep reflective bean-instantiation territory).
 // The root cause is a GC-root-completeness gap in nested native-callback re-entrancy
 // (interpreter/GC core — execution.rs `gather_roots`/`ops.invoke` + a missing native
-// temp-root pin), which is out of this java.util/java.net lane and a cross-lane change,
-// so the app is pinned here. The visible blocker is the generic reflective wrap.
-const APP_BLOCKER: &str = "java exception: java/lang/reflect/InvocationTargetException";
+// temp-root pin).
+//
+// RE-OBSERVED 2026-07-18 (native-root-handle lane): the missing native temp-root pin
+// now exists — natives register the heap refs they hold across `ops.invoke` as GC local
+// handles (`NativeRootScope`), which `gather_roots`/`patch_forwarded_slots` root and
+// forward on EVERY collection. `HashMap.computeIfAbsent` (and the whole java.util
+// callback family) adopted it, so the `LinkedHashMap.computeIfAbsent -> new ArrayList<>`
+// collect no longer reclaims the live `result` map and the InvocationTargetException NPE
+// is cleared. Boot now advances one native further and walls on the SAME class of hazard
+// in `java/util/Properties.forEach` (`native_properties_for_each`), which still snapshots
+// its (key,value) pairs without pinning them; a multi-GC consumer relocates the snapshot
+// and the resumed callback dereferences a stale young index — surfaced as a raw
+// `invalid heap reference`. That native's conversion is owned by the banner-climb lane,
+// so the app is re-pinned at this next blocker.
+const APP_BLOCKER: &str = "invalid heap reference";
 // LADDER now boots END-TO-END (2026-07-15, same-class-reflection lane, trunk): main
 // climbs into `LadderApplication.main`, clears Properties.load + the BufferedReader
 // character-stream read, and its reflective same-class private `summarize` invoke now
