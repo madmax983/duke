@@ -811,6 +811,22 @@ fn register_string_byte_conversion_natives(registry: &mut ClassRegistry) {
         "(Ljava/nio/charset/Charset;)[B",
         native_string_get_bytes_charset,
     );
+    // Package-private copy helpers the real-JDK encode path calls: copy the
+    // receiver's value bytes into a caller-provided `[B`, re-encoding by the
+    // destination coder. `([BIB)V` = getBytes(dst, dstBegin, coder);
+    // `([BIIBI)V` = getBytes(dst, srcBegin, dstBegin, coder, length).
+    registry.natives_mut().register(
+        "java/lang/String",
+        "getBytes",
+        "([BIB)V",
+        native_string_get_bytes_copy3,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "getBytes",
+        "([BIIBI)V",
+        native_string_get_bytes_copy5,
+    );
 
     for (descriptor, handler) in [
         ("([B)V", native_string_init_bytes_default as NativeHandler),

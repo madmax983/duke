@@ -34,6 +34,115 @@ pub(crate) fn native_string_get_bytes_charset(
         heap, &bytes,
     )?))))
 }
+/// Reads the receiver `String`'s real-layout `value` bytes (slot 0, a `[B`) and
+/// `coder` (slot 1: `0`=Latin1, `1`=UTF16-LE). A null `value` yields
+/// `NullPointerException`, matching [`read_string_bytes`].
+fn string_value_bytes_and_coder(heap: &duke_gc::Heap, this_ref: u64) -> Result<(Vec<u8>, i32)> {
+    let obj = heap.get(this_ref)?;
+    let Some(Slot::Reference(Some(value_ref))) = obj.fields.first().copied() else {
+        return Err(Error::NullPointerException);
+    };
+    let coder = match obj.fields.get(1) {
+        Some(Slot::Int(c)) => *c,
+        _ => 0,
+    };
+    let bytes = full_byte_array(heap, value_ref)?;
+    Ok((bytes, coder))
+}
+/// Shared implementation of the package-private `String.getBytes` copy helpers.
+///
+/// Copies `length` UTF-16 code units read from `src_bytes` (encoded with
+/// `src_coder`, starting at char index `src_begin`) into the destination `[B`
+/// `dst_ref`, starting at char index `dst_begin`, re-encoding each unit with the
+/// destination `dst_coder`. Char indices scale to byte offsets by the *own* coder
+/// (`char_index << coder`). All four coder-conversion cases are handled:
+/// Latin1→Latin1 (raw), Latin1→UTF16 (inflate to 2 LE bytes), UTF16→UTF16
+/// (2-byte units), UTF16→Latin1 (compress, keeping the low byte). Every write goes
+/// through [`duke_gc::Heap::write_field`] so the array bounds check and GC barrier
+/// fire.
+#[allow(clippy::too_many_arguments, clippy::cast_possible_truncation)]
+fn string_get_bytes_copy_into(
+    heap: &mut duke_gc::Heap,
+    dst_ref: u64,
+    src_bytes: &[u8],
+    src_coder: i32,
+    src_begin: usize,
+    dst_begin: usize,
+    dst_coder: i32,
+    length: usize,
+) -> Result<()> {
+    let src_shift = usize::from(src_coder == 1);
+    let dst_shift = usize::from(dst_coder == 1);
+    for i in 0..length {
+        let src_off = (src_begin + i) << src_shift;
+        let unit: u16 = if src_shift == 1 {
+            let lo = u16::from(*src_bytes.get(src_off).ok_or_else(index_out_of_bounds_error)?);
+            let hi = u16::from(
+                *src_bytes
+                    .get(src_off + 1)
+                    .ok_or_else(index_out_of_bounds_error)?,
+            );
+            lo | (hi << 8)
+        } else {
+            u16::from(*src_bytes.get(src_off).ok_or_else(index_out_of_bounds_error)?)
+        };
+        let dst_off = (dst_begin + i) << dst_shift;
+        heap.write_field(dst_ref, dst_off, java_byte_slot((unit & 0xFF) as u8))?;
+        if dst_shift == 1 {
+            heap.write_field(dst_ref, dst_off + 1, java_byte_slot((unit >> 8) as u8))?;
+        }
+    }
+    Ok(())
+}
+/// Native: package-private `void String.getBytes(byte[] dst, int dstBegin, byte coder)`
+/// (`([BIB)V`). Copies the receiver's entire `value` into `dst` starting at char
+/// index `dstBegin`, encoding with the destination `coder`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+pub(crate) fn native_string_get_bytes_copy3(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let dst_ref = extract_ref_arg(args, 1)?;
+    let dst_begin = extract_int_arg(args, 2)?;
+    let dst_coder = extract_int_arg(args, 3)? & 0xFF;
+    let (src_bytes, src_coder) = string_value_bytes_and_coder(heap, this_ref)?;
+    let length = src_bytes.len() >> usize::from(src_coder == 1);
+    let dst_begin = usize::try_from(dst_begin).map_err(|_| index_out_of_bounds_error())?;
+    string_get_bytes_copy_into(
+        heap, dst_ref, &src_bytes, src_coder, 0, dst_begin, dst_coder, length,
+    )?;
+    Ok(None)
+}
+/// Native: package-private
+/// `void String.getBytes(byte[] dst, int srcBegin, int dstBegin, byte coder, int length)`
+/// (`([BIIBI)V`). Copies `length` chars from the receiver's `value` (starting at
+/// char index `srcBegin`) into `dst` at char index `dstBegin`, encoding with the
+/// destination `coder`. Arg order confirmed against `javap -p -c java.lang.String`
+/// on JDK 21.
+pub(crate) fn native_string_get_bytes_copy5(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let dst_ref = extract_ref_arg(args, 1)?;
+    let src_begin = extract_int_arg(args, 2)?;
+    let dst_begin = extract_int_arg(args, 3)?;
+    let dst_coder = extract_int_arg(args, 4)? & 0xFF;
+    let length = extract_int_arg(args, 5)?;
+    let (src_bytes, src_coder) = string_value_bytes_and_coder(heap, this_ref)?;
+    let src_begin = usize::try_from(src_begin).map_err(|_| index_out_of_bounds_error())?;
+    let dst_begin = usize::try_from(dst_begin).map_err(|_| index_out_of_bounds_error())?;
+    let length = usize::try_from(length).map_err(|_| index_out_of_bounds_error())?;
+    string_get_bytes_copy_into(
+        heap, dst_ref, &src_bytes, src_coder, src_begin, dst_begin, dst_coder, length,
+    )?;
+    Ok(None)
+}
 /// Native: `String.length()` — returns string length as int.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
 pub(crate) fn native_string_length(
@@ -5633,4 +5742,213 @@ pub(crate) fn native_module_can_use(
 ) -> Result<Option<Slot>> {
     let _ = extract_ref_arg(args, 0)?;
     Ok(Some(Slot::Int(1)))
+}
+
+#[cfg(test)]
+mod string_get_bytes_copy_tests {
+    use super::*;
+    use duke_gc::Heap;
+
+    /// Allocates a `[B` of the given length (fields default to `Slot::Int(0)`).
+    fn empty_byte_array(heap: &mut Heap, len: usize) -> u64 {
+        heap.allocate("[B".to_string(), len)
+    }
+
+    /// Allocates a `[B` holding the given signed-Java-byte payload.
+    fn byte_array_from(heap: &mut Heap, bytes: &[u8]) -> u64 {
+        let arr = heap.allocate("[B".to_string(), bytes.len());
+        for (i, &b) in bytes.iter().enumerate() {
+            heap.write_field(arr, i, java_byte_slot(b)).unwrap();
+        }
+        arr
+    }
+
+    /// Reads a `[B` back as raw octets (undoing the signed-byte storage).
+    fn read_bytes(heap: &Heap, arr: u64) -> Vec<u8> {
+        full_byte_array(heap, arr).unwrap()
+    }
+
+    /// Manually mints a `String` with an explicit coder and raw value bytes,
+    /// bypassing `allocate_string`'s content-driven coder pick (needed to
+    /// exercise the UTF16->Latin1 compress path the real JDK never triggers).
+    fn string_with_coder(heap: &mut Heap, value_bytes: &[u8], coder: i32) -> u64 {
+        let s = heap.allocate("java/lang/String".to_string(), 4);
+        let value_ref = byte_array_from(heap, value_bytes);
+        heap.write_field(s, 0, Slot::Reference(Some(value_ref))).unwrap();
+        heap.write_field(s, 1, Slot::Int(coder)).unwrap();
+        s
+    }
+
+    fn call_copy3(heap: &mut Heap, this: u64, dst: u64, dst_begin: i32, coder: i32) {
+        let args = [
+            Slot::Reference(Some(this)),
+            Slot::Reference(Some(dst)),
+            Slot::Int(dst_begin),
+            Slot::Int(coder),
+        ];
+        let result = native_string_get_bytes_copy3(
+            &args,
+            heap,
+            &mut Vec::<u8>::new(),
+            &mut NativeControl::default(),
+        )
+        .unwrap();
+        assert!(result.is_none(), "getBytes copy helper is void");
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn call_copy5(
+        heap: &mut Heap,
+        this: u64,
+        dst: u64,
+        src_begin: i32,
+        dst_begin: i32,
+        coder: i32,
+        length: i32,
+    ) {
+        let args = [
+            Slot::Reference(Some(this)),
+            Slot::Reference(Some(dst)),
+            Slot::Int(src_begin),
+            Slot::Int(dst_begin),
+            Slot::Int(coder),
+            Slot::Int(length),
+        ];
+        let result = native_string_get_bytes_copy5(
+            &args,
+            heap,
+            &mut Vec::<u8>::new(),
+            &mut NativeControl::default(),
+        )
+        .unwrap();
+        assert!(result.is_none(), "getBytes copy helper is void");
+    }
+
+    #[test]
+    fn copy3_latin1_to_latin1_full() {
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("Hello".to_string());
+        assert_eq!(heap.get(s).unwrap().fields[1], Slot::Int(0), "Latin1 coder");
+        let dst = empty_byte_array(&mut heap, 5);
+        call_copy3(&mut heap, s, dst, 0, 0);
+        assert_eq!(read_bytes(&heap, dst), b"Hello");
+    }
+
+    #[test]
+    fn copy3_latin1_to_latin1_with_dst_offset() {
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("Hi".to_string());
+        let dst = empty_byte_array(&mut heap, 5);
+        call_copy3(&mut heap, s, dst, 2, 0);
+        // dstBegin is a char index; Latin1 dst => byte offset 2.
+        assert_eq!(read_bytes(&heap, dst), vec![0, 0, b'H', b'i', 0]);
+    }
+
+    #[test]
+    fn copy3_latin1_to_utf16_inflates() {
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("AB".to_string());
+        let dst = empty_byte_array(&mut heap, 4);
+        call_copy3(&mut heap, s, dst, 0, 1);
+        // Each Latin1 byte inflates to a 2-byte little-endian UTF-16 unit.
+        assert_eq!(read_bytes(&heap, dst), vec![0x41, 0x00, 0x42, 0x00]);
+    }
+
+    #[test]
+    fn copy3_utf16_to_utf16_full() {
+        let mut heap = Heap::new();
+        // "中A" is non-Latin1 -> coder 1; value bytes are LE UTF-16.
+        let s = heap.allocate_string("中A".to_string());
+        assert_eq!(heap.get(s).unwrap().fields[1], Slot::Int(1), "UTF16 coder");
+        let dst = empty_byte_array(&mut heap, 4);
+        call_copy3(&mut heap, s, dst, 0, 1);
+        assert_eq!(read_bytes(&heap, dst), vec![0x2D, 0x4E, 0x41, 0x00]);
+    }
+
+    #[test]
+    fn copy3_utf16_to_utf16_with_dst_char_offset() {
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("中".to_string());
+        let dst = empty_byte_array(&mut heap, 4);
+        // dstBegin=1 char -> byte offset 2 under UTF-16 dst.
+        call_copy3(&mut heap, s, dst, 1, 1);
+        assert_eq!(read_bytes(&heap, dst), vec![0x00, 0x00, 0x2D, 0x4E]);
+    }
+
+    #[test]
+    fn copy3_utf16_to_latin1_compresses() {
+        // Real JDK only calls this when the content fits Latin1; a coder-1 String
+        // holding "AB" compresses to its low bytes.
+        let mut heap = Heap::new();
+        let s = string_with_coder(&mut heap, &[0x41, 0x00, 0x42, 0x00], 1);
+        let dst = empty_byte_array(&mut heap, 2);
+        call_copy3(&mut heap, s, dst, 0, 0);
+        assert_eq!(read_bytes(&heap, dst), vec![0x41, 0x42]);
+    }
+
+    #[test]
+    fn copy5_latin1_window() {
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("abcdef".to_string());
+        let dst = empty_byte_array(&mut heap, 5);
+        // srcBegin=2, dstBegin=1, length=3 => copy "cde" into dst[1..4].
+        call_copy5(&mut heap, s, dst, 2, 1, 0, 3);
+        assert_eq!(read_bytes(&heap, dst), vec![0, b'c', b'd', b'e', 0]);
+    }
+
+    #[test]
+    fn copy5_inflate_window() {
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("abc".to_string());
+        let dst = empty_byte_array(&mut heap, 4);
+        // srcBegin=1, dstBegin=0, coder=UTF16, length=2 => "bc" inflated.
+        call_copy5(&mut heap, s, dst, 1, 0, 1, 2);
+        assert_eq!(read_bytes(&heap, dst), vec![0x62, 0x00, 0x63, 0x00]);
+    }
+
+    #[test]
+    fn copy3_null_value_slot_is_npe() {
+        let mut heap = Heap::new();
+        // String receiver whose value:[B slot was never populated.
+        let s = heap.allocate("java/lang/String".to_string(), 4);
+        let dst = empty_byte_array(&mut heap, 2);
+        let args = [
+            Slot::Reference(Some(s)),
+            Slot::Reference(Some(dst)),
+            Slot::Int(0),
+            Slot::Int(0),
+        ];
+        assert!(matches!(
+            native_string_get_bytes_copy3(
+                &args,
+                &mut heap,
+                &mut Vec::<u8>::new(),
+                &mut NativeControl::default(),
+            ),
+            Err(Error::NullPointerException)
+        ));
+    }
+
+    #[test]
+    fn copy3_out_of_bounds_dst_errors() {
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("Hello".to_string());
+        let dst = empty_byte_array(&mut heap, 2); // too small
+        let args = [
+            Slot::Reference(Some(s)),
+            Slot::Reference(Some(dst)),
+            Slot::Int(0),
+            Slot::Int(0),
+        ];
+        assert!(
+            native_string_get_bytes_copy3(
+                &args,
+                &mut heap,
+                &mut Vec::<u8>::new(),
+                &mut NativeControl::default(),
+            )
+            .is_err(),
+            "writing past the dst array must error, not silently truncate"
+        );
+    }
 }
