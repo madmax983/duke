@@ -320,9 +320,10 @@ pub fn run_execution(
                         *pc_to_idx = caller.pc_to_idx;
                         *idx = caller.resume_idx;
                         *current_class = caller.class_name;
-                        *instructions = std::sync::Arc::clone(
-                            &registry.get(&current_class)?.methods[*method_idx].instructions,
-                        );
+                        // Restore the caller's cached bytecode directly, avoiding a
+                        // ClassRegistry lookup + constant-pool re-resolution on every
+                        // return. Mirrors the cached `pc_to_idx` restore above.
+                        *instructions = caller.instructions;
                         #[cfg(feature = "telemetry")]
                         {
                             *current_method = registry
@@ -406,9 +407,9 @@ pub fn run_execution(
                             *method_idx = caller.method_idx;
                             *pc_to_idx = caller.pc_to_idx;
                             *current_class = caller.class_name;
-                            *instructions = std::sync::Arc::clone(
-                                &registry.get(&current_class)?.methods[*method_idx].instructions,
-                            );
+                            // Restore the caller's cached bytecode directly (mirrors
+                            // the do_return! restore).
+                            *instructions = caller.instructions;
                             #[cfg(feature = "telemetry")]
                             {
                                 *current_method = registry

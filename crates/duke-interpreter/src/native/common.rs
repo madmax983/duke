@@ -8572,6 +8572,7 @@ fn activate_method_state(
         frame: std::mem::replace(frame, callee_frame),
         method_idx: *method_idx,
         pc_to_idx: std::sync::Arc::clone(pc_to_idx),
+        instructions: std::sync::Arc::clone(instructions),
         resume_idx,
         class_name: current_class.clone(),
     });
@@ -9862,6 +9863,10 @@ struct CallFrame {
     frame: Frame,
     method_idx: usize,
     pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
+    /// Bytecode of the caller method, cached so `do_return!` can restore it with
+    /// a cheap `Arc` move instead of a `ClassRegistry` lookup + constant-pool
+    /// re-resolution on every return. Mirrors the cached `pc_to_idx` above.
+    instructions: std::sync::Arc<[(usize, Instruction)]>,
     resume_idx: usize,
     /// Class that was executing when this frame was pushed.
     class_name: std::sync::Arc<str>,
