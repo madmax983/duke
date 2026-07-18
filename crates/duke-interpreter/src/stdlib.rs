@@ -3941,6 +3941,30 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_url_connection_set_use_caches,
     );
 
+    // Synthetic `java/net/URLDecoder`: static-only x-www-form-urlencoded decoder.
+    // Spring's `UrlResource.getFilename()` calls
+    // `URLDecoder.decode(String, StandardCharsets.UTF_8)` to un-escape a URL path
+    // component (`%20` → space, `+` → space).
+    let url_decoder_ctx = ClassContext {
+        class_name: "java/net/URLDecoder".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(url_decoder_ctx);
+    registry.natives_mut().register(
+        "java/net/URLDecoder",
+        "decode",
+        "(Ljava/lang/String;Ljava/nio/charset/Charset;)Ljava/lang/String;",
+        native_url_decoder_decode_charset,
+    );
+
     let url_class_path_ctx = ClassContext {
         class_name: "jdk/internal/loader/URLClassPath".to_string(),
         super_class: Some("java/lang/Object".to_string()),
@@ -8140,6 +8164,15 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             .natives_mut()
             .register("java/util/Properties", method, descriptor, handler);
     }
+    // Properties-specific forEach: Properties' entries start at fields[2] (fields[1]
+    // is the defaults chain), unlike the inherited Hashtable/HashMap layout, so it
+    // needs its own iteration to avoid handing a null key to the consumer.
+    registry.natives_mut().register_callback(
+        "java/util/Properties",
+        "forEach",
+        "(Ljava/util/function/BiConsumer;)V",
+        native_properties_for_each,
+    );
     for (method, descriptor, handler) in [
         (
             "hasMoreElements",
@@ -9669,6 +9702,70 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/util/Set;",
         native_hashmap_entry_set,
     );
+    // Map-default family — LinkedHashMap uses the exact HashMap layout
+    // (fields[0]=size, fields[1..]=key/value pairs), so it reuses the HashMap
+    // natives, mirroring the Hashtable precedent. Spring's SpringFactoriesLoader
+    // populates a LinkedHashMap via computeIfAbsent(name, k -> new ArrayList<>()).
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "clear",
+        "()V",
+        native_hashmap_clear,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "putIfAbsent",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_put_if_absent,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "replace",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_replace,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "containsValue",
+        "(Ljava/lang/Object;)Z",
+        native_hashmap_contains_value,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "putAll",
+        "(Ljava/util/Map;)V",
+        native_hashmap_put_all,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/LinkedHashMap",
+        "computeIfAbsent",
+        "(Ljava/lang/Object;Ljava/util/function/Function;)Ljava/lang/Object;",
+        native_hashmap_compute_if_absent,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/LinkedHashMap",
+        "computeIfPresent",
+        "(Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_hashmap_compute_if_present,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/LinkedHashMap",
+        "compute",
+        "(Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_hashmap_compute,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/LinkedHashMap",
+        "merge",
+        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/util/function/BiFunction;)Ljava/lang/Object;",
+        native_hashmap_merge,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/LinkedHashMap",
+        "replaceAll",
+        "(Ljava/util/function/BiFunction;)V",
+        native_hashmap_replace_all,
+    );
 
     // duke/util/Stream — lazy pipeline backed by flat element array
     // fields[0] = Int(size), fields[1..] = element refs
@@ -10400,6 +10497,15 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "java/util/ArrayDeque",
         "<init>",
         "()V",
+        native_arraydeque_init,
+    );
+    // Initial-capacity ctor: the capacity is a sizing hint only. Duke's deque is a
+    // flat, growable element array (front at index 1), so the hint is ignored and
+    // the deque starts empty — mirroring LinkedBlockingQueue.<init>(I)V.
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "<init>",
+        "(I)V",
         native_arraydeque_init,
     );
     registry.natives_mut().register(

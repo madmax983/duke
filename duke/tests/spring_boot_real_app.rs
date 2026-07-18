@@ -222,7 +222,41 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // loading and walls on a directly-surfaced missing collections constructor —
 // `java/util/ArrayDeque.<init>(I)V` (the initial-capacity ArrayDeque ctor) — a
 // java.util collections-lane rung, so the app is pinned here.
-const APP_BLOCKER: &str = "method not found: java/util/ArrayDeque.<init>(I)V";
+// APP now boots PAST the ArrayDeque, URLDecoder and SpringFactoriesLoader
+// collections rungs (all cleared 2026-07-18, banner-climb wave):
+//   * `java/util/ArrayDeque.<init>(I)V` — the initial-capacity ctor (capacity is a
+//     sizing hint; reuses the empty-deque init native).
+//   * `java/net/URLDecoder.decode(String, Charset)` — x-www-form-urlencoded decode
+//     (`+`->space, `%XX`->byte, UTF-8), reached from UrlResource.getFilename.
+//   * `java/util/Properties.forEach(BiConsumer)` — Properties has its OWN layout
+//     (fields[0]=size, fields[1]=defaults, fields[2..]=entries), so it used to fall
+//     through to the Hashtable/HashMap forEach, which read fields[1] (the defaults
+//     slot, null) as the first key and handed SpringFactoriesLoader a null key — an
+//     NPE on `name.trim()`. A Properties-specific forEach iterating the real entries
+//     fixes it.
+//   * `java/util/LinkedHashMap` Map-default family (computeIfAbsent + computeIfPresent
+//     /compute/merge/replaceAll/putIfAbsent/replace/containsValue/putAll/clear),
+//     reusing the HashMap natives (identical layout).
+// The app then walls on a GC-relocation/root-completeness hazard in DEEPLY NESTED
+// native callbacks: SpringFactoriesLoader runs
+//   ConcurrentReferenceHashMap.computeIfAbsent(loader, k ->
+//       Properties.forEach((name,value) ->
+//           result.computeIfAbsent(name, k2 -> new ArrayList<>(names.length))))
+// The innermost `new ArrayList<>` triggers a major GC while the `result` LinkedHashMap
+// is reachable ONLY through outer interpreter frames that are not part of the nested
+// `ops.invoke`/execute_class call-stack (and through native-held Rust locals, which are
+// not GC roots). `result` is collected mid-callback, so the resumed
+// `LinkedHashMap.computeIfAbsent` put dereferences a dangling ref and throws NPE, which
+// the launcher's reflective `main.invoke` wraps as InvocationTargetException. Confirmed
+// by forcing GC off: the NPE vanishes and boot climbs several rungs further (next visible
+// gap `java/util/UnmodifiableMap.getOrDefault`, then Spring's own
+// SpringFactoriesLoader$FailureHandler throwing an IllegalArgumentException while
+// instantiating factory implementations — deep reflective bean-instantiation territory).
+// The root cause is a GC-root-completeness gap in nested native-callback re-entrancy
+// (interpreter/GC core — execution.rs `gather_roots`/`ops.invoke` + a missing native
+// temp-root pin), which is out of this java.util/java.net lane and a cross-lane change,
+// so the app is pinned here. The visible blocker is the generic reflective wrap.
+const APP_BLOCKER: &str = "java exception: java/lang/reflect/InvocationTargetException";
 // LADDER now boots END-TO-END (2026-07-15, same-class-reflection lane, trunk): main
 // climbs into `LadderApplication.main`, clears Properties.load + the BufferedReader
 // character-stream read, and its reflective same-class private `summarize` invoke now
@@ -259,22 +293,23 @@ fn combined_output(output: &Output) -> String {
 /// End-to-end CANARY for the real Spring Boot app fixture. Ignored until boot
 /// reaches the started-application line. Un-ignore when the happy path clears.
 #[test]
-#[ignore = "The app now boots PAST the enum-reflection, reference-type, AND URL resource-loading \
-            lanes: the EnumSet subsystem (noneOf/allOf/range Class-typed factories with \
-            enum-constant reflection + ordinal bit-set storage) cleared the reflectively-wrapped \
-            NoClassDefFoundError: java/util/EnumSet / ExceptionInInitializerError wall (PR #1368); \
-            a minimal non-collecting synthetic java/lang/ref/SoftReference cleared Spring's \
-            ConcurrentReferenceHashMap$SoftEntryReference.<init> wall; and a minimal synthetic \
-            java/net/URLConnection (1-slot spec-backed, getInputStream/setUseCaches) plus \
-            URL.openConnection() and a null-returning URL.getUserInfo() now carry \
-            org/springframework/core/io/UrlResource::getInputStream end to end (openConnection -> \
-            customizeConnection{setUseCaches,getUserInfo=null} -> URLConnection.getInputStream, \
-            reusing read_resource_bytes_from_url_spec + allocate_resource_input_stream to feed \
-            PropertiesLoaderUtils::fillProperties a duke/io/ResourceInputStream; no HttpURLConnection \
-            needed). The visible first blocker is now a directly-surfaced missing collections \
-            constructor: java/util/ArrayDeque.<init>(I)V (the initial-capacity ArrayDeque ctor) — a \
-            java.util collections-lane rung, not taken here. Keep ignored until the Spring Boot app \
-            boot completes. See docs/findings/2026-07-10-spring-boot-real-app.md"]
+#[ignore = "The app now boots PAST the enum-reflection, reference-type, URL resource-loading AND \
+            SpringFactoriesLoader collections lanes. Cleared this wave (2026-07-18): \
+            java/util/ArrayDeque.<init>(I)V (capacity ctor); java/net/URLDecoder.decode(String, \
+            Charset) (x-www-form-urlencoded, reached from UrlResource.getFilename); a \
+            Properties-specific forEach (Properties' fields[1] is the defaults slot, not the first \
+            key — the inherited Hashtable forEach handed SpringFactoriesLoader a null key -> NPE on \
+            name.trim()); and the java/util/LinkedHashMap Map-default family (computeIfAbsent etc.). \
+            The app now walls on a GC-relocation/root-completeness hazard in deeply nested native \
+            callbacks: ConcurrentReferenceHashMap.computeIfAbsent -> Properties.forEach -> \
+            LinkedHashMap.computeIfAbsent -> new ArrayList<>() triggers a major GC while the result \
+            map is reachable only via outer interpreter frames not in the nested ops.invoke \
+            call-stack (and via native-held Rust locals, which are not roots), so it is collected \
+            mid-callback and the resumed put NPEs (wrapped as InvocationTargetException). Forcing GC \
+            off confirms this and climbs several rungs further into Spring's reflective factory \
+            instantiation. The GC-root-completeness fix is interpreter/GC-core, out of this lane. \
+            Keep ignored until the Spring Boot app boot completes. \
+            See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_app_boots_end_to_end() {
     let output = run_fixture(APP_JAR);
     let combined = combined_output(&output);

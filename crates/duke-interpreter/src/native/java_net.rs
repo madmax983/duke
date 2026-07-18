@@ -215,3 +215,67 @@ pub(crate) fn native_url_connection_set_use_caches(
 ) -> Result<Option<Slot>> {
     Ok(None)
 }
+/// `application/x-www-form-urlencoded` decoding, shared by both `URLDecoder.decode`
+/// overloads. `+` becomes a space; each `%XX` becomes the raw byte `0xXX`; every
+/// other char contributes its own UTF-8 bytes. The accumulated byte sequence is
+/// then interpreted as UTF-8 (the only charset Spring passes here — the charset
+/// argument is UTF-8, and Duke's Strings are UTF-8/Latin-1). A malformed `%`
+/// escape raises `IllegalArgumentException`, matching the JDK.
+fn www_form_url_decode(encoded: &str) -> Result<String> {
+    let bytes = encoded.as_bytes();
+    let mut decoded: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => {
+                decoded.push(b' ');
+                i += 1;
+            }
+            b'%' => {
+                if i + 2 >= bytes.len() {
+                    return Err(Error::JavaException {
+                        class_name: "java/lang/IllegalArgumentException".into(),
+                    });
+                }
+                let hi = (bytes[i + 1] as char).to_digit(16);
+                let lo = (bytes[i + 2] as char).to_digit(16);
+                match (hi, lo) {
+                    (Some(hi), Some(lo)) => {
+                        decoded.push(u8::try_from(hi * 16 + lo).unwrap_or(0));
+                        i += 3;
+                    }
+                    _ => {
+                        return Err(Error::JavaException {
+                            class_name: "java/lang/IllegalArgumentException".into(),
+                        });
+                    }
+                }
+            }
+            b => {
+                decoded.push(b);
+                i += 1;
+            }
+        }
+    }
+    Ok(String::from_utf8_lossy(&decoded).into_owned())
+}
+/// Native: `URLDecoder.decode(String, Charset)` — decodes an
+/// `application/x-www-form-urlencoded` string. Spring's `UrlResource.getFilename`
+/// calls this with `StandardCharsets.UTF_8` to un-escape a URL path component.
+/// The charset argument is accepted and treated as UTF-8 (see
+/// `www_form_url_decode`).
+pub(crate) fn native_url_decoder_decode_charset(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let encoded_ref = extract_ref_arg(args, 0)?;
+    let encoded = heap
+        .get(encoded_ref)?
+        .string_value
+        .clone()
+        .ok_or(Error::NullPointerException)?;
+    let decoded = www_form_url_decode(&encoded)?;
+    Ok(Some(Slot::Reference(Some(heap.allocate_string(decoded)))))
+}

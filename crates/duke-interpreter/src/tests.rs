@@ -7469,6 +7469,42 @@ fn url_connection_natives_dispatch_directly() {
 }
 
 #[test]
+fn url_decoder_decode_charset_unescapes_form_encoding() {
+    // Direct-dispatch coverage for java/net/URLDecoder.decode(String, Charset):
+    // `+` -> space, `%XX` -> byte, other chars verbatim, decoded as UTF-8. Spring's
+    // UrlResource.getFilename calls this with StandardCharsets.UTF_8.
+    let mut heap = duke_gc::Heap::new();
+    let encoded_ref = heap.allocate_string("a%20b+c%2Fd".to_string());
+    let decoded = native_url_decoder_decode_charset(
+        &[Slot::Reference(Some(encoded_ref)), Slot::Reference(None)],
+        &mut heap,
+        &mut std::io::sink(),
+        &mut NativeControl::default(),
+    )
+    .expect("decode succeeds")
+    .expect("decode returns a reference");
+    let decoded_ref = match decoded {
+        Slot::Reference(Some(r)) => r,
+        other => panic!("expected decoded String reference, got {other:?}"),
+    };
+    assert_eq!(
+        heap.get(decoded_ref).unwrap().string_value.as_deref(),
+        Some("a b c/d")
+    );
+}
+
+#[test]
+fn spring_factories_collections_shape_fixture_runs() {
+    // End-to-end coverage of the Spring Boot SpringFactoriesLoader collections
+    // shape: Properties.forEach yielding real string keys (not a null defaults
+    // slot), LinkedHashMap.computeIfAbsent, and ArrayDeque.<init>(int).
+    assert_eq!(
+        run_bootstrap_int_completion("SpringFactoriesShapeTest.class", "run", "()I"),
+        0
+    );
+}
+
+#[test]
 fn resource_loading_meta_inf_fixture_runs_from_directory_loader() {
     assert_eq!(
         run_bootstrap_int_completion("ResourceLoadingJarTest.class", "readMetaInfMessage", "()I",),
