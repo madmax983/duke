@@ -3731,12 +3731,16 @@ fn archive_file_ref_at(heap: &duke_gc::Heap, archive_ref: u64, slot: usize) -> R
     }
 }
 
+// Retained for existing (test) callers; the native call sites that used the
+// one-shot post-invoke patch have migrated to `NativeRootScope` handles.
+#[allow(dead_code)]
 fn patch_forwarded_slot_if_needed(heap: &duke_gc::Heap, slot: &mut Slot) {
     if heap.has_pending_forwards() {
         heap.apply_forward(slot);
     }
 }
 
+#[allow(dead_code)]
 fn patch_forwarded_ref_if_needed(heap: &duke_gc::Heap, reference: &mut u64) {
     let mut slot = Slot::Reference(Some(*reference));
     patch_forwarded_slot_if_needed(heap, &mut slot);
@@ -15396,6 +15400,171 @@ impl Drop for RootProviderGuard {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Native local root handles (JNI-local-reference model)
+// ---------------------------------------------------------------------------
+
+/// A raw pointer to a heap reference that a native method is holding across a
+/// re-entrant callback (`CallbackOps::invoke`) and that must therefore be
+/// treated as a GC root *and* forwarded in place on every collection that fires
+/// while the native is suspended.
+///
+/// This is the sound replacement for the one-shot post-invoke
+/// `patch_forwarded_*` idiom: because [`patch_forwarded_slots`] runs immediately
+/// after *every* `heap.collect` while that collection's one-hop forward map is
+/// still valid, a pinned handle is re-forwarded from its CURRENT value against
+/// the CURRENT map at each collect (A→B, then B→C, …). No forward chain is ever
+/// chased and no stale from-address is ever re-keyed against a later map, so the
+/// handle stays correct under ANY number of collections — exactly the JNI local
+/// reference contract.
+#[derive(Clone, Copy)]
+enum HandlePtr {
+    /// A bare object reference stored in one of the native's stack locals.
+    Ref(*mut u64),
+    /// A single [`Slot`] stored in one of the native's stack locals.
+    Slot(*mut Slot),
+    /// A contiguous run of [`Slot`]s (e.g. the backing buffer of a snapshot
+    /// `Vec<Slot>`), described by base pointer and length.
+    Slots(*mut Slot, usize),
+}
+
+thread_local! {
+    /// Stack of native-held GC roots — "local handles", analogous to JNI local
+    /// references. Each entry points at a live reference/slot owned by a native
+    /// method that is currently suspended inside `CallbackOps::invoke`.
+    ///
+    /// Entries are pushed via [`NativeRootScope`] and popped (truncated) when the
+    /// owning scope is dropped, so the stack is empty whenever no native is
+    /// holding a heap reference across a callback. [`gather_roots`] reads every
+    /// entry (keeping the target object alive) and [`patch_forwarded_slots`]
+    /// rewrites every entry in place after each collection (keeping the native's
+    /// held reference pointed at the object's new location).
+    static NATIVE_ROOT_HANDLES: std::cell::RefCell<Vec<HandlePtr>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// RAII scope that lets a native method register the heap references/slots it
+/// holds across a callback as GC local handles.
+///
+/// # Safety contract
+/// Every pointer registered via [`pin_ref`](Self::pin_ref) /
+/// [`pin_slot`](Self::pin_slot) / [`pin_slots`](Self::pin_slots) must remain
+/// valid and point at storage that is neither moved nor reallocated for the
+/// whole lifetime of the scope. This holds by construction for the intended
+/// callers: they pin their own stack locals (`&mut u64` / `&mut Slot`) or the
+/// backing buffer of a snapshot `Vec<Slot>` that is not pushed to, popped from,
+/// or reassigned while the scope is alive. While a callback runs, the native is
+/// suspended on the Rust stack and its `&mut` borrows of those locals are
+/// inactive, so the collector may read them in [`gather_roots`] and write them
+/// in [`patch_forwarded_slots`] through the raw pointers without aliasing a live
+/// borrow — the same rationale as [`RootProviderGuard`]'s suspended frames.
+pub(crate) struct NativeRootScope {
+    /// Stack length captured at construction; `Drop` truncates back to it.
+    base: usize,
+}
+
+impl NativeRootScope {
+    /// Open a new handle scope. Handles registered on it are automatically
+    /// removed when the returned guard is dropped.
+    pub(crate) fn new() -> Self {
+        let base = NATIVE_ROOT_HANDLES.with(|s| s.borrow().len());
+        Self { base }
+    }
+
+    // The pin methods register into the shared thread-local rather than into
+    // `self`, but take `&mut self` deliberately: a pin is only valid for the
+    // lifetime of THIS uniquely-borrowed guard, and `&mut self` ties each
+    // registration to the guard that will pop it on drop.
+
+    /// Pin a bare object reference held in a native stack local.
+    #[allow(clippy::needless_pass_by_ref_mut, clippy::unused_self)]
+    pub(crate) fn pin_ref(&mut self, reference: &mut u64) {
+        let ptr = std::ptr::from_mut(reference);
+        NATIVE_ROOT_HANDLES.with(|s| s.borrow_mut().push(HandlePtr::Ref(ptr)));
+    }
+
+    /// Pin a single [`Slot`] held in a native stack local.
+    #[allow(clippy::needless_pass_by_ref_mut, clippy::unused_self)]
+    pub(crate) fn pin_slot(&mut self, slot: &mut Slot) {
+        let ptr = std::ptr::from_mut(slot);
+        NATIVE_ROOT_HANDLES.with(|s| s.borrow_mut().push(HandlePtr::Slot(ptr)));
+    }
+
+    /// Pin a contiguous slice of [`Slot`]s (e.g. a snapshot `Vec<Slot>`'s
+    /// buffer). A no-op for an empty slice.
+    #[allow(clippy::needless_pass_by_ref_mut, clippy::unused_self)]
+    pub(crate) fn pin_slots(&mut self, slots: &mut [Slot]) {
+        if slots.is_empty() {
+            return;
+        }
+        let len = slots.len();
+        let ptr = slots.as_mut_ptr();
+        NATIVE_ROOT_HANDLES.with(|s| s.borrow_mut().push(HandlePtr::Slots(ptr, len)));
+    }
+}
+
+impl Drop for NativeRootScope {
+    fn drop(&mut self) {
+        NATIVE_ROOT_HANDLES.with(|s| s.borrow_mut().truncate(self.base));
+    }
+}
+
+/// Append the CURRENT target of every registered native handle to `roots` so the
+/// collector keeps those objects alive. Mirror of the parent-frame walk in
+/// [`gather_roots`].
+fn extend_roots_with_native_handles(roots: &mut Vec<Slot>) {
+    NATIVE_ROOT_HANDLES.with(|handles| {
+        for handle in handles.borrow().iter() {
+            // SAFETY: see `NativeRootScope`'s safety contract. Each pointer
+            // targets a live stack local / snapshot buffer owned by a native
+            // that is suspended in a callback below us on the Rust stack, so the
+            // storage is valid and not concurrently borrowed while we read it.
+            unsafe {
+                match *handle {
+                    HandlePtr::Ref(ptr) => roots.push(Slot::Reference(Some(*ptr))),
+                    HandlePtr::Slot(ptr) => roots.push(*ptr),
+                    HandlePtr::Slots(ptr, len) => {
+                        for i in 0..len {
+                            roots.push(*ptr.add(i));
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// Apply GC forwarding to every registered native handle in place after a
+/// collection, so each native's held reference tracks its object's new location.
+/// Mirror of the parent-frame patch walk in [`patch_forwarded_slots`].
+fn forward_native_handles(heap: &duke_gc::Heap) {
+    NATIVE_ROOT_HANDLES.with(|handles| {
+        for handle in handles.borrow().iter() {
+            // SAFETY: see `NativeRootScope`'s safety contract. Each pointer
+            // targets a live stack local / snapshot buffer owned by a native
+            // that is suspended in a callback below us on the Rust stack, so the
+            // storage is valid and not concurrently borrowed while we write it.
+            unsafe {
+                match *handle {
+                    HandlePtr::Ref(ptr) => {
+                        let mut slot = Slot::Reference(Some(*ptr));
+                        heap.apply_forward(&mut slot);
+                        if let Some(new_ref) = slot.as_reference() {
+                            *ptr = new_ref;
+                        }
+                    }
+                    HandlePtr::Slot(ptr) => heap.apply_forward(&mut *ptr),
+                    HandlePtr::Slots(ptr, len) => {
+                        for i in 0..len {
+                            heap.apply_forward(&mut *ptr.add(i));
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
 /// Invoke `f` for every PARENT active `ExecutionState` — that is, every entry on
 /// the shadow stack below the innermost/current one.
 ///
@@ -15457,6 +15626,12 @@ fn gather_roots(
     for &r in string_intern.values() {
         roots.push(duke_runtime::Slot::Reference(Some(r)));
     }
+    // Native local handles: heap references/slots that a native method is
+    // holding across a re-entrant callback. Their storage lives in the native's
+    // Rust stack frame (or a snapshot buffer) and is otherwise invisible to the
+    // collector, so without this a GC fired inside the callback would reclaim
+    // objects the suspended native still needs.
+    extend_roots_with_native_handles(&mut roots);
     roots
 }
 
@@ -15519,6 +15694,11 @@ fn patch_forwarded_slots(
             *r = new_r;
         }
     }
+    // Native local handles — mirror of the parent-frame patch walk above. Each
+    // pinned reference/slot is forwarded in place against THIS collection's
+    // one-hop map while it is still valid, so a native holding a reference
+    // across a callback tracks the object across any number of collections.
+    forward_native_handles(heap);
 }
 
 // ---------------------------------------------------------------------------
