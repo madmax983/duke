@@ -7374,6 +7374,55 @@ fn resource_loading_fixture_runs_directory_cases() {
     );
 }
 
+// GC-core: native-held Rust-local refs across ops.invoke are not roots; single-shot
+// apply_forward can't recover across >1 GC. Un-ignore when the native-root-pin lands.
+//
+// Both fixtures run a map/Properties forEach whose consumer RETAINS ~40 int[512]
+// arrays per iteration, growing old-gen live past the 2x major-GC threshold so a
+// major collection fires MID-iteration. The forEach natives hold the consumer +
+// not-yet-visited key/value pairs in Rust locals across each `ops.invoke`; those
+// locals are neither GC roots nor patched by the interpreter's post-collection
+// sweep (which walks parent JVM *frames* via for_each_parent_root_provider, but a
+// native Rust local has no frame slot). When >1 major GC fires inside a single
+// callback the after-invoke `patch_forwarded_ref_if_needed`/`_slot_if_needed`
+// idiom cannot chase the multi-hop forward chain (each `collect` rebuilds the
+// forward map), so a later iteration hands the consumer a stale/dangling
+// receiver/key/value and the fixture aborts with an invalid-ref error.
+//
+// This is the same root cause that walls the real Spring Boot app fixture (its
+// ConcurrentReferenceHashMap.computeIfAbsent -> Properties.forEach ->
+// LinkedHashMap.computeIfAbsent chain corrupts compute_if_absent's `this_ref`,
+// which flips from java/util/LinkedHashMap to a
+// [Lorg/springframework/util/ConcurrentReferenceHashMap$Reference; after its own
+// patch). `HashMapForEachGcTest` drives the AUDITED `native_hashmap_for_each` and
+// fails identically, so the gap is family-wide/GC-core, not a single native. The
+// fix is GC-core (a native root-handle/pin API, or cumulative/chained forward
+// resolution) — see docs/findings/2026-07-10-spring-boot-real-app.md.
+#[test]
+#[ignore = "GC-core frontier: forEach/callback natives lose native-held Rust-local refs across \
+            an ops.invoke when >1 major GC fires mid-callback (single-shot apply_forward can't \
+            chase the chain). Un-ignore when the native-root-pin lands. See \
+            docs/findings/2026-07-10-spring-boot-real-app.md"]
+fn properties_for_each_survives_mid_iteration_gc() {
+    assert_eq!(
+        run_bootstrap_int_completion("PropertiesForEachGcTest.class", "run", "()I"),
+        0
+    );
+}
+
+#[test]
+#[ignore = "GC-core frontier (audited native): native_hashmap_for_each loses native-held \
+            Rust-local refs across an ops.invoke when >1 major GC fires mid-callback — the same \
+            family-wide root cause as properties_for_each_survives_mid_iteration_gc and the Spring \
+            Boot app wall. Un-ignore when the native-root-pin lands. See \
+            docs/findings/2026-07-10-spring-boot-real-app.md"]
+fn hashmap_for_each_survives_mid_iteration_gc() {
+    assert_eq!(
+        run_bootstrap_int_completion("HashMapForEachGcTest.class", "run", "()I"),
+        0
+    );
+}
+
 #[test]
 fn url_connection_open_connection_reads_resource() {
     // URL.openConnection().getInputStream() reads the classpath resource

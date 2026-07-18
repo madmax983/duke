@@ -1209,3 +1209,114 @@ collections/streams volume, `System`/`Unsafe`/`AccessController`). **No banner y
 
 No edits to `native/common.rs`, `execution.rs`, `registry.rs`, or the GC-hazard map
 native bodies (only NEW natives appended to `java_util.rs`/`java_net.rs`).
+
+---
+
+## 2026-07-18 — APP frontier ROOT-CAUSED: a GC-core callback-family ref-safety gap (branch `swarm/gc-callback-frontier`; pinned with reproducing tests)
+
+The `#1382` app frontier — a `NullPointerException` (wrapped as
+`InvocationTargetException`) reached inside `SpringFactoriesLoader.loadFactoriesResource`
+via
+`ConcurrentReferenceHashMap.computeIfAbsent -> Properties.forEach -> LinkedHashMap.computeIfAbsent -> new ArrayList<>()`
+— was initially attributed to a cross-lane "root-completeness" gap. It has now been
+**root-caused precisely** and is a **GC-core, callback-family ref-safety bug**, not a
+one-native fix.
+
+### Verbatim wall
+
+```
+duke: runtime error: java exception: java/lang/reflect/InvocationTargetException
+```
+Reflect-wrap instrumentation (reverted) shows the cause is `java/lang/NullPointerException`
+thrown in `com/example/duke/DukeApplication.main`, on the **first** `Properties.forEach`
+entry (a single `lambda$loadFactoriesResource$4` invocation before the throw).
+
+### Instrumented root cause
+
+The failing `HashMap.put` receives a `this_ref` belonging to the audited
+`native_hashmap_compute_if_absent` (the `result` `LinkedHashMap`). Printing `this_ref`'s
+class around that function's own `patch_forwarded_ref_if_needed` (line ~496) showed:
+
+- **before** the patch: `this_ref` is a valid `java/util/LinkedHashMap`, with
+  `heap.has_pending_forwards() == true`;
+- **after** the patch: `this_ref` points at
+  `[Lorg/springframework/util/ConcurrentReferenceHashMap$Reference;` — the patch
+  **mislocated an already-current ref**, and the resumed `put` then reads
+  `fields[0] == Reference(None)` (not the `Int` size) and throws NPE.
+
+**Mechanism.** A native that holds a heap ref in a **Rust local** across an
+`ops.invoke` (the map/`Properties` `forEach` consumer, or the `computeIfAbsent` mapping
+function) is exposed to GC relocation of that object. The interpreter's post-collection
+sweep (`gather_roots` / `patch_forwarded_slots`, `native/common.rs`) DOES walk parent JVM
+**frames** — including suspended parents via `for_each_parent_root_provider` — so a ref
+living in a JVM frame slot survives and is patched correctly. But a **native Rust local
+has no frame slot**, so it is neither a root nor patched. The callback natives try to
+compensate with a single post-invoke `patch_forwarded_ref_if_needed` / `_slot_if_needed`
+(`has_pending_forwards()` + `apply_forward`). That works for a **single** GC, but when
+**more than one** major GC fires within one `ops.invoke` (Spring's large heap +
+`new ArrayList<>(names.length)` + surrounding work trigger several), the ref moved A→B→C
+while each `collect` **rebuilt** the forward map — so the single after-invoke
+`apply_forward` sees only the last collection's map and cannot chase the chain (it misses
+the ref, or rewrites an address the current map maps to an unrelated object, e.g. a
+promoted `Reference[]`).
+
+### The coordinator's re-resolution patch was tried and did NOT clear it
+
+Applying the requested hardening to `native_properties_for_each` (mutable `consumer_ref`,
+index loop over a mutable `pairs` vec, `patch_forwarded_ref_if_needed` on `consumer_ref`
++ `patch_forwarded_slot_if_needed` on the remaining pairs **after each** `ops.invoke`)
+left the app walled at the **same** NPE — because (a) the Spring failure is on the first
+`forEach` entry, inside `compute_if_absent`'s `this_ref`, not a later-iteration stale
+consumer, and (b) the multi-GC-per-invoke chain defeats any single-shot after-invoke
+`apply_forward`.
+
+### Family-wide reproduction (committed as `#[ignore]`d pins)
+
+Two hermetic fixtures reproduce the failure without the Spring jar. Each runs a
+map/`Properties` `forEach` whose consumer retains ~`40 × int[512]` per iteration, growing
+old-gen live past the `2×` major-GC threshold so a major collection fires **mid-iteration**:
+
+- `tests/fixtures/PropertiesForEachGcTest.java` → `native_properties_for_each`.
+- `tests/fixtures/HashMapForEachGcTest.java` → the **audited** `native_hashmap_for_each`
+  (one of the 10 GC-hazard functions).
+
+**Both fail identically** (the fixture aborts with an invalid-ref/NPE error), and the
+`HashMap` case proves the gap is **not** specific to the new `Properties.forEach` native —
+it is **family-wide / GC-core**. Wired as
+`crates/duke-interpreter/src/tests.rs::properties_for_each_survives_mid_iteration_gc` and
+`::hashmap_for_each_survives_mid_iteration_gc`, both `#[ignore]`d (so the gate's 0-failed
+count is unaffected) with a reason pointing here. **Un-ignore when the native-root-pin
+lands.**
+
+### Fix options (GC-core / audit lane — NOT this lane)
+
+1. A **native root-handle / pin API** on `duke_gc::Heap`: let a native register the refs
+   it holds across `ops.invoke` so every `collect` treats them as roots and patches them
+   in place (like the frame/parent sweep already does). The callback natives then hold a
+   handle instead of a raw `u64`.
+2. **Cumulative / chained forward resolution**: retain enough forward history (or chase
+   `A→B→C`) so a single post-invoke `apply_forward` recovers a ref that moved across
+   multiple collections.
+
+Either touches `duke-gc` + `execution.rs` root gathering + the audited native bodies —
+cross-lane and a real subsystem change, so it is **pinned, not patched** here. Evidence
+relayed to the GC-audit lane.
+
+### Next rungs after the wall (GC-off probe, for scoping)
+
+Forcing GC off (temporary `should_gc` short-circuit, reverted) makes the NPE vanish and
+boot climbs further: next visible gap `method not found: java/util/UnmodifiableMap.getOrDefault`,
+then Spring's own `SpringFactoriesLoader$FailureHandler` throwing an
+`IllegalArgumentException` while instantiating factory implementations (deep reflective
+bean-instantiation territory, blocker #4). **No banner yet** — the GC-core fix gates the
+default path.
+
+### Files (this branch)
+
+- `tests/fixtures/PropertiesForEachGcTest.{java,class}`,
+  `tests/fixtures/HashMapForEachGcTest.{java,class}` — reproducing fixtures.
+- `crates/duke-interpreter/src/tests.rs` — two `#[ignore]`d regression pins.
+- this findings entry.
+
+No production code changed; no edits to `native/common.rs`, `execution.rs`, `registry.rs`,
+or any audited native body. Tests only.
