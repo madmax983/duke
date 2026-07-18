@@ -483,6 +483,12 @@ pub(crate) fn native_hashmap_compute_if_absent(
     // Key absent — invoke the mapping function (lambda / SAM).
     let fn_ref = extract_ref_arg(args, 2)?;
     let fn_class = heap.get(fn_ref)?.class_name.clone();
+    // Pin `this_ref`/`key` across the mapping function so any collections it
+    // triggers keep them alive and forward them in place — correct under any
+    // number of GCs, unlike a one-shot post-invoke patch.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut this_ref);
+    scope.pin_slot(&mut key);
     let computed = ops.invoke(
         heap,
         out,
@@ -491,10 +497,7 @@ pub(crate) fn native_hashmap_compute_if_absent(
         "(Ljava/lang/Object;)Ljava/lang/Object;",
         vec![Slot::Reference(Some(fn_ref)), key],
     )?;
-    // The mapping function ran arbitrary bytecode which may have triggered a GC
-    // that relocated `this_ref`/`key`; re-resolve them before the heap store.
-    patch_forwarded_ref_if_needed(heap, &mut this_ref);
-    patch_forwarded_slot_if_needed(heap, &mut key);
+    drop(scope);
     if let Some(value) = computed
         && !matches!(value, Slot::Reference(None))
     {
@@ -727,21 +730,31 @@ pub(crate) fn native_hashmap_for_each(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let consumer_ref = extract_ref_arg(args, 1)?;
+    let mut consumer_ref = extract_ref_arg(args, 1)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    // Snapshot key-val pairs (fields[1,2], fields[3,4], ...)
-    let pairs: Vec<(Slot, Slot)> = (0..size)
-        .map(|i| {
-            let key = heap.get(this_ref).map_or(Slot::Reference(None), |o| o.fields[1 + i * 2]);
-            let val = heap.get(this_ref).map_or(Slot::Reference(None), |o| o.fields[2 + i * 2]);
-            (key, val)
-        })
-        .collect();
+    // Snapshot key-val pairs (fields[1,2], fields[3,4], ...) into a flat buffer
+    // so the whole run of slots can be pinned as a single GC handle.
+    let mut pairs: Vec<Slot> = Vec::with_capacity(size * 2);
+    for i in 0..size {
+        let key = heap.get(this_ref).map_or(Slot::Reference(None), |o| o.fields[1 + i * 2]);
+        let val = heap.get(this_ref).map_or(Slot::Reference(None), |o| o.fields[2 + i * 2]);
+        pairs.push(key);
+        pairs.push(val);
+    }
     let consumer_class = heap.get(consumer_ref)?.class_name.clone();
-    for (key, val) in pairs {
+    // Pin every reference held across the callback loop. Each collection the
+    // consumer triggers now keeps them alive (via `gather_roots`) and forwards
+    // them in place (via `patch_forwarded_slots`), so the not-yet-visited pairs
+    // stay valid across ANY number of collections.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut consumer_ref);
+    scope.pin_slots(&mut pairs);
+    for i in 0..size {
+        let key = pairs[i * 2];
+        let val = pairs[i * 2 + 1];
         ops.invoke(
             heap,
             out,
@@ -751,6 +764,7 @@ pub(crate) fn native_hashmap_for_each(
             vec![Slot::Reference(Some(consumer_ref)), key, val],
         )?;
     }
+    drop(scope);
     let _ = control;
     Ok(None)
 }
@@ -763,20 +777,31 @@ pub(crate) fn native_hashmap_replace_all(
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
-    let fn_ref = extract_ref_arg(args, 1)?;
+    let mut this_ref = extract_ref_arg(args, 0)?;
+    let mut fn_ref = extract_ref_arg(args, 1)?;
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
     // Snapshot keys (values will be mutated in place).
-    let keys: Vec<Slot> = (0..size)
+    let mut keys: Vec<Slot> = (0..size)
         .map(|i| {
             heap.get(this_ref).map_or(Slot::Reference(None), |o| o.fields[1 + i * 2])
         })
         .collect();
-    for (i, key) in keys.iter().enumerate() {
+    // Pin references held across the callback loop so they survive and are
+    // forwarded in place across every collection the function triggers.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut this_ref);
+    scope.pin_ref(&mut fn_ref);
+    scope.pin_slots(&mut keys);
+    // Index access (not `keys.iter()`) is deliberate: iterating by reference
+    // would hold a live `&[Slot]` borrow of the pinned buffer across `ops.invoke`
+    // while the collector writes forwarded values through the raw handle pointer.
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..size {
+        let key = keys[i];
         let old_val = heap.get(this_ref).map_or(Slot::Reference(None), |o| o.fields[2 + i * 2]);
         let new_val = ops.invoke(
             heap,
@@ -784,12 +809,13 @@ pub(crate) fn native_hashmap_replace_all(
             &fn_class,
             "apply",
             "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
-            vec![Slot::Reference(Some(fn_ref)), *key, old_val],
+            vec![Slot::Reference(Some(fn_ref)), key, old_val],
         )?;
         if let Some(v) = new_val {
             heap.get_mut(this_ref)?.fields[2 + i * 2] = v;
         }
     }
+    drop(scope);
     let _ = control;
     Ok(None)
 }
@@ -1240,7 +1266,7 @@ pub(crate) fn native_collections_min(
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let coll_ref = extract_ref_arg(args, 0)?;
+    let mut coll_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(coll_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -1253,11 +1279,19 @@ pub(crate) fn native_collections_min(
     let Slot::Reference(Some(mut min_ref)) = heap.get(coll_ref)?.fields[1] else {
         return Ok(Some(Slot::Reference(None)));
     };
+    // Pin the collection and the running minimum across the comparator loop.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut coll_ref);
+    scope.pin_ref(&mut min_ref);
     for i in 2..=size {
-        let Slot::Reference(Some(candidate)) = heap.get(coll_ref)?.fields[i] else {
+        let Slot::Reference(Some(mut candidate)) = heap.get(coll_ref)?.fields[i] else {
             continue;
         };
         let class_name = heap.get(candidate)?.class_name.clone();
+        // Pin the candidate just for this comparison so it is forwarded in place
+        // if the comparator triggers a collection.
+        let mut iter_scope = NativeRootScope::new();
+        iter_scope.pin_ref(&mut candidate);
         let cmp = ops.invoke(
             heap,
             out,
@@ -1269,11 +1303,13 @@ pub(crate) fn native_collections_min(
                 Slot::Reference(Some(min_ref)),
             ],
         )?;
+        drop(iter_scope);
         let _ = control;
         if matches!(cmp, Some(Slot::Int(n)) if n < 0) {
             min_ref = candidate;
         }
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(min_ref))))
 }
 /// Native: `Collections.max(Collection)T` — returns maximum element via `compareTo`.
@@ -1284,7 +1320,7 @@ pub(crate) fn native_collections_max(
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let coll_ref = extract_ref_arg(args, 0)?;
+    let mut coll_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(coll_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -1297,11 +1333,19 @@ pub(crate) fn native_collections_max(
     let Slot::Reference(Some(mut max_ref)) = heap.get(coll_ref)?.fields[1] else {
         return Ok(Some(Slot::Reference(None)));
     };
+    // Pin the collection and the running maximum across the comparator loop.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut coll_ref);
+    scope.pin_ref(&mut max_ref);
     for i in 2..=size {
-        let Slot::Reference(Some(candidate)) = heap.get(coll_ref)?.fields[i] else {
+        let Slot::Reference(Some(mut candidate)) = heap.get(coll_ref)?.fields[i] else {
             continue;
         };
         let class_name = heap.get(candidate)?.class_name.clone();
+        // Pin the candidate just for this comparison so it is forwarded in place
+        // if the comparator triggers a collection.
+        let mut iter_scope = NativeRootScope::new();
+        iter_scope.pin_ref(&mut candidate);
         let cmp = ops.invoke(
             heap,
             out,
@@ -1313,11 +1357,13 @@ pub(crate) fn native_collections_max(
                 Slot::Reference(Some(max_ref)),
             ],
         )?;
+        drop(iter_scope);
         let _ = control;
         if matches!(cmp, Some(Slot::Int(n)) if n > 0) {
             max_ref = candidate;
         }
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(max_ref))))
 }
 /// Native: `Collections.shuffle(List)V` — no-op (deterministic test environments).
@@ -1518,7 +1564,7 @@ pub(crate) fn native_priorityqueue_offer(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
+    let mut this_ref = extract_ref_arg(args, 0)?;
     let elem = extract_slot_arg(args, 1);
     // Append, then sift up.
     let size = match heap.get(this_ref)?.fields.first() {
@@ -1528,6 +1574,10 @@ pub(crate) fn native_priorityqueue_offer(
     heap.get_mut(this_ref)?.fields.push(elem);
     let new_size = size + 1;
     heap.get_mut(this_ref)?.fields[0] = Slot::Int(i32::try_from(new_size).unwrap_or(0));
+    // Pin the queue so `heap.get(this_ref)` stays valid across every comparator
+    // callback (the appended element rides along in the queue's fields).
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut this_ref);
     // Sift up from last position (1-indexed in fields).
     let mut i = new_size; // fields index of newly added element
     while i > 1 {
@@ -1560,6 +1610,7 @@ pub(crate) fn native_priorityqueue_offer(
             break;
         }
     }
+    drop(scope);
     Ok(Some(Slot::Int(1)))
 }
 /// Native: `PriorityQueue.add(Object)Z` — same as offer.
@@ -1598,7 +1649,7 @@ pub(crate) fn native_priorityqueue_poll(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
+    let mut this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -1606,7 +1657,7 @@ pub(crate) fn native_priorityqueue_poll(
     if size == 0 {
         return Ok(Some(Slot::Reference(None)));
     }
-    let min = heap.get(this_ref)?.fields[1];
+    let mut min = heap.get(this_ref)?.fields[1];
     if size == 1 {
         heap.get_mut(this_ref)?.fields.pop();
         heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
@@ -1617,6 +1668,12 @@ pub(crate) fn native_priorityqueue_poll(
     heap.get_mut(this_ref)?.fields[1] = last;
     heap.get_mut(this_ref)?.fields.pop();
     heap.get_mut(this_ref)?.fields[0] = Slot::Int(i32::try_from(size - 1).unwrap_or(0));
+    // Pin the queue and the popped minimum across the sift-down comparators.
+    // The minimum was removed from the queue's fields above, so the native's
+    // local `min` is now its ONLY reference and must be kept alive + forwarded.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut this_ref);
+    scope.pin_slot(&mut min);
     let new_size = size - 1;
     let mut i = 1usize;
     loop {
@@ -1681,6 +1738,7 @@ pub(crate) fn native_priorityqueue_poll(
         heap.get_mut(this_ref)?.fields.swap(i, smallest);
         i = smallest;
     }
+    drop(scope);
     Ok(Some(min))
 }
 /// Native: `PriorityQueue.size()I`
@@ -2815,13 +2873,18 @@ pub(crate) fn native_arrays_set_all_object(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let arr_ref = extract_ref_arg(args, 0)?;
-    let generator_slot = extract_slot_arg(args, 1);
+    let mut arr_ref = extract_ref_arg(args, 0)?;
+    let mut generator_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(generator_ref)) = generator_slot else {
         return Err(Error::NullPointerException);
     };
     let generator_class = heap.get(generator_ref)?.class_name.clone();
     let length = heap.get(arr_ref)?.fields.len();
+    // Pin the array and generator across the generator callbacks so the array
+    // write target and the generator reference are forwarded on every collection.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut arr_ref);
+    scope.pin_slot(&mut generator_slot);
     for i in 0..length {
         let index = i32::try_from(i).map_err(|_| index_out_of_bounds_error())?;
         let produced = ops.invoke(
@@ -2834,6 +2897,7 @@ pub(crate) fn native_arrays_set_all_object(
         )?;
         heap.write_field(arr_ref, i, produced.unwrap_or(Slot::Reference(None)))?;
     }
+    drop(scope);
     Ok(None)
 }
 /// Native: `Arrays.copyOf(int[], int)` — copies to new int[] of given length.
@@ -3450,6 +3514,12 @@ pub(crate) fn native_optional_filter(
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     let mut value = value;
     let mut result_ref = result_ref;
+    // Pin the freshly allocated result Optional and the filtered value across the
+    // predicate so both survive and are forwarded in place on every collection it
+    // triggers (correct under any number of GCs, unlike a one-shot patch).
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut result_ref);
+    scope.pin_slot(&mut value);
     let test_result = ops.invoke(
         heap,
         out,
@@ -3458,10 +3528,7 @@ pub(crate) fn native_optional_filter(
         "(Ljava/lang/Object;)Z",
         vec![pred_slot, value],
     )?;
-    // The predicate may have triggered a GC that relocated the freshly allocated
-    // result Optional and/or the filtered value; re-resolve both before the store.
-    patch_forwarded_ref_if_needed(heap, &mut result_ref);
-    patch_forwarded_slot_if_needed(heap, &mut value);
+    drop(scope);
     let passes = matches!(test_result, Some(Slot::Int(n)) if n != 0);
     let stored = if passes { value } else { Slot::Reference(None) };
     heap.get_mut(result_ref)?.fields[0] = stored;
@@ -3573,6 +3640,11 @@ pub(crate) fn native_hashmap_compute(
     let old_value = hashmap_find_key(fields, key, heap)
         .and_then(|ki| fields.get(ki + 1).copied())
         .unwrap_or(Slot::Reference(None));
+    // Pin `this_ref`/`key` across the remapping function so both survive and are
+    // forwarded in place on every collection it triggers.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut this_ref);
+    scope.pin_slot(&mut key);
     // Call BiFunction.apply(key, oldValue)
     let new_value = ops.invoke(
         heap,
@@ -3582,10 +3654,7 @@ pub(crate) fn native_hashmap_compute(
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
         vec![fn_slot, key, old_value],
     )?;
-    // The remapping function may have triggered a GC that relocated
-    // `this_ref`/`key`; re-resolve them before the subsequent heap reads/writes.
-    patch_forwarded_ref_if_needed(heap, &mut this_ref);
-    patch_forwarded_slot_if_needed(heap, &mut key);
+    drop(scope);
     // null return means remove the key
     let is_null = matches!(new_value, None | Some(Slot::Reference(None)));
     let new_val = new_value.unwrap_or(Slot::Reference(None));
@@ -3637,6 +3706,11 @@ pub(crate) fn native_hashmap_merge(
             return Ok(Some(old_value));
         };
         let fn_class = heap.get(fn_ref)?.class_name.clone();
+        // Pin the map across the merge function so it survives and is forwarded
+        // in place on every collection it triggers. `ki` is a field index (stable
+        // across GC, which moves whole objects, not their field order).
+        let mut scope = NativeRootScope::new();
+        scope.pin_ref(&mut this_ref);
         let merged = ops.invoke(
             heap,
             out,
@@ -3645,10 +3719,7 @@ pub(crate) fn native_hashmap_merge(
             "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
             vec![fn_slot, old_value, new_val_slot],
         )?;
-        // The merge function may have triggered a GC that relocated `this_ref`;
-        // re-resolve it before storing the merged value. `ki` is a field index
-        // (stable across GC, which moves whole objects, not their field order).
-        patch_forwarded_ref_if_needed(heap, &mut this_ref);
+        drop(scope);
         let merged_raw = merged.unwrap_or(Slot::Reference(None));
         // Box primitive results so the stored value is always a Reference (matches Java generics)
         let merged_val = box_primitive_slot(merged_raw, heap);
@@ -4337,15 +4408,24 @@ pub(crate) fn native_collections_add_all(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let collection_ref = extract_ref_arg(args, 0)?;
+    let mut collection_ref = extract_ref_arg(args, 0)?;
     let collection_class = heap.get(collection_ref)?.class_name.clone();
-    let elements: Vec<Slot> = match extract_slot_arg(args, 1) {
+    let mut elements: Vec<Slot> = match extract_slot_arg(args, 1) {
         Slot::Reference(Some(array_ref)) => heap.get(array_ref)?.fields.clone(),
         Slot::Reference(None) => return Err(Error::NullPointerException),
         _ => Vec::new(),
     };
     let mut modified = false;
-    for element in elements {
+    // Pin the target collection and the pending element snapshot across the
+    // per-element `add` callbacks.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut collection_ref);
+    scope.pin_slots(&mut elements);
+    // Index access is deliberate — see the note in `native_hashmap_replace_all`:
+    // a live iterator borrow would alias the pinned buffer during `ops.invoke`.
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elements.len() {
+        let element = elements[i];
         let added = ops.invoke(
             heap,
             output,
@@ -4358,6 +4438,7 @@ pub(crate) fn native_collections_add_all(
             modified = true;
         }
     }
+    drop(scope);
     Ok(Some(Slot::Int(i32::from(modified))))
 }
 pub(crate) fn native_set_of(
@@ -4427,6 +4508,10 @@ pub(crate) fn native_hashset_init_from_collection(
             .copied()
             .collect()
     } else {
+        // Pin the destination set across `toArray` so it survives and is
+        // forwarded in place on every collection the callback triggers.
+        let mut scope = NativeRootScope::new();
+        scope.pin_ref(&mut this_ref);
         let array_slot = ops.invoke(
             heap,
             output,
@@ -4441,7 +4526,7 @@ pub(crate) fn native_hashset_init_from_collection(
                 got: "other",
             });
         };
-        patch_forwarded_ref_if_needed(heap, &mut this_ref);
+        drop(scope);
         heap.get(array_ref)?.fields.clone()
     };
 
@@ -4479,6 +4564,10 @@ pub(crate) fn native_hashset_add_all(
             .copied()
             .collect()
     } else {
+        // Pin the destination set across `toArray` so it survives and is
+        // forwarded in place on every collection the callback triggers.
+        let mut scope = NativeRootScope::new();
+        scope.pin_ref(&mut this_ref);
         let array_slot = ops.invoke(
             heap,
             output,
@@ -4493,7 +4582,7 @@ pub(crate) fn native_hashset_add_all(
                 got: "other",
             });
         };
-        patch_forwarded_ref_if_needed(heap, &mut this_ref);
+        drop(scope);
         heap.get(array_ref)?.fields.clone()
     };
 
@@ -4672,7 +4761,7 @@ pub(crate) fn native_arraylist_for_each(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let list_ref = extract_ref_arg(args, 0)?;
-    let Slot::Reference(Some(consumer_ref)) = extract_slot_arg(args, 1)
+    let Slot::Reference(Some(mut consumer_ref)) = extract_slot_arg(args, 1)
     else {
         return Ok(None);
     };
@@ -4680,9 +4769,17 @@ pub(crate) fn native_arraylist_for_each(
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(list_ref)?.fields[1..=size].to_vec();
+    let mut elems: Vec<Slot> = heap.get(list_ref)?.fields[1..=size].to_vec();
     let consumer_class = heap.get(consumer_ref)?.class_name.clone();
-    for elem in elems {
+    // Pin the consumer and the element snapshot across the callback loop.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut consumer_ref);
+    scope.pin_slots(&mut elems);
+    // Index access is deliberate — see the note in `native_hashmap_replace_all`:
+    // a live iterator borrow would alias the pinned buffer during `ops.invoke`.
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
         ops.invoke(
             heap,
             out,
@@ -4692,6 +4789,7 @@ pub(crate) fn native_arraylist_for_each(
             vec![Slot::Reference(Some(consumer_ref)), elem],
         )?;
     }
+    drop(scope);
     Ok(None)
 }
 /// Native: `Arrays.toString(int[])String` — formats as `[1, 2, 3]`.
@@ -5091,7 +5189,7 @@ pub(crate) fn native_arraydeque_for_each(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let consumer_slot = extract_slot_arg(args, 1);
+    let mut consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(cons_ref)) = consumer_slot else {
         return Err(Error::NullPointerException);
     };
@@ -5100,8 +5198,16 @@ pub(crate) fn native_arraydeque_for_each(
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
-    for elem in elems {
+    let mut elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
+    // Pin the consumer and the element snapshot across the callback loop.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut consumer_slot);
+    scope.pin_slots(&mut elems);
+    // Index access is deliberate — see the note in `native_hashmap_replace_all`:
+    // a live iterator borrow would alias the pinned buffer during `ops.invoke`.
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
         ops.invoke(
             heap,
             out,
@@ -5111,6 +5217,7 @@ pub(crate) fn native_arraydeque_for_each(
             vec![consumer_slot, elem],
         )?;
     }
+    drop(scope);
     Ok(None)
 }
 /// Native: `ArrayDeque.clear()V` — removes all elements.
@@ -5182,6 +5289,11 @@ pub(crate) fn native_hashmap_compute_if_present(
     // Key present — invoke the remapping function.
     let fn_ref = extract_ref_arg(args, 2)?;
     let fn_class = heap.get(fn_ref)?.class_name.clone();
+    // Pin `this_ref`/`key` across the remapping function so both survive and are
+    // forwarded in place on every collection it triggers.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut this_ref);
+    scope.pin_slot(&mut key);
     let new_value = ops.invoke(
         heap,
         out,
@@ -5190,10 +5302,7 @@ pub(crate) fn native_hashmap_compute_if_present(
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
         vec![Slot::Reference(Some(fn_ref)), key, old_value],
     )?;
-    // The remapping function may have triggered a GC that relocated
-    // `this_ref`/`key`; re-resolve them before the heap store/remove.
-    patch_forwarded_ref_if_needed(heap, &mut this_ref);
-    patch_forwarded_slot_if_needed(heap, &mut key);
+    drop(scope);
     match new_value {
         Some(v) if !matches!(v, Slot::Reference(None)) => {
             native_hashmap_put(
