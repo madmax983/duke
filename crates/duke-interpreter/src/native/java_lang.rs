@@ -232,6 +232,66 @@ pub(crate) fn native_string_equalsignorecase(
         .all(|(a, b)| chars_equal_ignore_case(a, b));
     Ok(Some(Slot::Int(i32::from(equal))))
 }
+/// Single-char uppercase fold mirroring `Character.toUpperCase(char)`: returns the
+/// mapped char only when it is a 1:1 BMP mapping, otherwise the original char
+/// (the JDK's `char` overload never expands, e.g. it leaves 'ß' unchanged).
+fn char_to_upper_single(c: char) -> char {
+    let mut it = c.to_uppercase();
+    match (it.next(), it.next()) {
+        (Some(u), None) => u,
+        _ => c,
+    }
+}
+/// Single-char lowercase fold mirroring `Character.toLowerCase(char)`.
+fn char_to_lower_single(c: char) -> char {
+    let mut it = c.to_lowercase();
+    match (it.next(), it.next()) {
+        (Some(l), None) => l,
+        _ => c,
+    }
+}
+/// Case-insensitive 3-way comparison, a faithful port of
+/// `java.lang.String.CaseInsensitiveComparator.compare`: for each position, if the
+/// chars differ, fold both to upper- then lower-case (JDK two-step) before comparing;
+/// ties fall through to the length difference.
+#[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+fn compare_ignore_case(s1: &str, s2: &str) -> i32 {
+    let v1: Vec<char> = s1.chars().collect();
+    let v2: Vec<char> = s2.chars().collect();
+    let min = v1.len().min(v2.len());
+    for i in 0..min {
+        let (mut c1, mut c2) = (v1[i], v2[i]);
+        if c1 != c2 {
+            c1 = char_to_upper_single(c1);
+            c2 = char_to_upper_single(c2);
+            if c1 != c2 {
+                c1 = char_to_lower_single(c1);
+                c2 = char_to_lower_single(c2);
+                if c1 != c2 {
+                    return c1 as i32 - c2 as i32;
+                }
+            }
+        }
+    }
+    v1.len() as i32 - v2.len() as i32
+}
+/// Native: `String$CaseInsensitiveComparator.compare(Object, Object)I` (and its
+/// `(String, String)I` sibling). `this` (arg 0) is the singleton comparator; the two
+/// String arguments (args 1, 2) are compared case-insensitively. A null argument
+/// yields `NullPointerException`, matching `String.charAt` on a null receiver in the
+/// real comparator.
+pub(crate) fn native_string_case_insensitive_compare(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let first_ref = extract_ref_arg(args, 1)?;
+    let second_ref = extract_ref_arg(args, 2)?;
+    let first = read_string_bytes(heap, first_ref)?;
+    let second = read_string_bytes(heap, second_ref)?;
+    Ok(Some(Slot::Int(compare_ignore_case(&first, &second))))
+}
 /// Native: `String.charAt(int)` — returns char at index as int.
 #[allow(clippy::cast_sign_loss)]
 pub(crate) fn native_string_char_at(

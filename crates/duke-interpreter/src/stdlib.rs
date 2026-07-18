@@ -3143,10 +3143,44 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_file_output_stream_close,
     );
 
+    // Synthetic `java/lang/String$CaseInsensitiveComparator` — a stateless
+    // (0-field) singleton backing `String.CASE_INSENSITIVE_ORDER`. Minted directly
+    // (no `<init>` needed; it has no state) and wired as the String static below.
+    registry.register(ClassContext {
+        class_name: "java/lang/String$CaseInsensitiveComparator".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: vec![
+            "java/util/Comparator".to_string(),
+            "java/io/Serializable".to_string(),
+        ],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+    let case_insensitive_order =
+        heap.allocate("java/lang/String$CaseInsensitiveComparator".to_string(), 0);
+    for descriptor in [
+        "(Ljava/lang/Object;Ljava/lang/Object;)I",
+        "(Ljava/lang/String;Ljava/lang/String;)I",
+    ] {
+        registry.natives_mut().register(
+            "java/lang/String$CaseInsensitiveComparator",
+            "compare",
+            descriptor,
+            native_string_case_insensitive_compare,
+        );
+    }
+
     // Register java/lang/String ClassContext (empty — instance methods are native).
     // EXP-A shim: declare the real-JDK `COMPACT_STRINGS:Z` static (initialized
     // true, mirroring String.<clinit> `iconst_1; putstatic COMPACT_STRINGS`) so
     // real bytecode doing `getstatic java/lang/String.COMPACT_STRINGS` resolves.
+    // Also declares `CASE_INSENSITIVE_ORDER:Ljava/util/Comparator;` seeded with the
+    // singleton comparator minted above.
     let string_ctx = ClassContext {
         class_name: "java/lang/String".to_string(),
         super_class: Some("java/lang/Object".to_string()),
@@ -3158,15 +3192,22 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 descriptor: "Z".to_string(),
                 is_static: true,
             },
+            // Static-field order here must match the `static_fields` slot order
+            // below (statics are indexed by their position among is_static fields).
+            FieldEntry {
+                name: "CASE_INSENSITIVE_ORDER".to_string(),
+                descriptor: "Ljava/util/Comparator;".to_string(),
+                is_static: true,
+            },
             // Real java/lang/String instance layout (positional slots 0-3). The
-            // static field above is filtered out when computing instance slots,
+            // static fields above are filtered out when computing instance slots,
             // so value/coder/hash/hashIsZero land at slots 0/1/2/3.
             synthetic_field("value", "[B", false),
             synthetic_field("coder", "B", false),
             synthetic_field("hash", "I", false),
             synthetic_field("hashIsZero", "Z", false),
         ],
-        static_fields: vec![Slot::Int(1)],
+        static_fields: vec![Slot::Int(1), Slot::Reference(Some(case_insensitive_order))],
         instance_field_count: 4,
         interfaces: vec![
             "java/lang/Comparable".to_string(),
