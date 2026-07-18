@@ -17888,6 +17888,94 @@ mod intern_cache_gc_patch_tests {
 }
 
 #[cfg(test)]
+mod read_string_bytes_tests {
+    use super::*;
+    use duke_gc::Heap;
+
+    #[test]
+    fn round_trips_latin1_ascii_string() {
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("Hello, World!".to_string());
+        // coder 0 (Latin-1) for pure ASCII.
+        assert_eq!(heap.get(s).unwrap().fields[1], Slot::Int(0));
+        assert_eq!(read_string_bytes(&heap, s).unwrap(), "Hello, World!");
+    }
+
+    #[test]
+    fn round_trips_latin1_high_byte_string() {
+        // 'é' (U+00E9) stays Latin-1 (coder 0) but is stored as a signed Java byte.
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("café".to_string());
+        assert_eq!(heap.get(s).unwrap().fields[1], Slot::Int(0));
+        assert_eq!(read_string_bytes(&heap, s).unwrap(), "café");
+    }
+
+    #[test]
+    fn round_trips_utf16_string_with_supplementary_and_bmp() {
+        // CJK (BMP, non-Latin-1) + emoji (supplementary → surrogate pair): both
+        // force the UTF-16 little-endian (coder 1) path.
+        let mut heap = Heap::new();
+        let value = "中文🚀ok";
+        let s = heap.allocate_string(value.to_string());
+        assert_eq!(
+            heap.get(s).unwrap().fields[1],
+            Slot::Int(1),
+            "non-Latin-1 content must use coder 1"
+        );
+        assert_eq!(read_string_bytes(&heap, s).unwrap(), value);
+    }
+
+    #[test]
+    fn empty_string_decodes_to_empty_not_null() {
+        let mut heap = Heap::new();
+        let s = heap.allocate_string(String::new());
+        assert_eq!(read_string_bytes(&heap, s).unwrap(), "");
+    }
+
+    #[test]
+    fn round_trips_interned_literal_via_central_helper() {
+        // Mirrors the ldc/intern mint path: allocate_string is what backs an
+        // interned constant. The read flows through the rerouted central helper.
+        let mut heap = Heap::new();
+        let interned = heap.allocate_string("\\u%04x".to_string());
+        assert_eq!(string_value_from_ref(&heap, interned).unwrap(), "\\u%04x");
+        assert_eq!(read_string_bytes(&heap, interned).unwrap(), "\\u%04x");
+    }
+
+    #[test]
+    fn null_value_slot_maps_to_npe() {
+        // A String receiver whose value:[B slot was never populated (the null-src
+        // copy-constructor case) must surface NullPointerException, matching the
+        // pre-reroute string_value_from_ref behavior.
+        let mut heap = Heap::new();
+        let s = heap.allocate("java/lang/String".to_string(), 4);
+        assert!(matches!(
+            read_string_bytes(&heap, s),
+            Err(Error::NullPointerException)
+        ));
+    }
+
+    #[test]
+    fn survives_minor_gc_and_promotion() {
+        // The value:[B is reachable only through slot 0; after minor GCs move the
+        // String (and promote it to old gen), read_string_bytes must still decode
+        // from the forwarded backing array.
+        let mut heap = Heap::new();
+        let value = "héllo中🚀"; // Latin-1 + BMP + supplementary → UTF-16 path
+        let s = heap.allocate_string(value.to_string());
+
+        let mut root = Slot::Reference(Some(s));
+        for _ in 0..8 {
+            heap.minor_collect_prepare(&[root]);
+            heap.apply_forward(&mut root);
+            heap.minor_collect_finish();
+        }
+        let moved = root.as_reference().expect("String survives the collections");
+        assert_eq!(read_string_bytes(&heap, moved).unwrap(), value);
+    }
+}
+
+#[cfg(test)]
 mod native_helper_tests {
     use super::*;
 
