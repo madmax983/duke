@@ -262,13 +262,36 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // forward on EVERY collection. `HashMap.computeIfAbsent` (and the whole java.util
 // callback family) adopted it, so the `LinkedHashMap.computeIfAbsent -> new ArrayList<>`
 // collect no longer reclaims the live `result` map and the InvocationTargetException NPE
-// is cleared. Boot now advances one native further and walls on the SAME class of hazard
-// in `java/util/Properties.forEach` (`native_properties_for_each`), which still snapshots
-// its (key,value) pairs without pinning them; a multi-GC consumer relocates the snapshot
-// and the resumed callback dereferences a stale young index — surfaced as a raw
-// `invalid heap reference`. That native's conversion is owned by the banner-climb lane,
-// so the app is re-pinned at this next blocker.
-const APP_BLOCKER: &str = "invalid heap reference";
+// is cleared.
+//
+// ADVANCED 2026-07-18 (banner-climb lane): `native_properties_for_each` was converted to
+// the `NativeRootScope` pin API too, clearing the `invalid heap reference` wall inside
+// `Properties.forEach`. Boot then climbed a run of reflective-bootstrap rungs, all cleared
+// this session: `UnmodifiableMap.getOrDefault`; loader-suffix-safe `Class.isAssignableFrom`
+// (so `SpringFactoriesLoader.instantiateFactory`'s factory-type assert passes);
+// `Method`/`Constructor.getModifiers`, the whole `java.lang.reflect.Modifier` predicate
+// set, and `AccessibleObject.isAccessible` (so `ReflectionUtils.makeAccessible` runs);
+// inherited-method resolution for directed `ops.invoke` (so `OrderComparator.compare`
+// dispatches through `AnnotationAwareOrderComparator`); `Arrays.hashCode(Object[])`; and
+// `Class.getSuperclass`/`getInterfaces`.
+//
+// The app now walls in Spring's ANNOTATION + GENERICS reflection subsystem
+// (`AnnotationsScanner` / `ResolvableType`). Two blockers surface nondeterministically
+// (HashMap iteration order decides which is hit first), both requiring a deep reflective
+// surface Duke does not yet model:
+//   * `java/lang/Class.getTypeParameters()[Ljava/lang/reflect/TypeVariable;` — reached from
+//     `ResolvableType.forClassWithGenerics`, which then asserts the type-variable count
+//     matches the supplied generics; honest support needs real generic-signature parsing
+//     and the `java.lang.reflect.Type`/`TypeVariable`/`ParameterizedType` hierarchy.
+//   * `class not found: [B` — reached from `AnnotationsScanner.getDeclaredAnnotations`
+//     resolving a `byte[]`-typed annotation element; needs primitive array-class
+//     resolution (class-loader lane) plus typed annotation-element modelling.
+// Both are out of the banner-climb lane's minimal-honest-native scope, so the app is
+// re-pinned here. The pin accepts EITHER marker (see `APP_BLOCKERS`).
+const APP_BLOCKERS: [&str; 2] = [
+    "getTypeParameters",
+    "class not found: [B",
+];
 // LADDER now boots END-TO-END (2026-07-15, same-class-reflection lane, trunk): main
 // climbs into `LadderApplication.main`, clears Properties.load + the BufferedReader
 // character-stream read, and its reflective same-class private `summarize` invoke now
@@ -352,9 +375,10 @@ fn spring_boot_app_surfaces_next_missing_capability_explicitly() {
         "app fixture is expected to still fail at the pinned blocker; output:\n{combined}"
     );
     assert!(
-        combined.contains(APP_BLOCKER),
+        APP_BLOCKERS.iter().any(|marker| combined.contains(marker)),
         "expected the app fixture to stay pinned at the current first blocker \
-         ({APP_BLOCKER:?}); if it moved, re-observe and update this pin \
+         (one of {APP_BLOCKERS:?} — the annotation/generics reflection frontier is \
+         nondeterministic across runs); if it moved, re-observe and update this pin \
          (docs/findings/2026-07-10-spring-boot-real-app.md). Output:\n{combined}"
     );
 }
