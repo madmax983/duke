@@ -258,19 +258,59 @@ fn path_from_string_slot(
     heap: &duke_gc::Heap,
 ) -> Result<std::path::PathBuf> {
     let path_ref = extract_ref_arg(args, idx)?;
-    let path = heap
-        .get(path_ref)?
-        .string_value
-        .clone()
-        .ok_or(Error::NullPointerException)?;
+    let path = string_value_from_ref(heap, path_ref)?;
     Ok(std::path::PathBuf::from(path))
 }
 
 fn string_value_from_ref(heap: &duke_gc::Heap, string_ref: u64) -> Result<String> {
-    heap.get(string_ref)?
-        .string_value
-        .clone()
-        .ok_or(Error::NullPointerException)
+    read_string_bytes(heap, string_ref)
+}
+
+/// Decodes the real `java/lang/String` heap layout — slot 0 (`value:[B`) and
+/// slot 1 (`coder:B`) — back into a Rust `String`, inverting the encoding that
+/// [`duke_gc::Heap::set_string_layout`] applies: Latin-1 when `coder == 0`,
+/// little-endian UTF-16 when `coder == 1`. Java `byte`s are signed, so the
+/// backing-array octets are recovered through [`byte_from_slot`] (via
+/// [`full_byte_array`]).
+///
+/// This is the slot-0 "source of truth" counterpart to reading the
+/// `string_value` side-channel. A null `value` array (slot 0 is not a live `[B`
+/// reference) yields `NullPointerException`, matching how the previous
+/// [`string_value_from_ref`] treated a missing `string_value`.
+///
+/// In debug builds the decoded result is cross-checked against the
+/// `string_value` side-channel (when present); a mismatch flags a String mint
+/// path that populated the side-channel but not slot 0.
+///
+/// # Errors
+/// Returns `Error::NullPointerException` if `string_ref` is not a live object
+/// or its slot-0 `value` array is null.
+fn read_string_bytes(heap: &duke_gc::Heap, string_ref: u64) -> Result<String> {
+    let obj = heap.get(string_ref)?;
+    let Some(Slot::Reference(Some(bytes_ref))) = obj.fields.first().copied() else {
+        return Err(Error::NullPointerException);
+    };
+    let coder = match obj.fields.get(1) {
+        Some(Slot::Int(c)) => *c,
+        _ => 0,
+    };
+    let bytes = full_byte_array(heap, bytes_ref)?;
+    let decoded: String = if coder == 1 {
+        decode_utf16_bytes(&bytes, Utf16Endian::Little)
+    } else {
+        bytes.iter().map(|&b| char::from(b)).collect()
+    };
+
+    #[cfg(debug_assertions)]
+    if let Some(expected) = obj.string_value.as_deref() {
+        debug_assert_eq!(
+            decoded.as_str(),
+            expected,
+            "read_string_bytes slot-0 decode disagreed with the string_value side-channel"
+        );
+    }
+
+    Ok(decoded)
 }
 
 const JUL_LEVEL_VALUE_FIELD: usize = 0;
@@ -1411,12 +1451,8 @@ fn string_bytes_for_arg(
     charset: StandardCharset,
 ) -> Result<Vec<u8>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let value = heap
-        .get(this_ref)?
-        .string_value
-        .as_deref()
-        .unwrap_or_default();
-    Ok(encode_string_with_charset(value, charset))
+    let value = string_value_from_ref(heap, this_ref).unwrap_or_default();
+    Ok(encode_string_with_charset(&value, charset))
 }
 
 /// Populate a freshly-constructed `java/lang/String` receiver on a `<init>`
@@ -2119,7 +2155,7 @@ fn optional_string_slot(heap: &mut duke_gc::Heap, value: Option<&str>) -> Slot {
 
 fn slot_string(heap: &duke_gc::Heap, slot: Slot) -> Result<Option<String>> {
     match slot {
-        Slot::Reference(Some(r)) => Ok(heap.get(r)?.string_value.clone()),
+        Slot::Reference(Some(r)) => Ok(Some(string_value_from_ref(heap, r)?)),
         _ => Ok(None),
     }
 }
@@ -6265,7 +6301,10 @@ fn parse_i128_decode(s: &str) -> Result<i128> {
 
 fn extract_string_arg_value(args: &[Slot], index: usize, heap: &duke_gc::Heap) -> Result<String> {
     let str_ref = extract_ref_arg(args, index)?;
-    Ok(heap.get(str_ref)?.string_value.clone().unwrap_or_default())
+    // Propagate a genuine invalid-reference error before defaulting; a live
+    // String with a null `value` slot (no content) decodes to the empty string.
+    heap.get(str_ref)?;
+    Ok(read_string_bytes(heap, str_ref).unwrap_or_default())
 }
 
 fn extract_parse_radix_arg(args: &[Slot], index: usize) -> Result<u32> {
@@ -11124,16 +11163,8 @@ fn reflected_field_handle(heap: &duke_gc::Heap, field_ref: u64) -> Result<Reflec
 
     Ok(ReflectedFieldHandle {
         declaring_class_key: class_key_from_ref(heap, declaring_class_ref)?,
-        field_name: heap
-            .get(name_ref)?
-            .string_value
-            .clone()
-            .ok_or(Error::NullPointerException)?,
-        descriptor: heap
-            .get(descriptor_ref)?
-            .string_value
-            .clone()
-            .ok_or(Error::NullPointerException)?,
+        field_name: string_value_from_ref(heap, name_ref)?,
+        descriptor: string_value_from_ref(heap, descriptor_ref)?,
         is_public,
         is_static,
         is_accessible,
@@ -11194,16 +11225,8 @@ fn reflected_method_handle(
 
     Ok(ReflectedMethodHandle {
         declaring_class_key: class_key_from_ref(heap, declaring_class_ref)?,
-        method_name: heap
-            .get(name_ref)?
-            .string_value
-            .clone()
-            .ok_or(Error::NullPointerException)?,
-        descriptor: heap
-            .get(descriptor_ref)?
-            .string_value
-            .clone()
-            .ok_or(Error::NullPointerException)?,
+        method_name: string_value_from_ref(heap, name_ref)?,
+        descriptor: string_value_from_ref(heap, descriptor_ref)?,
         is_public,
         is_static,
         is_accessible,
@@ -17837,6 +17860,94 @@ mod intern_cache_gc_patch_tests {
                 .as_deref(),
             Some("\\u%04x")
         );
+    }
+}
+
+#[cfg(test)]
+mod read_string_bytes_tests {
+    use super::*;
+    use duke_gc::Heap;
+
+    #[test]
+    fn round_trips_latin1_ascii_string() {
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("Hello, World!".to_string());
+        // coder 0 (Latin-1) for pure ASCII.
+        assert_eq!(heap.get(s).unwrap().fields[1], Slot::Int(0));
+        assert_eq!(read_string_bytes(&heap, s).unwrap(), "Hello, World!");
+    }
+
+    #[test]
+    fn round_trips_latin1_high_byte_string() {
+        // 'é' (U+00E9) stays Latin-1 (coder 0) but is stored as a signed Java byte.
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("café".to_string());
+        assert_eq!(heap.get(s).unwrap().fields[1], Slot::Int(0));
+        assert_eq!(read_string_bytes(&heap, s).unwrap(), "café");
+    }
+
+    #[test]
+    fn round_trips_utf16_string_with_supplementary_and_bmp() {
+        // CJK (BMP, non-Latin-1) + emoji (supplementary → surrogate pair): both
+        // force the UTF-16 little-endian (coder 1) path.
+        let mut heap = Heap::new();
+        let value = "中文🚀ok";
+        let s = heap.allocate_string(value.to_string());
+        assert_eq!(
+            heap.get(s).unwrap().fields[1],
+            Slot::Int(1),
+            "non-Latin-1 content must use coder 1"
+        );
+        assert_eq!(read_string_bytes(&heap, s).unwrap(), value);
+    }
+
+    #[test]
+    fn empty_string_decodes_to_empty_not_null() {
+        let mut heap = Heap::new();
+        let s = heap.allocate_string(String::new());
+        assert_eq!(read_string_bytes(&heap, s).unwrap(), "");
+    }
+
+    #[test]
+    fn round_trips_interned_literal_via_central_helper() {
+        // Mirrors the ldc/intern mint path: allocate_string is what backs an
+        // interned constant. The read flows through the rerouted central helper.
+        let mut heap = Heap::new();
+        let interned = heap.allocate_string("\\u%04x".to_string());
+        assert_eq!(string_value_from_ref(&heap, interned).unwrap(), "\\u%04x");
+        assert_eq!(read_string_bytes(&heap, interned).unwrap(), "\\u%04x");
+    }
+
+    #[test]
+    fn null_value_slot_maps_to_npe() {
+        // A String receiver whose value:[B slot was never populated (the null-src
+        // copy-constructor case) must surface NullPointerException, matching the
+        // pre-reroute string_value_from_ref behavior.
+        let mut heap = Heap::new();
+        let s = heap.allocate("java/lang/String".to_string(), 4);
+        assert!(matches!(
+            read_string_bytes(&heap, s),
+            Err(Error::NullPointerException)
+        ));
+    }
+
+    #[test]
+    fn survives_minor_gc_and_promotion() {
+        // The value:[B is reachable only through slot 0; after minor GCs move the
+        // String (and promote it to old gen), read_string_bytes must still decode
+        // from the forwarded backing array.
+        let mut heap = Heap::new();
+        let value = "héllo中🚀"; // Latin-1 + BMP + supplementary → UTF-16 path
+        let s = heap.allocate_string(value.to_string());
+
+        let mut root = Slot::Reference(Some(s));
+        for _ in 0..8 {
+            heap.minor_collect_prepare(&[root]);
+            heap.apply_forward(&mut root);
+            heap.minor_collect_finish();
+        }
+        let moved = root.as_reference().expect("String survives the collections");
+        assert_eq!(read_string_bytes(&heap, moved).unwrap(), value);
     }
 }
 

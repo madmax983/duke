@@ -88,11 +88,7 @@ pub(crate) fn native_socket_init(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let host_ref = extract_ref_arg(args, 1)?;
-    let host = heap
-        .get(host_ref)?
-        .string_value
-        .clone()
-        .ok_or(Error::NullPointerException)?;
+    let host = string_value_from_ref(heap, host_ref)?;
     let port = extract_int_arg(args, 2)?;
     let addr = format!("{host}:{port}");
     let (reader_id, writer_id) = heap.connect_socket(&addr)?;

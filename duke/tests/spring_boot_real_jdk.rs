@@ -64,21 +64,21 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // former `getstatic java/lang/String.COMPACT_STRINGS` fieldref wall is cleared and real String
 // bytecode advances into `String.coder()`. That instance method is now provided as a native
 // reading real-layout slot1 (0=Latin1/1=UTF16), so the coder wall is cleared and real String
-// bytecode advances into a `String.getBytes` copy helper, one of the package-private
-// `getBytes(byte[] dst, int dstBegin, byte coder)` / `getBytes(byte[] dst, int dstBegin,
-// int dstEnd, byte coder)` overloads the synthetic KEEP_SYNTHETIC `java/lang/String` does
-// not provide, which surfaces as the CLI runtime error
-// `method not found: java/lang/String.getBytes(...)`. That is a separate lane (String
-// real-layout / KEEP_SYNTHETIC allowlist), the SAME frontier pinned by
-// `crates/duke-interpreter/tests/classloader_bootstrap_frontier.rs`. Out of scope here.
-// If either boot advances past this, re-observe and update.
+// bytecode advances into the `String.getBytes` copy helpers. Both package-private overloads —
+// `getBytes(byte[] dst, int dstBegin, byte coder)` (`([BIB)V`) and
+// `getBytes(byte[] dst, int srcBegin, int dstBegin, byte coder, int length)` (`([BIIBI)V`) —
+// are now provided as coder-converting copy natives, so the getBytes wall is cleared and the
+// real String encode path runs past it.
 //
-// We prefix-match on `java/lang/String.getBytes(` and deliberately do NOT pin the exact
-// descriptor: both `([BIB)V` and `([BIIBI)V` are valid JDK-21 overloads of the
-// package-private copy helper, and which one is the *first-missing* method in the encode
-// path is JDK-build-specific (differs between local and CI runner JDKs). The frontier is
-// the getBytes copy-helper wall regardless of which overload surfaces first.
-const REAL_JDK_FRONTIER: &str = "method not found: java/lang/String.getBytes(";
+// The new `--real-jdk` frontier is the CLI runtime error
+// `constant pool index 0 is not a valid Fieldref`: after String encode completes, bootstrap
+// advances well past String into a `getstatic jdk/internal/misc/Unsafe.ARRAY_BOOLEAN_INDEX_SCALE`,
+// a static field the synthetic `Unsafe` does not declare (a static miss is reported as the
+// hardcoded `InvalidFieldref { index: 0 }`). This is the SAME frontier pinned by
+// `crates/duke-interpreter/tests/classloader_bootstrap_frontier.rs` (rendered there as
+// `InvalidFieldref { index: 0 }`), a distinct downstream lane (Unsafe intrinsics). Out of scope
+// here. If either boot advances past this, re-observe and update.
+const REAL_JDK_FRONTIER: &str = "constant pool index 0 is not a valid Fieldref";
 
 // Markers of the OLD raw panic that this fix eliminates. None of these must appear.
 const RAW_PANIC_MARKERS: &[&str] = &["index out of bounds", "execution.rs", "panicked at"];

@@ -6,11 +6,7 @@ pub(crate) fn native_pattern_compile(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let pat_str_ref = extract_ref_arg(args, 0)?;
-    let pattern_str = heap
-        .get(pat_str_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
+    let pattern_str = string_value_from_ref(heap, pat_str_ref).unwrap_or_default();
     // Validate the regex eagerly so we fail here not at match time.
     compile_java_regex(&pattern_str)?;
     let pat_ref = allocate_pattern(heap, pattern_str, 0)?;
@@ -25,11 +21,7 @@ pub(crate) fn native_pattern_compile_flags(
 ) -> Result<Option<Slot>> {
     let pat_str_ref = extract_ref_arg(args, 0)?;
     let flags = extract_int_arg(args, 1)?;
-    let pattern_str = heap
-        .get(pat_str_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
+    let pattern_str = string_value_from_ref(heap, pat_str_ref).unwrap_or_default();
     compile_java_regex_with_flags(&pattern_str, flags)?;
     let pat_ref = allocate_pattern(heap, pattern_str, flags)?;
     Ok(Some(Slot::Reference(Some(pat_ref))))
@@ -59,7 +51,7 @@ pub(crate) fn native_pattern_matches_static(
 ) -> Result<Option<Slot>> {
     let pat_ref = extract_ref_arg(args, 0)?;
     let input_ref = extract_ref_arg(args, 1)?;
-    let pattern_str = heap.get(pat_ref)?.string_value.clone().unwrap_or_default();
+    let pattern_str = string_value_from_ref(heap, pat_ref).unwrap_or_default();
     let input = heap
         .get(input_ref)?
         .string_value
@@ -205,11 +197,7 @@ pub(crate) fn native_matcher_group_name(
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let name_ref = extract_ref_arg(args, 1)?;
-    let name = heap
-        .get(name_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
+    let name = string_value_from_ref(heap, name_ref).unwrap_or_default();
     let Some(group) = matcher_group_text(heap, m_ref, MatcherGroup::Name(&name))? else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -252,11 +240,7 @@ pub(crate) fn native_matcher_start_name(
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let name_ref = extract_ref_arg(args, 1)?;
-    let name = heap
-        .get(name_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
+    let name = string_value_from_ref(heap, name_ref).unwrap_or_default();
     let start = matcher_group_bounds_java(heap, m_ref, MatcherGroup::Name(&name))?
         .map_or(-1, |(start, _)| i32::try_from(start).unwrap_or(i32::MAX));
     Ok(Some(Slot::Int(start)))
@@ -282,11 +266,7 @@ pub(crate) fn native_matcher_end_name(
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let name_ref = extract_ref_arg(args, 1)?;
-    let name = heap
-        .get(name_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
+    let name = string_value_from_ref(heap, name_ref).unwrap_or_default();
     let end = matcher_group_bounds_java(heap, m_ref, MatcherGroup::Name(&name))?
         .map_or(-1, |(_, end)| i32::try_from(end).unwrap_or(i32::MAX));
     Ok(Some(Slot::Int(end)))
@@ -325,11 +305,7 @@ pub(crate) fn native_matcher_append_replacement_sb(
     let m_ref = extract_ref_arg(args, 0)?;
     let builder_ref = extract_ref_arg(args, 1)?;
     let replacement_ref = extract_ref_arg(args, 2)?;
-    let replacement = heap
-        .get(replacement_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
+    let replacement = string_value_from_ref(heap, replacement_ref).unwrap_or_default();
     let (match_start, match_end) = last_match_bounds(heap, m_ref)?;
     let append_pos = usize::try_from(matcher_field_int(
         heap,
@@ -407,7 +383,7 @@ pub(crate) fn native_matcher_replace_all(
         .string_value
         .clone()
         .unwrap_or_default();
-    let repl = heap.get(repl_ref)?.string_value.clone().unwrap_or_default();
+    let repl = string_value_from_ref(heap, repl_ref).unwrap_or_default();
     let re = compile_java_regex_with_flags(&pattern_str, flags)?;
     let result = re.replace_all(&input, repl.as_str()).into_owned();
     let r = heap.allocate_string(result);
@@ -435,7 +411,7 @@ pub(crate) fn native_matcher_replace_first(
         .string_value
         .clone()
         .unwrap_or_default();
-    let repl = heap.get(repl_ref)?.string_value.clone().unwrap_or_default();
+    let repl = string_value_from_ref(heap, repl_ref).unwrap_or_default();
     let re = compile_java_regex_with_flags(&pattern_str, flags)?;
     let result = re.replace(&input, repl.as_str()).into_owned();
     let r = heap.allocate_string(result);

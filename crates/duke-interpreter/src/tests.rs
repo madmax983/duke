@@ -320,6 +320,65 @@ fn secure_random_next_bytes_populates_array() {
 }
 
 #[test]
+fn string_case_insensitive_order_is_wired_and_compares() {
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let mut out = Vec::new();
+
+    // `String.CASE_INSENSITIVE_ORDER` resolves to the singleton comparator.
+    let (decl, sidx) =
+        resolve_static_field(&registry, "java/lang/String", "CASE_INSENSITIVE_ORDER")
+            .expect("CASE_INSENSITIVE_ORDER static must resolve");
+    let cmp_ref = match registry.get(&decl).unwrap().static_fields[sidx] {
+        Slot::Reference(Some(r)) => r,
+        other => panic!("CASE_INSENSITIVE_ORDER should be a live reference, got {other:?}"),
+    };
+    assert_eq!(
+        heap.get(cmp_ref).unwrap().class_name,
+        "java/lang/String$CaseInsensitiveComparator"
+    );
+
+    let compare = registry
+        .natives()
+        .get(
+            "java/lang/String$CaseInsensitiveComparator",
+            "compare",
+            "(Ljava/lang/Object;Ljava/lang/Object;)I",
+        )
+        .expect("compare native should be registered");
+
+    let call = |heap: &mut duke_gc::Heap, out: &mut Vec<u8>, a: &str, b: &str| -> i32 {
+        let a_ref = heap.allocate_string(a.to_string());
+        let b_ref = heap.allocate_string(b.to_string());
+        match compare(
+            &[
+                Slot::Reference(Some(cmp_ref)),
+                Slot::Reference(Some(a_ref)),
+                Slot::Reference(Some(b_ref)),
+            ],
+            heap,
+            out,
+            &mut NativeControl::default(),
+        )
+        .expect("compare should succeed")
+        {
+            Some(Slot::Int(v)) => v,
+            other => panic!("compare should return an int, got {other:?}"),
+        }
+    };
+
+    // Case-insensitive equality.
+    assert_eq!(call(&mut heap, &mut out, "Apple", "apple"), 0);
+    assert_eq!(call(&mut heap, &mut out, "HELLO", "hello"), 0);
+    // Ordering: 'a' < 'b' regardless of case ("a" vs "B").
+    assert!(call(&mut heap, &mut out, "a", "B") < 0);
+    assert!(call(&mut heap, &mut out, "B", "a") > 0);
+    // Common prefix, shorter string sorts first (length tiebreak).
+    assert!(call(&mut heap, &mut out, "abc", "abcd") < 0);
+}
+
+#[test]
 fn crypto_spec_sha256_digest_runs_through_java_get_instance() {
     assert_eq!(
         run_bootstrap_int("CryptoSpecTest.class", "testSha256Digest", "()I"),
