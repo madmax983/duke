@@ -727,13 +727,13 @@ pub(crate) fn native_hashmap_for_each(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let consumer_ref = extract_ref_arg(args, 1)?;
+    let mut consumer_ref = extract_ref_arg(args, 1)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
     // Snapshot key-val pairs (fields[1,2], fields[3,4], ...)
-    let pairs: Vec<(Slot, Slot)> = (0..size)
+    let mut pairs: Vec<(Slot, Slot)> = (0..size)
         .map(|i| {
             let key = heap.get(this_ref).map_or(Slot::Reference(None), |o| o.fields[1 + i * 2]);
             let val = heap.get(this_ref).map_or(Slot::Reference(None), |o| o.fields[2 + i * 2]);
@@ -741,7 +741,8 @@ pub(crate) fn native_hashmap_for_each(
         })
         .collect();
     let consumer_class = heap.get(consumer_ref)?.class_name.clone();
-    for (key, val) in pairs {
+    for i in 0..pairs.len() {
+        let (key, val) = pairs[i];
         ops.invoke(
             heap,
             out,
@@ -750,6 +751,13 @@ pub(crate) fn native_hashmap_for_each(
             "(Ljava/lang/Object;Ljava/lang/Object;)V",
             vec![Slot::Reference(Some(consumer_ref)), key, val],
         )?;
+        // The consumer may have triggered a relocating GC; re-resolve the
+        // consumer and every not-yet-visited snapshot pair before the next invoke.
+        patch_forwarded_ref_if_needed(heap, &mut consumer_ref);
+        for (k, v) in pairs.iter_mut().skip(i + 1) {
+            patch_forwarded_slot_if_needed(heap, k);
+            patch_forwarded_slot_if_needed(heap, v);
+        }
     }
     let _ = control;
     Ok(None)
@@ -763,20 +771,21 @@ pub(crate) fn native_hashmap_replace_all(
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
-    let fn_ref = extract_ref_arg(args, 1)?;
+    let mut this_ref = extract_ref_arg(args, 0)?;
+    let mut fn_ref = extract_ref_arg(args, 1)?;
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
     // Snapshot keys (values will be mutated in place).
-    let keys: Vec<Slot> = (0..size)
+    let mut keys: Vec<Slot> = (0..size)
         .map(|i| {
             heap.get(this_ref).map_or(Slot::Reference(None), |o| o.fields[1 + i * 2])
         })
         .collect();
-    for (i, key) in keys.iter().enumerate() {
+    for i in 0..keys.len() {
+        let key = keys[i];
         let old_val = heap.get(this_ref).map_or(Slot::Reference(None), |o| o.fields[2 + i * 2]);
         let new_val = ops.invoke(
             heap,
@@ -784,8 +793,16 @@ pub(crate) fn native_hashmap_replace_all(
             &fn_class,
             "apply",
             "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
-            vec![Slot::Reference(Some(fn_ref)), *key, old_val],
+            vec![Slot::Reference(Some(fn_ref)), key, old_val],
         )?;
+        // The remapping function may have triggered a relocating GC; re-resolve
+        // the map, the function, and the remaining snapshot keys before the
+        // in-place write and the next iteration's reads.
+        patch_forwarded_ref_if_needed(heap, &mut this_ref);
+        patch_forwarded_ref_if_needed(heap, &mut fn_ref);
+        for k in keys.iter_mut().skip(i + 1) {
+            patch_forwarded_slot_if_needed(heap, k);
+        }
         if let Some(v) = new_val {
             heap.get_mut(this_ref)?.fields[2 + i * 2] = v;
         }
@@ -1240,7 +1257,7 @@ pub(crate) fn native_collections_min(
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let coll_ref = extract_ref_arg(args, 0)?;
+    let mut coll_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(coll_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -1254,7 +1271,7 @@ pub(crate) fn native_collections_min(
         return Ok(Some(Slot::Reference(None)));
     };
     for i in 2..=size {
-        let Slot::Reference(Some(candidate)) = heap.get(coll_ref)?.fields[i] else {
+        let Slot::Reference(Some(mut candidate)) = heap.get(coll_ref)?.fields[i] else {
             continue;
         };
         let class_name = heap.get(candidate)?.class_name.clone();
@@ -1270,6 +1287,12 @@ pub(crate) fn native_collections_min(
             ],
         )?;
         let _ = control;
+        // compareTo may have triggered a relocating GC; re-resolve the
+        // collection, the running minimum, and the candidate before using them
+        // again this iteration or in the next.
+        patch_forwarded_ref_if_needed(heap, &mut coll_ref);
+        patch_forwarded_ref_if_needed(heap, &mut min_ref);
+        patch_forwarded_ref_if_needed(heap, &mut candidate);
         if matches!(cmp, Some(Slot::Int(n)) if n < 0) {
             min_ref = candidate;
         }
@@ -1284,7 +1307,7 @@ pub(crate) fn native_collections_max(
     control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let coll_ref = extract_ref_arg(args, 0)?;
+    let mut coll_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(coll_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -1298,7 +1321,7 @@ pub(crate) fn native_collections_max(
         return Ok(Some(Slot::Reference(None)));
     };
     for i in 2..=size {
-        let Slot::Reference(Some(candidate)) = heap.get(coll_ref)?.fields[i] else {
+        let Slot::Reference(Some(mut candidate)) = heap.get(coll_ref)?.fields[i] else {
             continue;
         };
         let class_name = heap.get(candidate)?.class_name.clone();
@@ -1314,6 +1337,12 @@ pub(crate) fn native_collections_max(
             ],
         )?;
         let _ = control;
+        // compareTo may have triggered a relocating GC; re-resolve the
+        // collection, the running maximum, and the candidate before using them
+        // again this iteration or in the next.
+        patch_forwarded_ref_if_needed(heap, &mut coll_ref);
+        patch_forwarded_ref_if_needed(heap, &mut max_ref);
+        patch_forwarded_ref_if_needed(heap, &mut candidate);
         if matches!(cmp, Some(Slot::Int(n)) if n > 0) {
             max_ref = candidate;
         }
@@ -1518,7 +1547,7 @@ pub(crate) fn native_priorityqueue_offer(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
+    let mut this_ref = extract_ref_arg(args, 0)?;
     let elem = extract_slot_arg(args, 1);
     // Append, then sift up.
     let size = match heap.get(this_ref)?.fields.first() {
@@ -1552,6 +1581,10 @@ pub(crate) fn native_priorityqueue_offer(
                 Slot::Reference(Some(parent_ref)),
             ],
         )?;
+        // compareTo may have triggered a relocating GC; re-resolve the queue
+        // before the swap and the next iteration's field reads. (child/parent
+        // refs are re-read from the queue each iteration, so they need no patch.)
+        patch_forwarded_ref_if_needed(heap, &mut this_ref);
         if matches!(cmp, Some(Slot::Int(n)) if n < 0) {
             // child < parent: swap
             heap.get_mut(this_ref)?.fields.swap(i, parent_idx);
@@ -1598,7 +1631,7 @@ pub(crate) fn native_priorityqueue_poll(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
+    let mut this_ref = extract_ref_arg(args, 0)?;
     let size = match heap.get(this_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
@@ -1606,7 +1639,7 @@ pub(crate) fn native_priorityqueue_poll(
     if size == 0 {
         return Ok(Some(Slot::Reference(None)));
     }
-    let min = heap.get(this_ref)?.fields[1];
+    let mut min = heap.get(this_ref)?.fields[1];
     if size == 1 {
         heap.get_mut(this_ref)?.fields.pop();
         heap.get_mut(this_ref)?.fields[0] = Slot::Int(0);
@@ -1645,6 +1678,10 @@ pub(crate) fn native_priorityqueue_poll(
                     Slot::Reference(Some(cur_ref)),
                 ],
             )?;
+            // compareTo may have triggered a relocating GC; re-resolve the queue
+            // and the pending result before the right-child read/next iteration.
+            patch_forwarded_ref_if_needed(heap, &mut this_ref);
+            patch_forwarded_slot_if_needed(heap, &mut min);
             if matches!(cmp, Some(Slot::Int(n)) if n < 0) {
                 smallest = left;
             }
@@ -1671,6 +1708,10 @@ pub(crate) fn native_priorityqueue_poll(
                     Slot::Reference(Some(small_ref)),
                 ],
             )?;
+            // compareTo may have triggered a relocating GC; re-resolve the queue
+            // and the pending result before the swap and the next iteration.
+            patch_forwarded_ref_if_needed(heap, &mut this_ref);
+            patch_forwarded_slot_if_needed(heap, &mut min);
             if matches!(cmp, Some(Slot::Int(n)) if n < 0) {
                 smallest = right;
             }
@@ -2815,8 +2856,8 @@ pub(crate) fn native_arrays_set_all_object(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let arr_ref = extract_ref_arg(args, 0)?;
-    let generator_slot = extract_slot_arg(args, 1);
+    let mut arr_ref = extract_ref_arg(args, 0)?;
+    let mut generator_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(generator_ref)) = generator_slot else {
         return Err(Error::NullPointerException);
     };
@@ -2832,6 +2873,10 @@ pub(crate) fn native_arrays_set_all_object(
             "(I)Ljava/lang/Object;",
             vec![generator_slot, Slot::Int(index)],
         )?;
+        // The generator may have triggered a relocating GC; re-resolve the array
+        // and the generator before writing the element and the next invoke.
+        patch_forwarded_ref_if_needed(heap, &mut arr_ref);
+        patch_forwarded_slot_if_needed(heap, &mut generator_slot);
         heap.write_field(arr_ref, i, produced.unwrap_or(Slot::Reference(None)))?;
     }
     Ok(None)
@@ -4303,15 +4348,16 @@ pub(crate) fn native_collections_add_all(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let collection_ref = extract_ref_arg(args, 0)?;
+    let mut collection_ref = extract_ref_arg(args, 0)?;
     let collection_class = heap.get(collection_ref)?.class_name.clone();
-    let elements: Vec<Slot> = match extract_slot_arg(args, 1) {
+    let mut elements: Vec<Slot> = match extract_slot_arg(args, 1) {
         Slot::Reference(Some(array_ref)) => heap.get(array_ref)?.fields.clone(),
         Slot::Reference(None) => return Err(Error::NullPointerException),
         _ => Vec::new(),
     };
     let mut modified = false;
-    for element in elements {
+    for i in 0..elements.len() {
+        let element = elements[i];
         let added = ops.invoke(
             heap,
             output,
@@ -4320,6 +4366,12 @@ pub(crate) fn native_collections_add_all(
             "(Ljava/lang/Object;)Z",
             vec![Slot::Reference(Some(collection_ref)), element],
         )?;
+        // add(...) may have triggered a relocating GC; re-resolve the collection
+        // and every not-yet-added snapshot element before the next invoke.
+        patch_forwarded_ref_if_needed(heap, &mut collection_ref);
+        for e in elements.iter_mut().skip(i + 1) {
+            patch_forwarded_slot_if_needed(heap, e);
+        }
         if matches!(added, Some(Slot::Int(1))) {
             modified = true;
         }
@@ -4638,7 +4690,7 @@ pub(crate) fn native_arraylist_for_each(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let list_ref = extract_ref_arg(args, 0)?;
-    let Slot::Reference(Some(consumer_ref)) = extract_slot_arg(args, 1)
+    let Slot::Reference(Some(mut consumer_ref)) = extract_slot_arg(args, 1)
     else {
         return Ok(None);
     };
@@ -4646,9 +4698,10 @@ pub(crate) fn native_arraylist_for_each(
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(list_ref)?.fields[1..=size].to_vec();
+    let mut elems: Vec<Slot> = heap.get(list_ref)?.fields[1..=size].to_vec();
     let consumer_class = heap.get(consumer_ref)?.class_name.clone();
-    for elem in elems {
+    for i in 0..elems.len() {
+        let elem = elems[i];
         ops.invoke(
             heap,
             out,
@@ -4657,6 +4710,13 @@ pub(crate) fn native_arraylist_for_each(
             "(Ljava/lang/Object;)V",
             vec![Slot::Reference(Some(consumer_ref)), elem],
         )?;
+        // The consumer may have triggered a relocating GC; re-resolve the
+        // consumer and every not-yet-visited snapshot element before the next
+        // invoke.
+        patch_forwarded_ref_if_needed(heap, &mut consumer_ref);
+        for e in elems.iter_mut().skip(i + 1) {
+            patch_forwarded_slot_if_needed(heap, e);
+        }
     }
     Ok(None)
 }
@@ -5057,7 +5117,7 @@ pub(crate) fn native_arraydeque_for_each(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let consumer_slot = extract_slot_arg(args, 1);
+    let mut consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(cons_ref)) = consumer_slot else {
         return Err(Error::NullPointerException);
     };
@@ -5066,8 +5126,9 @@ pub(crate) fn native_arraydeque_for_each(
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
-    for elem in elems {
+    let mut elems: Vec<Slot> = heap.get(this_ref)?.fields[1..=size].to_vec();
+    for i in 0..elems.len() {
+        let elem = elems[i];
         ops.invoke(
             heap,
             out,
@@ -5076,6 +5137,13 @@ pub(crate) fn native_arraydeque_for_each(
             "(Ljava/lang/Object;)V",
             vec![consumer_slot, elem],
         )?;
+        // The consumer may have triggered a relocating GC; re-resolve the
+        // consumer and every not-yet-visited snapshot element before the next
+        // invoke.
+        patch_forwarded_slot_if_needed(heap, &mut consumer_slot);
+        for e in elems.iter_mut().skip(i + 1) {
+            patch_forwarded_slot_if_needed(heap, e);
+        }
     }
     Ok(None)
 }
