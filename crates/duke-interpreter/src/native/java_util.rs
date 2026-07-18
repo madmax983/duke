@@ -4129,10 +4129,33 @@ pub(crate) fn native_properties_for_each(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let consumer_ref = extract_ref_arg(args, 1)?;
+    let mut consumer_ref = extract_ref_arg(args, 1)?;
+    // Snapshot the Properties-local key/value pairs (fields[2,3], fields[4,5],
+    // ...) via the layout-aware helper, then flatten into a single interleaved
+    // [k0,v0,k1,v1,...] buffer so the whole run of slots can be pinned as one GC
+    // handle. Empty map -> empty buffer -> pin_slots is a no-op and the loop
+    // runs zero times.
     let pairs = properties_local_entries(heap, this_ref)?;
-    let consumer_class = heap.get(consumer_ref)?.class_name.clone();
+    let mut pairs_flat: Vec<Slot> = Vec::with_capacity(pairs.len() * 2);
     for (key, val) in pairs {
+        pairs_flat.push(key);
+        pairs_flat.push(val);
+    }
+    let consumer_class = heap.get(consumer_ref)?.class_name.clone();
+    // Pin every reference held across the callback loop. Each collection the
+    // consumer triggers now keeps them alive (via `gather_roots`) and forwards
+    // them in place (via `patch_forwarded_slots`), so the not-yet-visited pairs
+    // stay valid across ANY number of collections.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut consumer_ref);
+    scope.pin_slots(&mut pairs_flat);
+    // Index access (not `pairs_flat.iter()`) is deliberate: iterating by
+    // reference would hold a live `&[Slot]` borrow of the pinned buffer across
+    // `ops.invoke`, which the collector writes through the pin handle.
+    let pair_count = pairs_flat.len() / 2;
+    for i in 0..pair_count {
+        let key = pairs_flat[i * 2];
+        let val = pairs_flat[i * 2 + 1];
         ops.invoke(
             heap,
             out,
@@ -4142,6 +4165,7 @@ pub(crate) fn native_properties_for_each(
             vec![Slot::Reference(Some(consumer_ref)), key, val],
         )?;
     }
+    drop(scope);
     Ok(None)
 }
 
