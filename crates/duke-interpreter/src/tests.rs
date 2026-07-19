@@ -100,6 +100,7 @@ impl CallbackOps for NoopCallbackOps {
             fields: Vec::new(),
             access_flags: 0,
             annotations: Vec::new(),
+            signature: None,
         })
     }
 }
@@ -135,6 +136,7 @@ impl CallbackOps for FixedCodeSourceOps {
             fields: Vec::new(),
             access_flags: 0,
             annotations: Vec::new(),
+            signature: None,
         })
     }
 
@@ -180,6 +182,7 @@ fn native_hashset_init_from_collection_copies_to_array_elements() {
                 fields: Vec::new(),
                 access_flags: 0,
                 annotations: Vec::new(),
+                signature: None,
             })
         }
     }
@@ -23226,6 +23229,7 @@ fn native_class_get_declared_method_matches_parameter_class_array() {
                         is_static: true,
                         annotations: Vec::new(),
                         annotation_default: None,
+                        signature: None,
                     },
                     ReflectedMethodInfo {
                         name: "main".to_string(),
@@ -23234,11 +23238,13 @@ fn native_class_get_declared_method_matches_parameter_class_array() {
                         is_static: true,
                         annotations: Vec::new(),
                         annotation_default: None,
+                        signature: None,
                     },
                 ],
                 fields: Vec::new(),
                 access_flags: 0x0001,
                 annotations: Vec::new(),
+                signature: None,
             })
         }
     }
@@ -33263,6 +33269,7 @@ fn class_info_with_flags(internal_name: &str, access_flags: u16) -> ReflectedCla
         fields: Vec::new(),
         access_flags,
         annotations: Vec::new(),
+        signature: None,
     }
 }
 
@@ -33371,6 +33378,7 @@ fn native_reflect_field_get_modifiers_reports_transient_and_final() {
         is_static: false,
         access_flags: 0x0092,
         annotations: Vec::new(),
+        signature: None,
     }];
     let mut ops = FixedClassInfoOps { info };
 
@@ -34730,6 +34738,7 @@ fn empty_reflected_class_info() -> ReflectedClassInfo {
         fields: Vec::new(),
         access_flags: 0,
         annotations: Vec::new(),
+        signature: None,
     }
 }
 
