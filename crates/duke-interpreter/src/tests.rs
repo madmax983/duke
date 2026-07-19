@@ -35063,3 +35063,182 @@ fn hashmap_for_each_survives_mid_iteration_gc() {
         0
     );
 }
+
+// ---------------------------------------------------------------------------
+// GC-pin regression tests for the java.util.concurrent / java.lang callback
+// natives converted to `NativeRootScope` (see the pin API in common.rs). Each
+// drives a `CallbackOps` double whose `invoke` fires TWO promoting collections
+// (crossing the multi-GC regime that the old one-shot patch corrupts under),
+// then asserts the native's held reference tracked its object correctly. Every
+// test fails if the native holds a BARE reference across `ops.invoke`, and
+// passes with the pin. Modeled on the java_util shapes at
+// `hashmap_compute_if_absent_does_not_corrupt_key_across_two_gcs` /
+// `hashmap_for_each_survives_two_gcs_during_callback`.
+// ---------------------------------------------------------------------------
+
+/// Family 1 (CHM compute group). `ConcurrentHashMap.computeIfAbsent` holds
+/// `key`/`this_ref` across the mapping function. Under two collections with
+/// young-index reuse a one-shot post-invoke patch rewrites the held `key` onto
+/// an unrelated live decoy; with `NativeRootScope` the pin forwards `key` from
+/// its CURRENT value at every collect and the ORIGINAL key is stored. Mirror of
+/// the `HashMap` corruption repro, exercising the converted CHM native (which
+/// re-reads `this_ref`/`key` after re-locking, the same hazard shape).
+#[test]
+#[allow(clippy::too_many_lines)]
+fn concurrent_hashmap_compute_if_absent_does_not_corrupt_key_across_two_gcs() {
+    use std::collections::HashMap;
+
+    const KEY_TAG: i32 = 777;
+    const DECOY_TAG: i32 = 888;
+    const VALUE_TAG: i32 = 555;
+
+    struct ComputeGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        key_idx: u64,
+    }
+
+    impl ComputeGcOps {
+        fn collect_once(&mut self, heap: &mut duke_gc::Heap) {
+            let roots = gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+            heap.collect(&roots);
+            patch_forwarded_slots(
+                &mut self.caller_frame,
+                &mut [],
+                &mut self.registry,
+                heap,
+                &mut self.string_intern,
+            );
+        }
+    }
+
+    impl CallbackOps for ComputeGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            _args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            // GC1: relocates `key` (its native-local copy goes stale).
+            self.collect_once(heap);
+
+            // Place a live, rooted decoy at the key's now-freed original young
+            // index, so that index becomes a live from-key in GC2's rebuilt map.
+            let decoy = loop {
+                let idx = heap.allocate("duke/test/Decoy".to_string(), 1);
+                assert!(
+                    idx <= self.key_idx,
+                    "overshot the freed key index while placing the decoy"
+                );
+                if idx == self.key_idx {
+                    heap.get_mut(idx).unwrap().fields[0] = Slot::Int(DECOY_TAG);
+                    break idx;
+                }
+            };
+            self.caller_frame
+                .store_local(3, Slot::Reference(Some(decoy)))
+                .unwrap();
+
+            // GC2: forwards the decoy from `key_idx`. A one-shot patch would now
+            // rewrite `key` (== key_idx) onto the decoy.
+            self.collect_once(heap);
+
+            let v = heap.allocate("duke/test/Val".to_string(), 1);
+            heap.get_mut(v).unwrap().fields[0] = Slot::Int(VALUE_TAG);
+            Ok(Some(Slot::Reference(Some(v))))
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+
+    // Promote the map to the old gen so `this_ref` is address-stable across the
+    // minor collections, isolating the test on `key` corruption.
+    let mut map_ref = heap.allocate("java/util/concurrent/ConcurrentHashMap".to_string(), 1);
+    heap.get_mut(map_ref).unwrap().fields[0] = Slot::Int(0);
+    for _ in 0..8 {
+        if map_ref & (1u64 << 63) != 0 {
+            break;
+        }
+        heap.collect(&[Slot::Reference(Some(map_ref))]);
+        let mut s = Slot::Reference(Some(map_ref));
+        heap.apply_forward(&mut s);
+        map_ref = s.as_reference().unwrap();
+    }
+    assert!(
+        map_ref & (1u64 << 63) != 0,
+        "map should have been promoted to the old generation"
+    );
+
+    let fn_ref = heap.allocate("duke/test/Fn".to_string(), 0);
+    for _ in 0..8 {
+        let _ = heap.allocate("duke/test/Pad".to_string(), 1);
+    }
+    let key_ref = heap.allocate("duke/test/Val".to_string(), 1);
+    heap.get_mut(key_ref).unwrap().fields[0] = Slot::Int(KEY_TAG);
+    assert_eq!(
+        key_ref & (1u64 << 63),
+        0,
+        "key must be a young reference for the index-reuse scenario"
+    );
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        8,
+        vec![
+            Slot::Reference(Some(map_ref)),
+            Slot::Reference(Some(key_ref)),
+            Slot::Reference(Some(fn_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = ComputeGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        key_idx: key_ref,
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    native_concurrent_hashmap_compute_if_absent(
+        &[
+            Slot::Reference(Some(map_ref)),
+            Slot::Reference(Some(key_ref)),
+            Slot::Reference(Some(fn_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    let stored = heap.get(map_ref).unwrap();
+    assert_eq!(stored.fields[0], Slot::Int(1), "one entry should be stored");
+    let stored_key = match stored.fields[1] {
+        Slot::Reference(Some(r)) => r,
+        other => panic!("stored key is not a reference: {other:?}"),
+    };
+    let stored_key_tag = match heap.get(stored_key).unwrap().fields.first() {
+        Some(Slot::Int(n)) => *n,
+        other => panic!("stored key has no int tag: {other:?}"),
+    };
+    assert_eq!(
+        stored_key_tag, KEY_TAG,
+        "computeIfAbsent stored a CORRUPTED key (decoy) after two GCs; a \
+         bare held key would have been rewritten onto an unrelated object"
+    );
+}

@@ -1886,8 +1886,8 @@ pub(crate) fn native_concurrent_hashmap_compute_if_absent(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
-    let key = chm_non_null_arg(args, 1)?;
+    let mut this_ref = extract_ref_arg(args, 0)?;
+    let mut key = chm_non_null_arg(args, 1)?;
     let fn_ref = extract_ref_arg(args, 2)?;
     let fn_slot = Slot::Reference(Some(fn_ref));
     let fn_class = heap.get(fn_ref)?.class_name.clone();
@@ -1900,6 +1900,12 @@ pub(crate) fn native_concurrent_hashmap_compute_if_absent(
         }
     }
 
+    // Pin `this_ref`/`key` across the mapping function: the lock is dropped for
+    // the callback, so both must survive and be forwarded in place on every
+    // collection it triggers before we re-lock and re-read the map below.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut this_ref);
+    scope.pin_slot(&mut key);
     let computed = ops.invoke(
         heap,
         out,
@@ -1908,6 +1914,7 @@ pub(crate) fn native_concurrent_hashmap_compute_if_absent(
         "(Ljava/lang/Object;)Ljava/lang/Object;",
         vec![fn_slot, key],
     )?;
+    drop(scope);
     let Some(value) = computed else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -1935,8 +1942,8 @@ pub(crate) fn native_concurrent_hashmap_compute_if_present(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
-    let key = chm_non_null_arg(args, 1)?;
+    let mut this_ref = extract_ref_arg(args, 0)?;
+    let mut key = chm_non_null_arg(args, 1)?;
     let fn_ref = extract_ref_arg(args, 2)?;
     let fn_slot = Slot::Reference(Some(fn_ref));
     let fn_class = heap.get(fn_ref)?.class_name.clone();
@@ -1950,6 +1957,11 @@ pub(crate) fn native_concurrent_hashmap_compute_if_present(
         }
     };
 
+    // Pin `this_ref`/`key` across the remapping function so both survive and are
+    // forwarded in place on every collection it triggers before we re-lock.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut this_ref);
+    scope.pin_slot(&mut key);
     let new_value = ops.invoke(
         heap,
         out,
@@ -1958,6 +1970,7 @@ pub(crate) fn native_concurrent_hashmap_compute_if_present(
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
         vec![fn_slot, key, old_value],
     )?;
+    drop(scope);
     let _guard = concurrent_hashmap_guard(&lock);
     match new_value {
         Some(value) if !matches!(value, Slot::Reference(None)) => {
@@ -1987,8 +2000,8 @@ pub(crate) fn native_concurrent_hashmap_compute(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
-    let key = chm_non_null_arg(args, 1)?;
+    let mut this_ref = extract_ref_arg(args, 0)?;
+    let mut key = chm_non_null_arg(args, 1)?;
     let fn_ref = extract_ref_arg(args, 2)?;
     let fn_slot = Slot::Reference(Some(fn_ref));
     let fn_class = heap.get(fn_ref)?.class_name.clone();
@@ -2000,6 +2013,11 @@ pub(crate) fn native_concurrent_hashmap_compute(
             .map_or(Slot::Reference(None), |i| fields[i + 1])
     };
 
+    // Pin `this_ref`/`key` across the remapping function so both survive and are
+    // forwarded in place on every collection it triggers before we re-lock.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut this_ref);
+    scope.pin_slot(&mut key);
     let new_value = ops.invoke(
         heap,
         out,
@@ -2008,6 +2026,7 @@ pub(crate) fn native_concurrent_hashmap_compute(
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
         vec![fn_slot, key, old_value],
     )?;
+    drop(scope);
     let _guard = concurrent_hashmap_guard(&lock);
     match new_value {
         Some(value) if !matches!(value, Slot::Reference(None)) => {
@@ -2037,8 +2056,8 @@ pub(crate) fn native_concurrent_hashmap_merge(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
-    let key = chm_non_null_arg(args, 1)?;
+    let mut this_ref = extract_ref_arg(args, 0)?;
+    let mut key = chm_non_null_arg(args, 1)?;
     let value = chm_non_null_arg(args, 2)?;
     let fn_ref = extract_ref_arg(args, 3)?;
     let fn_slot = Slot::Reference(Some(fn_ref));
@@ -2063,6 +2082,12 @@ pub(crate) fn native_concurrent_hashmap_merge(
         return Ok(Some(value));
     };
 
+    // Pin `this_ref`/`key` across the remapping function so the read-modify-write
+    // stays linearizable: both are forwarded in place on every collection the
+    // callback triggers, so the write-back below always lands on the right entry.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut this_ref);
+    scope.pin_slot(&mut key);
     let merged = ops.invoke(
         heap,
         out,
@@ -2071,6 +2096,7 @@ pub(crate) fn native_concurrent_hashmap_merge(
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
         vec![fn_slot, old_value, value],
     )?;
+    drop(scope);
     let _guard = concurrent_hashmap_guard(&lock);
     match merged {
         Some(merged_value) if !matches!(merged_value, Slot::Reference(None)) => {
