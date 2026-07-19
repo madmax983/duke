@@ -2128,24 +2128,46 @@ pub(crate) fn native_concurrent_hashmap_for_each(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let consumer_ref = extract_ref_arg(args, 1)?;
-    let consumer_slot = Slot::Reference(Some(consumer_ref));
+    let mut consumer_ref = extract_ref_arg(args, 1)?;
     let consumer_class = heap.get(consumer_ref)?.class_name.clone();
     let lock = concurrent_hashmap_lock(heap, this_ref)?;
     let entries = {
         let _guard = concurrent_hashmap_guard(&lock);
         chm_entry_snapshot(heap, this_ref)?
     };
+    // Flatten the (key, value) snapshot into a single interleaved
+    // [k0,v0,k1,v1,...] buffer so the whole run of not-yet-visited slots can be
+    // pinned as one GC handle. Empty map -> empty buffer -> pin_slots is a no-op
+    // and the loop runs zero times.
+    let mut entries_flat: Vec<Slot> = Vec::with_capacity(entries.len() * 2);
     for (key, value) in entries {
+        entries_flat.push(key);
+        entries_flat.push(value);
+    }
+    // Pin the consumer and the snapshot buffer across the callback loop: each
+    // collection the consumer triggers keeps them alive (gather_roots) and
+    // forwards them in place (patch_forwarded_slots), so the not-yet-visited
+    // pairs stay valid across ANY number of collections.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut consumer_ref);
+    scope.pin_slots(&mut entries_flat);
+    // Index access (not `.iter()`) is deliberate: iterating by reference would
+    // hold a live `&[Slot]` borrow of the pinned buffer across `ops.invoke`,
+    // which the collector writes through the pin handle.
+    let pair_count = entries_flat.len() / 2;
+    for i in 0..pair_count {
+        let key = entries_flat[i * 2];
+        let value = entries_flat[i * 2 + 1];
         ops.invoke(
             heap,
             out,
             &consumer_class,
             "accept",
             "(Ljava/lang/Object;Ljava/lang/Object;)V",
-            vec![consumer_slot, key, value],
+            vec![Slot::Reference(Some(consumer_ref)), key, value],
         )?;
     }
+    drop(scope);
     Ok(None)
 }
 

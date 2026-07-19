@@ -35242,3 +35242,132 @@ fn concurrent_hashmap_compute_if_absent_does_not_corrupt_key_across_two_gcs() {
          bare held key would have been rewritten onto an unrelated object"
     );
 }
+
+/// Family 2 (CHM forEach). `ConcurrentHashMap.forEach` snapshots (key, value)
+/// pairs and invokes the consumer once per pair. This consumer double forces TWO
+/// full collections per callback. With a bare snapshot the not-yet-visited pairs
+/// go stale and the consumer observes wrong tags / i32::MIN; with the pinned
+/// snapshot buffer every value is forwarded in place after each collect and
+/// observed correctly. Mirror of `hashmap_for_each_survives_two_gcs_during_callback`.
+#[test]
+fn concurrent_hashmap_for_each_survives_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    struct ForEachGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_tags: Vec<i32>,
+    }
+
+    impl CallbackOps for ForEachGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            let tag = match args.get(2) {
+                Some(Slot::Reference(Some(r))) => heap
+                    .get(*r)
+                    .ok()
+                    .and_then(|o| match o.fields.first() {
+                        Some(Slot::Int(n)) => Some(*n),
+                        _ => None,
+                    })
+                    .unwrap_or(i32::MIN),
+                _ => i32::MIN,
+            };
+            self.observed_tags.push(tag);
+
+            for _ in 0..2 {
+                for _ in 0..4 {
+                    let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                    if let Ok(o) = heap.get_mut(g) {
+                        o.fields[0] = Slot::Int(-777);
+                    }
+                }
+                let roots =
+                    gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                heap.collect(&roots);
+                patch_forwarded_slots(
+                    &mut self.caller_frame,
+                    &mut [],
+                    &mut self.registry,
+                    heap,
+                    &mut self.string_intern,
+                );
+            }
+            Ok(None)
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let map_ref = heap.allocate("java/util/concurrent/ConcurrentHashMap".to_string(), 7);
+    let consumer_ref = heap.allocate("duke/test/Consumer".to_string(), 0);
+
+    let mut kv = Vec::new();
+    for i in 0..3i32 {
+        let k = heap.allocate_string(format!("k{i}"));
+        let v = heap.allocate("duke/test/Val".to_string(), 1);
+        heap.get_mut(v).unwrap().fields[0] = Slot::Int(100 + i);
+        kv.push((k, v));
+    }
+    {
+        let m = heap.get_mut(map_ref).unwrap();
+        m.fields[0] = Slot::Int(3);
+        for (i, (k, v)) in kv.iter().enumerate() {
+            m.fields[1 + i * 2] = Slot::Reference(Some(*k));
+            m.fields[2 + i * 2] = Slot::Reference(Some(*v));
+        }
+    }
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(map_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = ForEachGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_tags: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    native_concurrent_hashmap_for_each(
+        &[
+            Slot::Reference(Some(map_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_tags,
+        vec![100, 101, 102],
+        "consumer observed stale/relocated values after multiple GCs \
+         (dangling snapshot references)"
+    );
+}
