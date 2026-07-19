@@ -87,7 +87,8 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // `MethodNotFound { name: "java/lang/String.<init>", descriptor: "(Ljava/lang/StringBuilder;)V" }`),
 // a distinct downstream lane (String stages 3-4). Out of scope here. If either boot advances
 // past this, re-observe and update.
-const REAL_JDK_FRONTIER: &str = "method not found: java/lang/String.<init>(Ljava/lang/StringBuilder;)V";
+const REAL_JDK_FRONTIER: &str =
+    "method not found: java/lang/String.<init>(Ljava/lang/StringBuilder;)V";
 
 // Markers of the OLD raw panic that this fix eliminates. None of these must appear.
 const RAW_PANIC_MARKERS: &[&str] = &["index out of bounds", "execution.rs", "panicked at"];
