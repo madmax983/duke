@@ -1716,7 +1716,14 @@ pub(crate) fn native_system_get_properties(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     ops.ensure_class_initialized(heap, output, "java/util/Properties")?;
-    let properties_ref = ops.allocate_instance(heap, output, "java/util/Properties")?;
+    let mut properties_ref = ops.allocate_instance(heap, output, "java/util/Properties")?;
+    // Pin the Properties instance across the `<init>` invoke AND the whole
+    // setProperty loop: it is re-dereferenced on every iteration (and returned at
+    // the end), while each iteration both runs a callback and allocates fresh
+    // key/value strings that may trigger GC. The pin keeps it alive and forwarded
+    // in place across ANY number of collections.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut properties_ref);
     ops.invoke(
         heap,
         output,
@@ -1743,6 +1750,7 @@ pub(crate) fn native_system_get_properties(
         )?;
     }
 
+    drop(scope);
     Ok(Some(Slot::Reference(Some(properties_ref))))
 }
 /// Native: `System.getSecurityManager()SecurityManager` - Duke runs without a security manager.

@@ -35511,3 +35511,108 @@ fn lbq_drain_to_survives_two_gcs_during_callback() {
         "drainTo should have drained all three elements"
     );
 }
+
+/// Family 4 (System.getProperties). `native_system_get_properties` allocates a
+/// Properties instance and holds it across the `<init>` callback and the whole
+/// setProperty loop (re-passing it each iteration and returning it at the end),
+/// while every iteration both runs a callback and allocates fresh key/value
+/// strings. With a bare ref the instance is unrooted across the callback GCs and
+/// its slot is reused, so the returned handle is corrupt. With `NativeRootScope`
+/// the pin keeps it alive (via gather_roots) and forwarded (via
+/// patch_forwarded_slots) across every collection, so the original instance is
+/// returned intact.
+#[test]
+fn system_get_properties_survives_gc_during_callbacks() {
+    use std::collections::HashMap;
+
+    const SENTINEL: i32 = 424_242;
+
+    struct PropsGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+    }
+
+    impl CallbackOps for PropsGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            _args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            // Two collections per callback, allocating garbage so a freed slot is
+            // reused (an unpinned Properties handle would then read garbage).
+            for _ in 0..2 {
+                for _ in 0..4 {
+                    let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                    if let Ok(o) = heap.get_mut(g) {
+                        o.fields[0] = Slot::Int(-777);
+                    }
+                }
+                let roots =
+                    gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                heap.collect(&roots);
+                patch_forwarded_slots(
+                    &mut self.caller_frame,
+                    &mut [],
+                    &mut self.registry,
+                    heap,
+                    &mut self.string_intern,
+                );
+            }
+            Ok(None)
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+
+        fn allocate_instance(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            class: &str,
+        ) -> Result<u64> {
+            let r = heap.allocate(class.to_string(), 4);
+            // Tag the instance so we can prove the RETURNED handle still points at
+            // this exact object after the callback collections.
+            heap.get_mut(r)?.fields[0] = Slot::Int(SENTINEL);
+            Ok(r)
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let caller_frame = duke_runtime::Frame::new(4, 1, vec![]).unwrap();
+
+    let mut ops = PropsGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result =
+        native_system_get_properties(&[], &mut heap, &mut out, &mut control, &mut ops).unwrap();
+
+    let props_ref = match result {
+        Some(Slot::Reference(Some(r))) => r,
+        other => panic!("getProperties did not return a reference: {other:?}"),
+    };
+    let tag = match heap.get(props_ref).unwrap().fields.first() {
+        Some(Slot::Int(n)) => *n,
+        other => panic!("returned Properties has no int tag: {other:?}"),
+    };
+    assert_eq!(
+        tag, SENTINEL,
+        "getProperties returned a CORRUPTED handle after callback GCs; a bare \
+         held ref was collected/reused across the <init> + setProperty callbacks"
+    );
+}
