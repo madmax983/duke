@@ -1364,15 +1364,23 @@ pub(crate) fn native_class_new_instance(
         });
     }
 
-    let instance_ref = ops.allocate_instance(heap, output, &class_key)?;
-    match ops.invoke(
+    let mut instance_ref = ops.allocate_instance(heap, output, &class_key)?;
+    // Pin the freshly allocated instance across the constructor callback: a nested
+    // `<init>` can allocate heavily and trigger one or more GCs, which would
+    // relocate or reclaim the bare instance reference we return. The pin keeps it
+    // alive and forwarded in place on every collection.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut instance_ref);
+    let init_result = ops.invoke(
         heap,
         output,
         &class_key,
         "<init>",
         &constructor.descriptor,
         vec![Slot::Reference(Some(instance_ref))],
-    ) {
+    );
+    drop(scope);
+    match init_result {
         Ok(_) => Ok(Some(Slot::Reference(Some(instance_ref)))),
         Err(err) => Err(err),
     }

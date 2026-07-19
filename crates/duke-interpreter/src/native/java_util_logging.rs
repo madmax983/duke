@@ -599,8 +599,14 @@ pub(crate) fn native_jul_log_manager_read_configuration_stream(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let stream_ref = extract_ref_arg(args, 1)?;
+    let mut stream_ref = extract_ref_arg(args, 1)?;
     let stream_class = heap.get(stream_ref)?.class_name.clone();
+    // Pin the stream across the read loop: each `read()` callback may trigger GC,
+    // and `stream_ref` is re-dereferenced (re-passed) on the next iteration. The
+    // pin keeps it alive and forwarded in place on every collection, so it stays
+    // valid across ANY number of GCs.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut stream_ref);
     for _ in 0..1_048_576 {
         match ops.invoke(
             heap,
@@ -616,6 +622,7 @@ pub(crate) fn native_jul_log_manager_read_configuration_stream(
             Err(err) => return Err(err),
         }
     }
+    drop(scope);
     Ok(None)
 }
 pub(crate) fn native_jul_log_manager_add_logger(
