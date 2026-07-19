@@ -36473,6 +36473,558 @@ fn double_stream_for_each_receiver_survives_two_gcs_during_callback() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Group A — object-stream callback natives.
+//
+// Object streams hold heap references (never primitives) as their elements, so
+// each per-element callback re-passes the RECEIVER lambda ref AND a locally
+// snapshotted ELEMENT ref, and map/reduce/flatMap additionally hold produced
+// RESULT/ACCUMULATOR refs across later callbacks. The live originals are rooted
+// by the caller frame (via the stream object) and are relocated by every
+// collection, so the native's private Rust-local copies go stale unless pinned.
+// Each callback below retains no garbage of its own but forces >=2 relocating
+// collections mid-iteration, and every element/result is a distinctly-tagged
+// heap object so a stale copy is observed as a reused (-777) or wrong object.
+// ---------------------------------------------------------------------------
+
+/// Reads the int tag stored in `fields[0]` of the object a slot references, or
+/// `i32::MIN` if the slot is not a live reference (i.e. it went stale).
+fn stream_gc_tag(heap: &duke_gc::Heap, slot: Option<&Slot>) -> i32 {
+    match slot {
+        Some(Slot::Reference(Some(r))) => heap
+            .get(*r)
+            .ok()
+            .and_then(|o| match o.fields.first() {
+                Some(Slot::Int(n)) => Some(*n),
+                _ => None,
+            })
+            .unwrap_or(i32::MIN),
+        _ => i32::MIN,
+    }
+}
+
+/// Fire two relocating collections, filling the young gen with `-777` garbage in
+/// between so freed slots are reused. `extra` is rooted alongside the frame (it
+/// simulates the callback's in-flight return value living on the callee's
+/// operand stack) and its forwarded address is returned.
+fn stream_gc_two_collections(
+    heap: &mut duke_gc::Heap,
+    caller_frame: &mut duke_runtime::Frame,
+    registry: &mut ClassRegistry,
+    string_intern: &mut std::collections::HashMap<(u8, String), u64>,
+    mut extra: Option<u64>,
+) -> Option<u64> {
+    for _ in 0..2 {
+        for _ in 0..4 {
+            let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+            if let Ok(o) = heap.get_mut(g) {
+                o.fields[0] = Slot::Int(-777);
+            }
+        }
+        let mut roots = gather_roots(caller_frame, &[], registry, string_intern);
+        if let Some(e) = extra {
+            roots.push(Slot::Reference(Some(e)));
+        }
+        heap.collect(&roots);
+        patch_forwarded_slots(caller_frame, &mut [], registry, heap, string_intern);
+        if let Some(e) = extra {
+            let mut s = Slot::Reference(Some(e));
+            heap.apply_forward(&mut s);
+            extra = s.as_reference();
+        }
+    }
+    extra
+}
+
+/// Builds a `duke/util/Stream` whose elements are freshly-allocated objects each
+/// tagged with a distinct int in `fields[0]`. Returns the stream ref.
+fn build_tagged_object_stream(heap: &mut duke_gc::Heap, tags: &[i32]) -> u64 {
+    let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(stream_ref).unwrap().fields[0] = Slot::Int(tags.len() as i32);
+    for &t in tags {
+        let e = heap.allocate("duke/test/Elem".to_string(), 1);
+        heap.get_mut(e).unwrap().fields[0] = Slot::Int(t);
+        heap.get_mut(stream_ref)
+            .unwrap()
+            .fields
+            .push(Slot::Reference(Some(e)));
+    }
+    stream_ref
+}
+
+/// Group A — `Stream.forEach`. The consumer holds both the re-passed receiver
+/// and a per-element ELEMENT reference across the callback; without the pins a
+/// later `accept` receives a stale receiver and/or a stale element.
+#[test]
+fn stream_for_each_receiver_and_element_survive_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const RECEIVER_TAG: i32 = 4242;
+    const ELEM_TAGS: [i32; 3] = [100, 101, 102];
+
+    struct StreamGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_receiver_tags: Vec<i32>,
+        observed_elem_tags: Vec<i32>,
+    }
+
+    impl CallbackOps for StreamGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            // args[0] = consumer receiver, args[1] = the ELEMENT reference.
+            self.observed_receiver_tags
+                .push(stream_gc_tag(heap, args.first()));
+            self.observed_elem_tags
+                .push(stream_gc_tag(heap, args.get(1)));
+            stream_gc_two_collections(
+                heap,
+                &mut self.caller_frame,
+                &mut self.registry,
+                &mut self.string_intern,
+                None,
+            );
+            Ok(None)
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let stream_ref = build_tagged_object_stream(&mut heap, &ELEM_TAGS);
+    let consumer_ref = heap.allocate("duke/test/Consumer".to_string(), 1);
+    heap.get_mut(consumer_ref).unwrap().fields[0] = Slot::Int(RECEIVER_TAG);
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = StreamGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_receiver_tags: Vec::new(),
+        observed_elem_tags: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    native_stream_for_each(
+        &[
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_receiver_tags,
+        vec![RECEIVER_TAG; ELEM_TAGS.len()],
+        "Stream.forEach consumer receiver went stale across a callback's GCs"
+    );
+    assert_eq!(
+        ops.observed_elem_tags,
+        ELEM_TAGS.to_vec(),
+        "Stream.forEach element snapshot went stale across a callback's GCs; a \
+         later `accept` was handed a dangling/reused element reference"
+    );
+}
+
+/// Group A — `Stream.map`. Beyond the receiver + element, the mapper's produced
+/// RESULT refs accumulate in the native's `mapped` buffer and are held across
+/// every later callback; without pinning that buffer the produced results are
+/// reclaimed and the output stream is built from stale references.
+#[test]
+fn stream_map_receiver_element_and_result_survive_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const RECEIVER_TAG: i32 = 7777;
+    const ELEM_TAGS: [i32; 3] = [100, 101, 102];
+
+    struct StreamGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_receiver_tags: Vec<i32>,
+        observed_elem_tags: Vec<i32>,
+    }
+
+    impl CallbackOps for StreamGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            self.observed_receiver_tags
+                .push(stream_gc_tag(heap, args.first()));
+            let elem_tag = stream_gc_tag(heap, args.get(1));
+            self.observed_elem_tags.push(elem_tag);
+            // Produce a fresh mapped result tagged elem_tag + 1000. It must
+            // survive this callback's own GCs (rooted as the in-flight return
+            // value) and, once stored in the native's `mapped` buffer, survive
+            // every later callback (that survival is what the `mapped` pin buys).
+            let res = heap.allocate("duke/test/Mapped".to_string(), 1);
+            heap.get_mut(res).unwrap().fields[0] = Slot::Int(elem_tag + 1000);
+            let forwarded = stream_gc_two_collections(
+                heap,
+                &mut self.caller_frame,
+                &mut self.registry,
+                &mut self.string_intern,
+                Some(res),
+            );
+            Ok(Some(Slot::Reference(forwarded)))
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let stream_ref = build_tagged_object_stream(&mut heap, &ELEM_TAGS);
+    let fn_ref = heap.allocate("duke/test/Function".to_string(), 1);
+    heap.get_mut(fn_ref).unwrap().fields[0] = Slot::Int(RECEIVER_TAG);
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(fn_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = StreamGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_receiver_tags: Vec::new(),
+        observed_elem_tags: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_stream_map(
+        &[
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(fn_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_receiver_tags,
+        vec![RECEIVER_TAG; ELEM_TAGS.len()],
+        "Stream.map mapper receiver went stale across a callback's GCs"
+    );
+    assert_eq!(
+        ops.observed_elem_tags,
+        ELEM_TAGS.to_vec(),
+        "Stream.map element snapshot went stale across a callback's GCs"
+    );
+
+    // The returned stream's elements must be the produced results, each still
+    // carrying its `elem + 1000` tag — i.e. the accumulated result buffer did
+    // not go stale across later callbacks.
+    let Some(Slot::Reference(Some(out_stream))) = result else {
+        panic!("Stream.map did not return a stream");
+    };
+    let out_obj = heap.get(out_stream).unwrap();
+    let out_tags: Vec<i32> = out_obj.fields[1..]
+        .iter()
+        .map(|s| stream_gc_tag(&heap, Some(s)))
+        .collect();
+    assert_eq!(
+        out_tags,
+        ELEM_TAGS.iter().map(|t| t + 1000).collect::<Vec<_>>(),
+        "Stream.map produced-result buffer went stale across later callbacks; \
+         the output stream was built from dangling/reused result references"
+    );
+}
+
+/// Group A — `Stream.reduce`. Exercises the receiver, the element snapshot, the
+/// running accumulator reference, AND the Optional result container that is
+/// allocated before the loop and written after it — every one of which the
+/// native holds across the fold's per-element callbacks.
+#[test]
+fn stream_reduce_receiver_accumulator_and_elements_survive_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const RECEIVER_TAG: i32 = 5150;
+    const ELEM_TAGS: [i32; 3] = [100, 101, 102];
+
+    struct StreamGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_receiver_tags: Vec<i32>,
+        observed_acc_tags: Vec<i32>,
+        observed_elem_tags: Vec<i32>,
+    }
+
+    impl CallbackOps for StreamGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            // args[0] = op receiver, args[1] = running accumulator, args[2] = elem.
+            self.observed_receiver_tags
+                .push(stream_gc_tag(heap, args.first()));
+            let acc_tag = stream_gc_tag(heap, args.get(1));
+            self.observed_acc_tags.push(acc_tag);
+            self.observed_elem_tags
+                .push(stream_gc_tag(heap, args.get(2)));
+            // New accumulator tagged acc + 1000, so the fold chains 100 -> 1100
+            // -> 2100. It survives its own GCs and, stored in the native `acc`,
+            // is re-passed to the next callback.
+            let res = heap.allocate("duke/test/Acc".to_string(), 1);
+            heap.get_mut(res).unwrap().fields[0] = Slot::Int(acc_tag + 1000);
+            let forwarded = stream_gc_two_collections(
+                heap,
+                &mut self.caller_frame,
+                &mut self.registry,
+                &mut self.string_intern,
+                Some(res),
+            );
+            Ok(Some(Slot::Reference(forwarded)))
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let stream_ref = build_tagged_object_stream(&mut heap, &ELEM_TAGS);
+    let op_ref = heap.allocate("duke/test/BinaryOperator".to_string(), 1);
+    heap.get_mut(op_ref).unwrap().fields[0] = Slot::Int(RECEIVER_TAG);
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(op_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = StreamGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_receiver_tags: Vec::new(),
+        observed_acc_tags: Vec::new(),
+        observed_elem_tags: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_stream_reduce(
+        &[
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(op_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    // Two callbacks for three elements; the receiver, the accumulators handed in
+    // (100 then the produced 1100), and the elements must all be intact.
+    assert_eq!(
+        ops.observed_receiver_tags,
+        vec![RECEIVER_TAG; 2],
+        "Stream.reduce operator receiver went stale across a callback's GCs"
+    );
+    assert_eq!(
+        ops.observed_acc_tags,
+        vec![100, 1100],
+        "Stream.reduce running accumulator went stale across a callback's GCs"
+    );
+    assert_eq!(
+        ops.observed_elem_tags,
+        vec![101, 102],
+        "Stream.reduce element snapshot went stale across a callback's GCs"
+    );
+
+    // Final fold result lives in the Optional container that was pinned across
+    // the whole loop: 100 -> 1100 -> 2100.
+    let Some(Slot::Reference(Some(opt_ref))) = result else {
+        panic!("Stream.reduce did not return an Optional");
+    };
+    let final_tag = stream_gc_tag(&heap, heap.get(opt_ref).unwrap().fields.first());
+    assert_eq!(
+        final_tag, 2100,
+        "Stream.reduce final accumulator / Optional container went stale across \
+         the fold's GCs"
+    );
+}
+
+/// Group A — `Stream.filter`. The predicate holds the re-passed receiver and a
+/// per-element ELEMENT reference across the callback, and the kept elements are
+/// re-read from the pinned snapshot to build the result stream.
+#[test]
+fn stream_filter_receiver_and_element_survive_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const RECEIVER_TAG: i32 = 9091;
+    const ELEM_TAGS: [i32; 4] = [100, 101, 102, 103];
+
+    struct StreamGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_receiver_tags: Vec<i32>,
+        observed_elem_tags: Vec<i32>,
+    }
+
+    impl CallbackOps for StreamGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            self.observed_receiver_tags
+                .push(stream_gc_tag(heap, args.first()));
+            let elem_tag = stream_gc_tag(heap, args.get(1));
+            self.observed_elem_tags.push(elem_tag);
+            stream_gc_two_collections(
+                heap,
+                &mut self.caller_frame,
+                &mut self.registry,
+                &mut self.string_intern,
+                None,
+            );
+            // Keep the even-tagged elements.
+            Ok(Some(Slot::Int(i32::from(elem_tag % 2 == 0))))
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let stream_ref = build_tagged_object_stream(&mut heap, &ELEM_TAGS);
+    let pred_ref = heap.allocate("duke/test/Predicate".to_string(), 1);
+    heap.get_mut(pred_ref).unwrap().fields[0] = Slot::Int(RECEIVER_TAG);
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(pred_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = StreamGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_receiver_tags: Vec::new(),
+        observed_elem_tags: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_stream_filter(
+        &[
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(pred_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_receiver_tags,
+        vec![RECEIVER_TAG; ELEM_TAGS.len()],
+        "Stream.filter predicate receiver went stale across a callback's GCs"
+    );
+    assert_eq!(
+        ops.observed_elem_tags,
+        ELEM_TAGS.to_vec(),
+        "Stream.filter element snapshot went stale across a callback's GCs"
+    );
+
+    // Kept elements (even tags) must be materialised intact from the pinned
+    // snapshot.
+    let Some(Slot::Reference(Some(out_stream))) = result else {
+        panic!("Stream.filter did not return a stream");
+    };
+    let out_tags: Vec<i32> = heap.get(out_stream).unwrap().fields[1..]
+        .iter()
+        .map(|s| stream_gc_tag(&heap, Some(s)))
+        .collect();
+    assert_eq!(
+        out_tags,
+        vec![100, 102],
+        "Stream.filter kept-element materialisation went stale across the GCs"
+    );
+}
+
 /// Family 5a (Class.newInstance). `native_class_new_instance` allocates the
 /// instance, then holds its bare reference across the `<init>` constructor
 /// callback and returns it. A nested constructor can allocate heavily and trigger

@@ -38,17 +38,28 @@ pub(crate) fn native_stream_filter(
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
-    let Slot::Reference(Some(pred_ref)) = pred_slot else {
+    let Slot::Reference(Some(mut pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let pred_class = heap.get(pred_ref)?.class_name.clone();
-    let mut kept: Vec<Slot> = Vec::new();
-    for elem in elems {
+    // Pin the callback receiver and the not-yet-visited element snapshot: the
+    // native holds them in Rust locals across every `ops.invoke`, and native
+    // args live in a Copy `Vec<Slot>` the collector never scans, so a relocating
+    // GC inside the callback would otherwise leave them stale. Record surviving
+    // elements as indices into the pinned snapshot (rather than a separate ref
+    // Vec that would itself go stale) and materialise them while still pinned.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut pred_ref);
+    scope.pin_slots(&mut elems);
+    let mut kept_idx: Vec<usize> = Vec::new();
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
         let result = ops.invoke(
             heap,
             out,
@@ -58,13 +69,17 @@ pub(crate) fn native_stream_filter(
             vec![Slot::Reference(Some(pred_ref)), elem],
         )?;
         if matches!(result, Some(Slot::Int(1))) {
-            kept.push(elem);
+            kept_idx.push(i);
         }
     }
-    let new_size = i32::try_from(kept.len()).unwrap_or(0);
+    let new_size = i32::try_from(kept_idx.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    heap.get_mut(new_stream)?.fields.extend(kept);
+    for &i in &kept_idx {
+        let elem = elems[i];
+        heap.get_mut(new_stream)?.fields.push(elem);
+    }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 /// Native: `Stream.map(Function)Stream` — transforms each element via `function.apply()`.
@@ -77,17 +92,27 @@ pub(crate) fn native_stream_map(
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_slot_arg(args, 1);
-    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+    let Slot::Reference(Some(mut fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let mut mapped: Vec<Slot> = Vec::with_capacity(elems.len());
-    for elem in elems {
+    // Pin the callback receiver, the not-yet-visited element snapshot, and the
+    // already-produced results: all are held in Rust locals across `ops.invoke`
+    // and would otherwise go stale if the callback triggers a relocating GC.
+    // `mapped` is pre-sized and index-assigned (never pushed), so its pinned
+    // buffer never reallocates.
+    let mut mapped: Vec<Slot> = vec![Slot::Reference(None); elems.len()];
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut fn_ref);
+    scope.pin_slots(&mut elems);
+    scope.pin_slots(&mut mapped);
+    for i in 0..elems.len() {
+        let elem = elems[i];
         let result = ops.invoke(
             heap,
             out,
@@ -98,12 +123,17 @@ pub(crate) fn native_stream_map(
         )?;
         // Box primitive results so stream elements are always References (Java type-erasure)
         let boxed = box_primitive_slot(result.unwrap_or(Slot::Reference(None)), heap);
-        mapped.push(boxed);
+        mapped[i] = boxed;
     }
     let new_size = i32::try_from(mapped.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    heap.get_mut(new_stream)?.fields.extend(mapped);
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..mapped.len() {
+        let elem = mapped[i];
+        heap.get_mut(new_stream)?.fields.push(elem);
+    }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 /// Native: `Stream.forEach(Consumer)V` — calls `consumer.accept()` on each element.
@@ -116,16 +146,24 @@ pub(crate) fn native_stream_for_each(
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let consumer_slot = extract_slot_arg(args, 1);
-    let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
+    let Slot::Reference(Some(mut consumer_ref)) = consumer_slot else {
         return Ok(None);
     };
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let consumer_class = heap.get(consumer_ref)?.class_name.clone();
-    for elem in elems {
+    // Pin the callback receiver and the not-yet-visited element snapshot across
+    // the per-element callback so a relocating GC inside the consumer cannot
+    // leave the re-passed receiver or a later element stale.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut consumer_ref);
+    scope.pin_slots(&mut elems);
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
         ops.invoke(
             heap,
             out,
@@ -135,6 +173,7 @@ pub(crate) fn native_stream_for_each(
             vec![Slot::Reference(Some(consumer_ref)), elem],
         )?;
     }
+    drop(scope);
     Ok(None)
 }
 /// Native: `Stream.collect(Collector)Object` — collects to list (only toList collector supported).
@@ -1304,6 +1343,12 @@ pub(crate) fn native_stream_sorted(
         _ => 0,
     };
     let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    // Pin the element snapshot: its refs are held (and swapped in place) across
+    // every `compareTo` callback and materialised into the result stream after,
+    // so a relocating GC inside a callback must not leave them stale. Swapping
+    // reorders values within the pinned buffer (its address is unchanged).
+    let mut scope = NativeRootScope::new();
+    scope.pin_slots(&mut elems);
     // Insertion sort via compareTo callbacks (stable, O(n²) — fine for test sizes).
     for i in 1..elems.len() {
         let mut j = i;
@@ -1334,7 +1379,12 @@ pub(crate) fn native_stream_sorted(
     let new_size = i32::try_from(elems.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    heap.get_mut(new_stream)?.fields.extend(elems);
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
+        heap.get_mut(new_stream)?.fields.push(elem);
+    }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 /// Native: `Stream.anyMatch(Predicate)Z` — true if any element satisfies predicate.
@@ -1347,16 +1397,24 @@ pub(crate) fn native_stream_any_match(
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
-    let Slot::Reference(Some(pred_ref)) = pred_slot else {
+    let Slot::Reference(Some(mut pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(0)));
     };
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let pred_class = heap.get(pred_ref)?.class_name.clone();
-    for elem in elems {
+    // Pin the callback receiver and the not-yet-visited element snapshot so a
+    // relocating GC inside the predicate cannot leave the re-passed receiver or
+    // a later element stale. `scope` is dropped by RAII on any return.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut pred_ref);
+    scope.pin_slots(&mut elems);
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
         let result = ops.invoke(
             heap,
             out,
@@ -1369,6 +1427,7 @@ pub(crate) fn native_stream_any_match(
             return Ok(Some(Slot::Int(1)));
         }
     }
+    drop(scope);
     Ok(Some(Slot::Int(0)))
 }
 /// Native: `Stream.allMatch(Predicate)Z` — true if all elements satisfy predicate.
@@ -1381,16 +1440,24 @@ pub(crate) fn native_stream_all_match(
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
-    let Slot::Reference(Some(pred_ref)) = pred_slot else {
+    let Slot::Reference(Some(mut pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let pred_class = heap.get(pred_ref)?.class_name.clone();
-    for elem in elems {
+    // Pin the callback receiver and the not-yet-visited element snapshot so a
+    // relocating GC inside the predicate cannot leave the re-passed receiver or
+    // a later element stale. `scope` is dropped by RAII on any return.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut pred_ref);
+    scope.pin_slots(&mut elems);
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
         let result = ops.invoke(
             heap,
             out,
@@ -1403,6 +1470,7 @@ pub(crate) fn native_stream_all_match(
             return Ok(Some(Slot::Int(0)));
         }
     }
+    drop(scope);
     Ok(Some(Slot::Int(1)))
 }
 /// Native: `Stream.noneMatch(Predicate)Z` — true if no element satisfies predicate.
@@ -1415,16 +1483,24 @@ pub(crate) fn native_stream_none_match(
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let pred_slot = extract_slot_arg(args, 1);
-    let Slot::Reference(Some(pred_ref)) = pred_slot else {
+    let Slot::Reference(Some(mut pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let pred_class = heap.get(pred_ref)?.class_name.clone();
-    for elem in elems {
+    // Pin the callback receiver and the not-yet-visited element snapshot so a
+    // relocating GC inside the predicate cannot leave the re-passed receiver or
+    // a later element stale. `scope` is dropped by RAII on any return.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut pred_ref);
+    scope.pin_slots(&mut elems);
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
         let result = ops.invoke(
             heap,
             out,
@@ -1437,6 +1513,7 @@ pub(crate) fn native_stream_none_match(
             return Ok(Some(Slot::Int(0)));
         }
     }
+    drop(scope);
     Ok(Some(Slot::Int(1)))
 }
 /// Native: `Stream.findFirst()Optional` — returns Optional of first element, or empty.
@@ -1471,22 +1548,35 @@ pub(crate) fn native_stream_reduce(
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let op_slot = extract_slot_arg(args, 1);
-    let Slot::Reference(Some(op_ref)) = op_slot else {
+    let Slot::Reference(Some(mut op_ref)) = op_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
     let size = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let op_class = heap.get(op_ref)?.class_name.clone();
-    let reduce_result_ref = heap.allocate("java/util/Optional".to_string(), 1);
+    let mut reduce_result_ref = heap.allocate("java/util/Optional".to_string(), 1);
     if elems.is_empty() {
         heap.get_mut(reduce_result_ref)?.fields[0] = Slot::Reference(None);
         return Ok(Some(Slot::Reference(Some(reduce_result_ref))));
     }
     let mut acc = elems[0];
-    for elem in elems.into_iter().skip(1) {
+    // Pin every ref held across the fold: the callback receiver, the
+    // not-yet-visited element snapshot, the running accumulator (reassigned each
+    // iteration — its stack storage is pinned), and the Optional container that
+    // is allocated before the loop and written after it. Index-walk the pinned
+    // snapshot; the accumulator stays pinned across the final `box_primitive_slot`
+    // (which may allocate).
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut op_ref);
+    scope.pin_ref(&mut reduce_result_ref);
+    scope.pin_slots(&mut elems);
+    scope.pin_slot(&mut acc);
+    #[allow(clippy::needless_range_loop)]
+    for i in 1..elems.len() {
+        let elem = elems[i];
         let result = ops.invoke(
             heap,
             out,
@@ -1500,6 +1590,7 @@ pub(crate) fn native_stream_reduce(
     // Box primitive accumulator before storing in Optional (Java generics always hold References)
     let acc_boxed = box_primitive_slot(acc, heap);
     heap.get_mut(reduce_result_ref)?.fields[0] = acc_boxed;
+    drop(scope);
     Ok(Some(Slot::Reference(Some(reduce_result_ref))))
 }
 /// Native: `Stream.reduce(identity, BinaryOperator)Object` — fold with initial value.
@@ -1512,7 +1603,7 @@ pub(crate) fn native_stream_reduce_with_identity(
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
     let identity = extract_slot_arg(args, 1);
-    let fn_slot = extract_slot_arg(args, 2);
+    let mut fn_slot = extract_slot_arg(args, 2);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(identity));
     };
@@ -1521,9 +1612,18 @@ pub(crate) fn native_stream_reduce_with_identity(
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let mut acc = identity;
-    for elem in elems {
+    // Pin the callback receiver slot, the not-yet-visited element snapshot, and
+    // the running accumulator (reassigned each iteration — its stack storage is
+    // pinned) so a relocating GC inside the accumulator cannot leave them stale.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
+    scope.pin_slots(&mut elems);
+    scope.pin_slot(&mut acc);
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
         acc = ops
             .invoke(
                 heap,
@@ -1535,6 +1635,7 @@ pub(crate) fn native_stream_reduce_with_identity(
             )?
             .unwrap_or(Slot::Reference(None));
     }
+    drop(scope);
     // Autobox: if the identity was a Reference (stream of boxed type) but the accumulator
     // impl returned a raw primitive (e.g. Integer::sum returns int), re-box the result so
     // that the caller can apply intValue() / longValue() as expected.
@@ -1667,7 +1768,7 @@ pub(crate) fn native_stream_peek(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let consumer_slot = extract_slot_arg(args, 1);
+    let mut consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
         return Ok(Some(Slot::Reference(Some(stream_ref))));
     };
@@ -1675,22 +1776,36 @@ pub(crate) fn native_stream_peek(
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let consumer_class = heap.get(consumer_ref)?.class_name.clone();
-    for elem in &elems {
+    // Pin the callback receiver slot and the element snapshot: the snapshot is
+    // both re-visited across the per-element callback and materialised into the
+    // returned stream afterward, so a relocating GC inside the consumer must not
+    // leave its refs stale. Keep the pin across the final allocation.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut consumer_slot);
+    scope.pin_slots(&mut elems);
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
         ops.invoke(
             heap,
             out,
             &consumer_class,
             "accept",
             "(Ljava/lang/Object;)V",
-            vec![consumer_slot, *elem],
+            vec![consumer_slot, elem],
         )?;
     }
     // Return a new stream with same elements (consumer may have GC'd things)
     let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(out_ref)?.fields[0] = Slot::Int(i32::try_from(elems.len()).unwrap_or(0));
-    heap.get_mut(out_ref)?.fields.extend(elems);
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
+        heap.get_mut(out_ref)?.fields.push(elem);
+    }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
 /// Native: `Stream.toArray()Object[]` — materializes stream into an Object array.
@@ -1730,12 +1845,19 @@ pub(crate) fn native_stream_limit(
     // Lazy generators: materialise N elements on limit().
     if class_name == "duke/util/GeneratorStream" {
         let supplier_slot = extract_first_field_arg(heap, stream_ref)?;
-        let Slot::Reference(Some(sup_ref)) = supplier_slot else {
+        let Slot::Reference(Some(mut sup_ref)) = supplier_slot else {
             return Ok(Some(Slot::Reference(None)));
         };
         let sup_class = heap.get(sup_ref)?.class_name.clone();
-        let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+        let mut out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
         heap.get_mut(out_ref)?.fields[0] = Slot::Int(i32::try_from(max_size).unwrap_or(0));
+        // Pin the supplier receiver and the result stream accumulator: both are
+        // held in Rust locals across every `get()` callback. Pinning `out_ref`
+        // roots the already-collected elements it holds, so they survive any
+        // relocating GC a later callback triggers.
+        let mut scope = NativeRootScope::new();
+        scope.pin_ref(&mut sup_ref);
+        scope.pin_ref(&mut out_ref);
         for _ in 0..max_size {
             let elem = ops
                 .invoke(
@@ -1749,20 +1871,29 @@ pub(crate) fn native_stream_limit(
                 .unwrap_or(Slot::Reference(None));
             heap.get_mut(out_ref)?.fields.push(elem);
         }
+        drop(scope);
         return Ok(Some(Slot::Reference(Some(out_ref))));
     }
 
     if class_name == "duke/util/IteratorStream" {
         // fields[0] = current seed, fields[1] = UnaryOperator fn
         let seed = extract_first_field_arg(heap, stream_ref)?;
-        let fn_slot = extract_field_arg(heap, stream_ref, 1)?;
+        let mut fn_slot = extract_field_arg(heap, stream_ref, 1)?;
         let Slot::Reference(Some(fn_ref)) = fn_slot else {
             return Ok(Some(Slot::Reference(None)));
         };
         let fn_class = heap.get(fn_ref)?.class_name.clone();
-        let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+        let mut out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
         heap.get_mut(out_ref)?.fields[0] = Slot::Int(i32::try_from(max_size).unwrap_or(0));
         let mut current = seed;
+        // Pin the callback receiver slot and the result stream accumulator:
+        // both are held across every `apply()` callback. Pinning `out_ref` roots
+        // the already-pushed elements it holds. `current` is pushed into `out_ref`
+        // (thus rooted) before each callback and then reassigned from the
+        // callback's result, so it is never read while stale and needs no pin.
+        let mut scope = NativeRootScope::new();
+        scope.pin_slot(&mut fn_slot);
+        scope.pin_ref(&mut out_ref);
         for _ in 0..max_size {
             heap.get_mut(out_ref)?.fields.push(current);
             current = ops
@@ -1776,6 +1907,7 @@ pub(crate) fn native_stream_limit(
                 )?
                 .unwrap_or(Slot::Reference(None));
         }
+        drop(scope);
         return Ok(Some(Slot::Reference(Some(out_ref))));
     }
 
@@ -1826,7 +1958,7 @@ pub(crate) fn native_stream_flat_map(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -1834,10 +1966,22 @@ pub(crate) fn native_stream_flat_map(
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let mut flat: Vec<Slot> = Vec::with_capacity(elems.len());
-    for elem in elems {
+    // Accumulate the flattened elements directly into the (heap-allocated,
+    // pinned) result stream rather than a growing Rust `Vec` — pinning cannot
+    // track a `Vec` that reallocates, but a pinned `out_ref` roots every element
+    // already pushed into it, so they survive any relocating GC a later callback
+    // triggers. Also pin the callback receiver slot and the element snapshot.
+    let mut out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(out_ref)?.fields[0] = Slot::Int(0);
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
+    scope.pin_slots(&mut elems);
+    scope.pin_ref(&mut out_ref);
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
         let inner = ops.invoke(
             heap,
             out,
@@ -1853,13 +1997,12 @@ pub(crate) fn native_stream_flat_map(
                 _ => 0,
             };
             let inner_elems: Vec<Slot> = heap.get(inner_ref)?.fields[1..=inner_size].to_vec();
-            flat.extend(inner_elems);
+            heap.get_mut(out_ref)?.fields.extend(inner_elems);
         }
     }
-    let new_size = i32::try_from(flat.len()).unwrap_or(0);
-    let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    let new_size = i32::try_from(heap.get(out_ref)?.fields.len().saturating_sub(1)).unwrap_or(0);
     heap.get_mut(out_ref)?.fields[0] = Slot::Int(new_size);
-    heap.get_mut(out_ref)?.fields.extend(flat);
+    drop(scope);
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
 /// Native: `IntStream.range(int,int)IntStream` — half-open range [start, end).
@@ -2245,14 +2388,22 @@ pub(crate) fn native_int_stream_map_to_obj(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
     let elems = int_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let mut mapped = Vec::new();
-    for v in elems {
+    // Elements are primitive ints (no element-ref hazard), but the mapper
+    // produces object results that accumulate across later callbacks. Pin the
+    // callback receiver slot and the pre-sized, index-assigned result buffer
+    // (never pushed, so it never reallocates) so a relocating GC cannot leave
+    // an already-produced result stale.
+    let mut mapped: Vec<Slot> = vec![Slot::Reference(None); elems.len()];
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
+    scope.pin_slots(&mut mapped);
+    for (i, v) in elems.into_iter().enumerate() {
         let result = ops.invoke(
             heap,
             out,
@@ -2261,12 +2412,17 @@ pub(crate) fn native_int_stream_map_to_obj(
             "(I)Ljava/lang/Object;",
             vec![fn_slot, Slot::Int(v)],
         )?;
-        mapped.push(result.unwrap_or(Slot::Reference(None)));
+        mapped[i] = result.unwrap_or(Slot::Reference(None));
     }
     let new_size = i32::try_from(mapped.len()).unwrap_or(0);
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(stream_ref)?.fields[0] = Slot::Int(new_size);
-    heap.get_mut(stream_ref)?.fields.extend(mapped);
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..mapped.len() {
+        let elem = mapped[i];
+        heap.get_mut(stream_ref)?.fields.push(elem);
+    }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(stream_ref))))
 }
 /// Native: `IntStream.distinct()IntStream` — removes duplicate int values.
@@ -2594,7 +2750,7 @@ pub(crate) fn native_stream_map_to_int(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
     };
@@ -2603,9 +2759,17 @@ pub(crate) fn native_stream_map_to_int(
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    // Object elements + object receiver held across each callback; the produced
+    // ints are primitives (no accumulator-ref hazard). Pin the receiver slot and
+    // the not-yet-visited element snapshot.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
+    scope.pin_slots(&mut elems);
     let mut values = Vec::with_capacity(elems.len());
-    for elem in elems {
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
         let result = ops
             .invoke(
                 heap,
@@ -2629,6 +2793,7 @@ pub(crate) fn native_stream_map_to_int(
             _ => values.push(0),
         }
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
 }
 /// Native: `IntStream.reduce(int, IntBinaryOperator)I` — fold with identity via callback.
@@ -3070,7 +3235,7 @@ pub(crate) fn native_stream_take_while(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
+    let Slot::Reference(Some(mut pred_ref)) = extract_slot_arg(args, 1)
     else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -3078,10 +3243,17 @@ pub(crate) fn native_stream_take_while(
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let pred_class = heap.get(pred_ref)?.class_name.clone();
-    let mut kept: Vec<Slot> = Vec::new();
-    for elem in elems {
+    // Pin the receiver and the element snapshot; record kept elements as indices
+    // into the pinned snapshot and materialise them while still pinned.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut pred_ref);
+    scope.pin_slots(&mut elems);
+    let mut kept_idx: Vec<usize> = Vec::new();
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
         let result = ops.invoke(
             heap,
             out,
@@ -3091,15 +3263,19 @@ pub(crate) fn native_stream_take_while(
             vec![Slot::Reference(Some(pred_ref)), elem],
         )?;
         if matches!(result, Some(Slot::Int(n)) if n != 0) {
-            kept.push(elem);
+            kept_idx.push(i);
         } else {
             break;
         }
     }
-    let new_size = i32::try_from(kept.len()).unwrap_or(0);
+    let new_size = i32::try_from(kept_idx.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    heap.get_mut(new_stream)?.fields.extend(kept);
+    for &i in &kept_idx {
+        let elem = elems[i];
+        heap.get_mut(new_stream)?.fields.push(elem);
+    }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 /// Native: `Stream.dropWhile(Predicate)Stream` — drops prefix while predicate holds, keeps rest.
@@ -3111,7 +3287,7 @@ pub(crate) fn native_stream_drop_while(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let Slot::Reference(Some(pred_ref)) = extract_slot_arg(args, 1)
+    let Slot::Reference(Some(mut pred_ref)) = extract_slot_arg(args, 1)
     else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -3119,11 +3295,18 @@ pub(crate) fn native_stream_drop_while(
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
     let pred_class = heap.get(pred_ref)?.class_name.clone();
+    // Pin the receiver and the element snapshot; record kept elements as indices
+    // into the pinned snapshot and materialise them while still pinned.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut pred_ref);
+    scope.pin_slots(&mut elems);
     let mut dropping = true;
-    let mut kept: Vec<Slot> = Vec::new();
-    for elem in elems {
+    let mut kept_idx: Vec<usize> = Vec::new();
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
         if dropping {
             let result = ops.invoke(
                 heap,
@@ -3138,12 +3321,16 @@ pub(crate) fn native_stream_drop_while(
             }
             dropping = false;
         }
-        kept.push(elem);
+        kept_idx.push(i);
     }
-    let new_size = i32::try_from(kept.len()).unwrap_or(0);
+    let new_size = i32::try_from(kept_idx.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    heap.get_mut(new_stream)?.fields.extend(kept);
+    for &i in &kept_idx {
+        let elem = elems[i];
+        heap.get_mut(new_stream)?.fields.push(elem);
+    }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 /// Native: `Stream.sorted(Comparator)Stream` — sorts stream elements using the given comparator.
@@ -3155,7 +3342,7 @@ pub(crate) fn native_stream_sorted_comparator(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     // If no comparator provided, fall back to natural-order sort.
-    let Slot::Reference(Some(comp_ref)) = extract_slot_arg(args, 1)
+    let Slot::Reference(Some(mut comp_ref)) = extract_slot_arg(args, 1)
     else {
         return native_stream_sorted(args, heap, out, control, ops);
     };
@@ -3165,6 +3352,13 @@ pub(crate) fn native_stream_sorted_comparator(
         _ => 0,
     };
     let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    // Pin the comparator receiver and the element snapshot: the snapshot's refs
+    // are held (and swapped in place) across every `compare` callback and
+    // materialised into the result stream after. Keep the pin across the final
+    // allocation.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut comp_ref);
+    scope.pin_slots(&mut elems);
     // Insertion sort using the provided comparator.
     for i in 1..elems.len() {
         let mut j = i;
@@ -3189,7 +3383,12 @@ pub(crate) fn native_stream_sorted_comparator(
     let new_size = i32::try_from(elems.len()).unwrap_or(0);
     let new_stream = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(new_stream)?.fields[0] = Slot::Int(new_size);
-    heap.get_mut(new_stream)?.fields.extend(elems);
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
+        heap.get_mut(new_stream)?.fields.push(elem);
+    }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(new_stream))))
 }
 /// Native: `Collectors.partitioningBy(Predicate)Collector` — returns a sentinel collector.
@@ -3438,7 +3637,7 @@ pub(crate) fn native_stream_map_to_long(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
@@ -3447,9 +3646,16 @@ pub(crate) fn native_stream_map_to_long(
         Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
-    let elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    let mut elems: Vec<Slot> = heap.get(stream_ref)?.fields[1..=size].to_vec();
+    // Object elements + object receiver held across each callback; produced
+    // longs are primitives. Pin the receiver slot and the element snapshot.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
+    scope.pin_slots(&mut elems);
     let mut values = Vec::with_capacity(elems.len());
-    for elem in elems {
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
         let result = ops
             .invoke(
                 heap,
@@ -3467,6 +3673,7 @@ pub(crate) fn native_stream_map_to_long(
         };
         values.push(v);
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_long_stream(heap, values)))))
 }
 /// Native: `LongStream.sum()J` — sums all elements.
@@ -3500,7 +3707,7 @@ pub(crate) fn native_stream_map_to_double(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_double_stream(
             heap,
@@ -3508,9 +3715,16 @@ pub(crate) fn native_stream_map_to_double(
         )))));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let elems = stream_elements(heap, stream_ref)?;
+    let mut elems = stream_elements(heap, stream_ref)?;
+    // Object elements + object receiver held across each callback; produced
+    // doubles are primitives. Pin the receiver slot and the element snapshot.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
+    scope.pin_slots(&mut elems);
     let mut values = Vec::with_capacity(elems.len());
-    for elem in elems {
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..elems.len() {
+        let elem = elems[i];
         let result = ops
             .invoke(
                 heap,
@@ -3529,6 +3743,7 @@ pub(crate) fn native_stream_map_to_double(
         };
         values.push(v);
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_double_stream(
         heap, values,
     )))))
@@ -5396,8 +5611,8 @@ pub(crate) fn native_stream_iterate_predicate(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let seed = extract_slot_arg(args, 0);
-    let pred_slot = extract_slot_arg(args, 1);
-    let next_slot = extract_slot_arg(args, 2);
+    let mut pred_slot = extract_slot_arg(args, 1);
+    let mut next_slot = extract_slot_arg(args, 2);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Err(Error::NullPointerException);
     };
@@ -5407,8 +5622,19 @@ pub(crate) fn native_stream_iterate_predicate(
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     let next_class = heap.get(next_ref)?.class_name.clone();
 
-    let mut elems: Vec<Slot> = Vec::new();
+    // Accumulate into a pinned, heap-allocated result stream rather than a
+    // growing Rust `Vec` (which pinning cannot follow across reallocation).
+    // `current` is passed to the predicate, then read again (pushed) AFTER that
+    // callback's GC, so it must be pinned; both callback receiver slots are
+    // re-passed every iteration.
+    let mut out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
+    heap.get_mut(out_ref)?.fields[0] = Slot::Int(0);
     let mut current = seed;
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut out_ref);
+    scope.pin_slot(&mut pred_slot);
+    scope.pin_slot(&mut next_slot);
+    scope.pin_slot(&mut current);
     for _ in 0..10_000usize {
         let test = ops.invoke(
             heap,
@@ -5422,7 +5648,7 @@ pub(crate) fn native_stream_iterate_predicate(
             Some(Slot::Int(1)) => {}
             _ => break,
         }
-        elems.push(current);
+        heap.get_mut(out_ref)?.fields.push(current);
         current = ops
             .invoke(
                 heap,
@@ -5434,9 +5660,8 @@ pub(crate) fn native_stream_iterate_predicate(
             )?
             .unwrap_or(Slot::Reference(None));
     }
-    let out_ref = heap.allocate("duke/util/Stream".to_string(), 1);
-    let size = i32::try_from(elems.len()).unwrap_or(i32::MAX);
+    let size = i32::try_from(heap.get(out_ref)?.fields.len().saturating_sub(1)).unwrap_or(i32::MAX);
     heap.get_mut(out_ref)?.fields[0] = Slot::Int(size);
-    heap.get_mut(out_ref)?.fields.extend(elems);
+    drop(scope);
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
