@@ -38425,6 +38425,225 @@ fn collect_real_collector_chain_container_survives_two_gcs_during_callback() {
     );
 }
 
+/// Group A — real (non-`duke/util/*`) `Collector`, ELEMENT SNAPSHOT survival
+/// across the PRE-LOOP callbacks. The third-party-Collector branch acquires its
+/// element snapshot before driving `supplier()` → `get()` → `accumulator()`, and
+/// only THEN walks the snapshot feeding each element to `accept`. Those three
+/// pre-loop callbacks are relocating GC points the element refs must survive, so
+/// the snapshot must be pinned BEFORE `supplier()`, not after `accumulator()`.
+///
+/// This test forces a relocating GC inside each of `supplier`, `get` and
+/// `accumulator` — the points a late pin (after `accumulator()`) fails to cover
+/// — then asserts every element handed to `accept` still carries its original
+/// tag. With the pin placed after `accumulator()` the snapshot is relocated
+/// while unpinned and the `accept` loop is fed stale/reused element refs, so this
+/// test goes red; with the pin hoisted ahead of `supplier()` it stays green.
+/// (The sibling `..._container_survives_..` test only forces GC in `accept`/
+/// `apply`, i.e. AFTER the snapshot pin, so it cannot catch this ordering bug.)
+#[test]
+#[allow(clippy::too_many_lines)]
+fn collect_real_collector_element_snapshot_survives_two_gcs_before_accept_loop() {
+    use std::collections::HashMap;
+
+    const COLLECTOR_TAG: i32 = 4200;
+    const ELEM_TAGS: [i32; 3] = [11, 22, 33];
+
+    struct CollectPreLoopGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        container_ref: u64,
+        observed_protocol_receiver_tags: Vec<i32>,
+        observed_accept_elem_tags: Vec<i32>,
+    }
+
+    impl CallbackOps for CollectPreLoopGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            match method {
+                // supplier(): receiver is the collector (args[0]); force a GC
+                // BEFORE the per-element accept loop, then return a fresh Supplier
+                // allocated post-GC so its own id is never stale.
+                "supplier" => {
+                    self.observed_protocol_receiver_tags
+                        .push(stream_gc_tag(heap, args.first()));
+                    stream_gc_two_collections(
+                        heap,
+                        &mut self.caller_frame,
+                        &mut self.registry,
+                        &mut self.string_intern,
+                        None,
+                    );
+                    Ok(Some(Slot::Reference(Some(
+                        heap.allocate("com/example/Supplier".to_string(), 1),
+                    ))))
+                }
+                // get(): a real supplier().get() allocates a fresh container.
+                // Force the pre-loop GC FIRST, then allocate the container
+                // post-GC so its id is current; the native pins it immediately on
+                // return, so it survives the later accumulator() GC.
+                "get" => {
+                    stream_gc_two_collections(
+                        heap,
+                        &mut self.caller_frame,
+                        &mut self.registry,
+                        &mut self.string_intern,
+                        None,
+                    );
+                    let c = heap.allocate("com/example/Container".to_string(), 1);
+                    heap.get_mut(c).unwrap().fields[0] = Slot::Int(0);
+                    self.container_ref = c;
+                    Ok(Some(Slot::Reference(Some(c))))
+                }
+                // accumulator(): last pre-loop callback; force a GC, then return a
+                // fresh BiConsumer allocated post-GC.
+                "accumulator" => {
+                    self.observed_protocol_receiver_tags
+                        .push(stream_gc_tag(heap, args.first()));
+                    stream_gc_two_collections(
+                        heap,
+                        &mut self.caller_frame,
+                        &mut self.registry,
+                        &mut self.string_intern,
+                        None,
+                    );
+                    Ok(Some(Slot::Reference(Some(
+                        heap.allocate("com/example/Accumulator".to_string(), 1),
+                    ))))
+                }
+                "accept" => {
+                    // args[0] = accumulator, args[1] = container, args[2] = elem.
+                    // Record the tag of every element fed into the loop and fold
+                    // it into the container. No GC here — the whole point is that
+                    // the STALENESS must have already happened in the pre-loop
+                    // callbacks above if the snapshot was pinned too late.
+                    let container = match args.get(1) {
+                        Some(Slot::Reference(Some(r))) => *r,
+                        _ => panic!("accept container was not a live reference"),
+                    };
+                    let elem_tag = stream_gc_tag(heap, args.get(2));
+                    self.observed_accept_elem_tags.push(elem_tag);
+                    let cur = match heap.get(container).unwrap().fields.first() {
+                        Some(Slot::Int(n)) => *n,
+                        _ => 0,
+                    };
+                    // `wrapping_add`: a stale element ref reads back as `i32::MIN`
+                    // (see `stream_gc_tag`), which would overflow a plain `+` and
+                    // mask the failure as an arithmetic panic. Wrap so the loop
+                    // completes and the element-tag assertion reports the staleness.
+                    heap.get_mut(container).unwrap().fields[0] =
+                        Slot::Int(cur.wrapping_add(elem_tag));
+                    Ok(None)
+                }
+                "finisher" => {
+                    self.observed_protocol_receiver_tags
+                        .push(stream_gc_tag(heap, args.first()));
+                    Ok(Some(Slot::Reference(Some(
+                        heap.allocate("com/example/Finisher".to_string(), 1),
+                    ))))
+                }
+                "apply" => {
+                    // finisher.apply(container): read the accumulated sum back.
+                    let container = match args.get(1) {
+                        Some(Slot::Reference(Some(r))) => *r,
+                        _ => panic!("finisher container was not a live reference"),
+                    };
+                    let sum = match heap.get(container).unwrap().fields.first() {
+                        Some(Slot::Int(n)) => *n,
+                        _ => -1,
+                    };
+                    let res = heap.allocate("duke/test/Result".to_string(), 1);
+                    heap.get_mut(res).unwrap().fields[0] = Slot::Int(sum);
+                    Ok(Some(Slot::Reference(Some(res))))
+                }
+                other => panic!("unexpected collector protocol method {other}"),
+            }
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let stream_ref = build_tagged_object_stream(&mut heap, &ELEM_TAGS);
+    let collector_ref = heap.allocate("com/example/SummingCollector".to_string(), 1);
+    heap.get_mut(collector_ref).unwrap().fields[0] = Slot::Int(COLLECTOR_TAG);
+
+    // Root the stream and collector via the caller frame so the pre-loop
+    // callbacks relocate them (mirroring live objects) while the native holds its
+    // private, pinned snapshot copy. The stream's fields hold the live element
+    // objects, so they are relocated (not reclaimed) by each GC — meaning an
+    // unpinned native snapshot goes STALE (dangling into reused slots) rather
+    // than merely dangling into freed space. The container is allocated by get().
+    let caller_frame = duke_runtime::Frame::new(
+        16,
+        8,
+        vec![
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(collector_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = CollectPreLoopGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        container_ref: 0,
+        observed_protocol_receiver_tags: Vec::new(),
+        observed_accept_elem_tags: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_stream_collect(
+        &[
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(collector_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    // The load-bearing assertion: every element handed to `accept` still carries
+    // its original tag, in order. A snapshot pinned after `accumulator()` would
+    // have been relocated by the supplier/get/accumulator GCs and the loop would
+    // observe stale/reused tags here.
+    assert_eq!(
+        ops.observed_accept_elem_tags,
+        ELEM_TAGS.to_vec(),
+        "real Collector element snapshot went stale across the supplier()/get()/\
+         accumulator() GCs that precede the accept loop; the loop fed accept \
+         dangling/reused element references (element pin placed too late)"
+    );
+    assert_eq!(
+        ops.observed_protocol_receiver_tags,
+        vec![COLLECTOR_TAG, COLLECTOR_TAG, COLLECTOR_TAG],
+        "real Collector receiver went stale across the protocol's callbacks"
+    );
+    assert_eq!(
+        stream_gc_tag(&heap, result.as_ref()),
+        ELEM_TAGS.iter().sum::<i32>(),
+        "real Collector finisher read the wrong sum; the accept loop accumulated \
+         stale element tags into the container"
+    );
+}
+
 /// Group B — `Collectors.collectingAndThen(downstream, finisher)`. The finisher
 /// lambda is held in a native Rust local across the RECURSIVE downstream
 /// `native_stream_collect` — itself a GC point, because the downstream

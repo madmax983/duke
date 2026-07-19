@@ -1427,6 +1427,12 @@ pub(crate) fn native_stream_collect(
         // them alive and forwarded.
         let mut scope = NativeRootScope::new();
         scope.pin_slot(&mut collector_slot);
+        // `elems` is a stable snapshot taken before this branch and is never
+        // reassigned or mutated here (only read by index below), so pin it now —
+        // BEFORE the supplier()/get()/accumulator() `ops.invoke` GC points that
+        // its element refs must survive. Pinning it later (after those callbacks)
+        // cannot repair refs already relocated by a collection they lived through.
+        scope.pin_slots(&mut elems);
 
         // container = collector.supplier().get()
         let supplier = ops
@@ -1471,7 +1477,6 @@ pub(crate) fn native_stream_collect(
         };
         let acc_class = heap.get(acc_ref)?.class_name.clone();
         scope.pin_slot(&mut accumulator);
-        scope.pin_slots(&mut elems);
         #[allow(clippy::needless_range_loop)]
         for i in 0..elems.len() {
             let elem = elems[i];
