@@ -431,6 +431,9 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> Result<AttributeData> {
         "SourceFile" => AttributeData::SourceFile {
             sourcefile_index: decode_source_file(&mut c)?,
         },
+        "Signature" => AttributeData::Signature {
+            signature_index: decode_signature(&mut c)?,
+        },
         "Code" => AttributeData::Code(parse_code_attribute(&mut c)?),
         "LineNumberTable" => AttributeData::LineNumberTable(decode_line_number_table(&mut c)?),
         "LocalVariableTable" => {
@@ -454,6 +457,10 @@ fn decode_constant_value(c: &mut Cursor<'_>) -> Result<CpIndex> {
 }
 
 fn decode_source_file(c: &mut Cursor<'_>) -> Result<CpIndex> {
+    c.read_cp_index()
+}
+
+fn decode_signature(c: &mut Cursor<'_>) -> Result<CpIndex> {
     c.read_cp_index()
 }
 

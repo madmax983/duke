@@ -10454,6 +10454,22 @@ fn annotation_default_from_attrs(
     })
 }
 
+/// Resolve the `Signature` attribute (JVMS §4.7.9) from an attribute list to its
+/// UTF-8 string, if present. Shared by the class-, field-, and method-level
+/// reflection metadata so generic type information survives erasure.
+fn signature_from_attrs(
+    cp: &[Option<CpEntry>],
+    attrs: &[duke_classfile::AttributeInfo],
+) -> Option<String> {
+    attrs.iter().find_map(|attr| {
+        if let duke_classfile::AttributeData::Signature { signature_index } = &attr.data {
+            cp_utf8_string(cp, signature_index.0 as usize).ok()
+        } else {
+            None
+        }
+    })
+}
+
 fn reflected_class_info_from_loader(
     loader: &dyn ClassLoader,
     internal_name: &str,
@@ -10486,6 +10502,10 @@ fn reflected_class_info_from_loader(
                     &class_file.constant_pool,
                     &method.attributes,
                 ),
+                signature: signature_from_attrs(
+                    &class_file.constant_pool,
+                    &method.attributes,
+                ),
             })
         })
         .collect();
@@ -10508,6 +10528,7 @@ fn reflected_class_info_from_loader(
                     &class_file.constant_pool,
                     &field.attributes,
                 ),
+                signature: signature_from_attrs(&class_file.constant_pool, &field.attributes),
             })
         })
         .collect();
@@ -10533,6 +10554,7 @@ fn reflected_class_info_from_loader(
             &class_file.constant_pool,
             &class_file.attributes,
         ),
+        signature: signature_from_attrs(&class_file.constant_pool, &class_file.attributes),
     })
 }
 
@@ -10552,6 +10574,9 @@ fn qualify_reflected_class_info_ancestry(
     info
 }
 
+// Threading `signature: Option<String>` through the class/field/method
+// synthetic-stub literals tipped this data-plumbing fn just over the line limit.
+#[allow(clippy::too_many_lines)]
 fn inspect_reflected_class(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
@@ -10584,6 +10609,7 @@ fn inspect_reflected_class(
                     is_static: method.is_static,
                     annotations: Vec::new(),
                     annotation_default: None,
+                    signature: None,
                 })
                 .collect();
             let fields = ctx
@@ -10596,6 +10622,7 @@ fn inspect_reflected_class(
                     is_static: field.is_static,
                     access_flags: synthetic_field_access_flags(field.is_static),
                     annotations: Vec::new(),
+                    signature: None,
                 })
                 .collect();
             return Ok(ReflectedClassInfo {
@@ -10607,6 +10634,7 @@ fn inspect_reflected_class(
                 fields,
                 access_flags: SYNTHETIC_CLASS_ACCESS_FLAGS,
                 annotations: Vec::new(),
+                signature: None,
             });
         }
         Err(Error::ClassNotFound { .. }) => {}
@@ -10634,6 +10662,7 @@ fn inspect_reflected_class(
             is_static: method.is_static,
             annotations: Vec::new(),
             annotation_default: None,
+            signature: None,
         })
         .collect();
     let fields = ctx
@@ -10646,6 +10675,7 @@ fn inspect_reflected_class(
             is_static: field.is_static,
             access_flags: synthetic_field_access_flags(field.is_static),
             annotations: Vec::new(),
+            signature: None,
         })
         .collect();
 
@@ -10658,6 +10688,7 @@ fn inspect_reflected_class(
         fields,
         access_flags: SYNTHETIC_CLASS_ACCESS_FLAGS,
         annotations: Vec::new(),
+        signature: None,
     })
 }
 

@@ -5723,6 +5723,30 @@ pub(crate) fn native_module_can_use(
     Ok(Some(Slot::Int(1)))
 }
 
+/// Native: `Boolean.getBoolean(String)Z`.
+///
+/// Returns `true` iff the named system property exists and equals `"true"`
+/// (case-insensitive), reading through Duke's system-property model (including
+/// `System.setProperty` overrides). A null or absent property yields `false` —
+/// exactly `Boolean.parseBoolean(System.getProperty(name))`. Spring reads a
+/// number of `spring.*` boolean flags this way during bootstrap.
+#[allow(clippy::unnecessary_wraps)] // NativeHandler signature requires Result<Option<Slot>>.
+pub(crate) fn native_boolean_get_boolean(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let value = match args.first() {
+        Some(Slot::Reference(Some(name_ref))) => string_value_from_ref(heap, *name_ref)
+            .ok()
+            .and_then(|name| system_property_value(&name))
+            .is_some_and(|v| v.eq_ignore_ascii_case("true")),
+        _ => false,
+    };
+    Ok(Some(Slot::Int(i32::from(value))))
+}
+
 #[cfg(test)]
 mod string_get_bytes_copy_tests {
     use super::*;

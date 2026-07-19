@@ -6104,6 +6104,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/Boolean",
+        "getBoolean",
+        "(Ljava/lang/String;)Z",
+        native_boolean_get_boolean,
+    );
+    registry.natives_mut().register(
+        "java/lang/Boolean",
         "valueOf",
         "(Z)Ljava/lang/Boolean;",
         native_boolean_valueof,
@@ -15030,6 +15036,163 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     };
     registry.register(type_iface_ctx);
 
+    // ---- generics: java.lang.reflect.Type sub-interfaces + backing impls ----
+    // Spring's ResolvableType / GenericTypeResolver reflect over generic
+    // signatures: Class.getTypeParameters() yields TypeVariable[], and
+    // getGenericSuperclass()/getGenericInterfaces() can yield ParameterizedType.
+    // Register the sub-interfaces of java/lang/reflect/Type as synthetic marker
+    // interfaces so `instanceof`/`checkcast` against them resolve, plus concrete
+    // `duke/internal/reflect/*Impl` backing classes we allocate directly (heap
+    // object + field writes, no <init> bytecode) and hang native accessors on.
+    for iface in [
+        "java/lang/reflect/TypeVariable",
+        "java/lang/reflect/ParameterizedType",
+        "java/lang/reflect/GenericArrayType",
+        "java/lang/reflect/WildcardType",
+    ] {
+        registry.register(ClassContext {
+            class_name: iface.to_string(),
+            super_class: Some("java/lang/Object".to_string()),
+            constant_pool: Vec::new(),
+            methods: Vec::new(),
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: 0,
+            // Each of these extends java/lang/reflect/Type.
+            interfaces: vec!["java/lang/reflect/Type".to_string()],
+            bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Synthetic,
+        });
+    }
+    // GenericDeclaration is the interface implemented by the element declaring a
+    // type variable (Class/Method/Constructor). It extends AnnotatedElement, not
+    // Type; model it as a bare marker interface. A TypeVariable's
+    // getGenericDeclaration() returns the declaring Class (which need not itself
+    // implement this synthetic interface for Spring's purposes — it is only used
+    // as a return-type erasure).
+    registry.register(ClassContext {
+        class_name: "java/lang/reflect/GenericDeclaration".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
+    // Concrete backing classes. Field layout is fixed and mirrored by the
+    // TYPEVAR_*/PARAMTYPE_*/GENARRAY_*/WILDCARD_* field-index constants used by
+    // the native accessors (native/reflect.rs).
+    // duke/internal/reflect/TypeVariableImpl:
+    //   [0] name (String), [1] bounds ([Ljava/lang/reflect/Type;),
+    //   [2] genericDeclaration (Ljava/lang/reflect/GenericDeclaration;)
+    registry.register(ClassContext {
+        class_name: "duke/internal/reflect/TypeVariableImpl".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "name".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "bounds".to_string(),
+                descriptor: "[Ljava/lang/reflect/Type;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "genericDeclaration".to_string(),
+                descriptor: "Ljava/lang/reflect/GenericDeclaration;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 3,
+        interfaces: vec!["java/lang/reflect/TypeVariable".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+    // duke/internal/reflect/ParameterizedTypeImpl:
+    //   [0] rawType (Class), [1] actualTypeArguments ([Ljava/lang/reflect/Type;),
+    //   [2] ownerType (Ljava/lang/reflect/Type;)
+    registry.register(ClassContext {
+        class_name: "duke/internal/reflect/ParameterizedTypeImpl".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "rawType".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "actualTypeArguments".to_string(),
+                descriptor: "[Ljava/lang/reflect/Type;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "ownerType".to_string(),
+                descriptor: "Ljava/lang/reflect/Type;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 3,
+        interfaces: vec!["java/lang/reflect/ParameterizedType".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+    // duke/internal/reflect/GenericArrayTypeImpl:
+    //   [0] genericComponentType (Ljava/lang/reflect/Type;)
+    registry.register(ClassContext {
+        class_name: "duke/internal/reflect/GenericArrayTypeImpl".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![FieldEntry {
+            name: "genericComponentType".to_string(),
+            descriptor: "Ljava/lang/reflect/Type;".to_string(),
+            is_static: false,
+        }],
+        static_fields: Vec::new(),
+        instance_field_count: 1,
+        interfaces: vec!["java/lang/reflect/GenericArrayType".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+    // duke/internal/reflect/WildcardTypeImpl:
+    //   [0] upperBounds ([Ljava/lang/reflect/Type;),
+    //   [1] lowerBounds ([Ljava/lang/reflect/Type;)
+    registry.register(ClassContext {
+        class_name: "duke/internal/reflect/WildcardTypeImpl".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "upperBounds".to_string(),
+                descriptor: "[Ljava/lang/reflect/Type;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "lowerBounds".to_string(),
+                descriptor: "[Ljava/lang/reflect/Type;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/lang/reflect/WildcardType".to_string()],
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    });
+
     // java/lang/ThreadLocal — synthetic single-slot holder (field 0 = value).
     // The real JDK ThreadLocal reads Thread.threadLocals, absent from Duke's
     // synthetic Thread stub; gson's Gson.getAdapter uses a plain ThreadLocal as
@@ -15296,6 +15459,85 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getGenericSuperclass",
         "()Ljava/lang/reflect/Type;",
         native_class_get_generic_superclass,
+    );
+    // Generics reflection: getTypeParameters drives Spring's ResolvableType
+    // type-variable-count assertion; getGenericInterfaces yields real
+    // ParameterizedType for parameterized supertypes. Both parse the class's
+    // Signature attribute (JVMS §4.7.9.1).
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getTypeParameters",
+        "()[Ljava/lang/reflect/TypeVariable;",
+        native_class_get_type_parameters,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getGenericInterfaces",
+        "()[Ljava/lang/reflect/Type;",
+        native_class_get_generic_interfaces,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "toGenericString",
+        "()Ljava/lang/String;",
+        native_class_to_generic_string,
+    );
+    // Type accessors, registered on the interface names (invokeinterface resolves
+    // the native via the callee interface class). Backed by the direct field
+    // reads on the duke/internal/reflect/*Impl objects.
+    registry.natives_mut().register(
+        "java/lang/reflect/TypeVariable",
+        "getName",
+        "()Ljava/lang/String;",
+        native_type_variable_get_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/TypeVariable",
+        "getBounds",
+        "()[Ljava/lang/reflect/Type;",
+        native_type_variable_get_bounds,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/TypeVariable",
+        "getGenericDeclaration",
+        "()Ljava/lang/reflect/GenericDeclaration;",
+        native_type_variable_get_generic_declaration,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/ParameterizedType",
+        "getRawType",
+        "()Ljava/lang/reflect/Type;",
+        native_parameterized_type_get_raw_type,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/ParameterizedType",
+        "getActualTypeArguments",
+        "()[Ljava/lang/reflect/Type;",
+        native_parameterized_type_get_actual_type_arguments,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/ParameterizedType",
+        "getOwnerType",
+        "()Ljava/lang/reflect/Type;",
+        native_parameterized_type_get_owner_type,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/GenericArrayType",
+        "getGenericComponentType",
+        "()Ljava/lang/reflect/Type;",
+        native_generic_array_type_get_component_type,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/WildcardType",
+        "getUpperBounds",
+        "()[Ljava/lang/reflect/Type;",
+        native_wildcard_type_get_upper_bounds,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/WildcardType",
+        "getLowerBounds",
+        "()[Ljava/lang/reflect/Type;",
+        native_wildcard_type_get_lower_bounds,
     );
     registry.natives_mut().register_callback(
         "java/lang/Class",

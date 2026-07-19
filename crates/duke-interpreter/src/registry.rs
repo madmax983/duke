@@ -240,6 +240,7 @@ impl NativeControl {
 ///     is_static: false,
 ///     annotations: vec![],
 ///     annotation_default: None,
+///     signature: None,
 /// };
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -256,6 +257,11 @@ pub struct ReflectedMethodInfo {
     pub annotations: Vec<ReflectedAnnotation>,
     /// Default element value when this method is an annotation element.
     pub annotation_default: Option<ReflectedAnnotationValue>,
+    /// The raw `Signature` attribute string (JVMS §4.7.9), if the method is
+    /// generic (declares type parameters, or has a generic return/parameter/throws
+    /// type). `None` when the method has no generic signature or the declaring
+    /// class is a synthetic stub carrying no classfile attributes.
+    pub signature: Option<String>,
 }
 
 /// Reflection metadata for one declared field discovered from a classfile.
@@ -275,6 +281,7 @@ pub struct ReflectedMethodInfo {
 ///     is_static: true,
 ///     access_flags: 0x0008,
 ///     annotations: vec![],
+///     signature: None,
 /// };
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -294,6 +301,10 @@ pub struct ReflectedFieldInfo {
     pub access_flags: u16,
     /// Runtime-visible annotations declared directly on the field.
     pub annotations: Vec<ReflectedAnnotation>,
+    /// The raw `Signature` attribute string (JVMS §4.7.9), if the field's type is
+    /// generic (e.g. `Ljava/util/List<Ljava/lang/String;>;`). `None` when the
+    /// field has no generic signature or the declaring class is a synthetic stub.
+    pub signature: Option<String>,
 }
 
 /// Runtime-visible annotation metadata with constant-pool indices resolved.
@@ -390,6 +401,7 @@ pub enum ReflectedAnnotationConst {
 ///     fields: vec![],
 ///     access_flags: 0x0001,
 ///     annotations: vec![],
+///     signature: None,
 /// };
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -413,6 +425,11 @@ pub struct ReflectedClassInfo {
     pub access_flags: u16,
     /// Runtime-visible annotations declared directly on the class.
     pub annotations: Vec<ReflectedAnnotation>,
+    /// The raw class-level `Signature` attribute string (JVMS §4.7.9), if the
+    /// class is generic (declares type parameters and/or has parameterized
+    /// super/interface types), e.g. `<T:Ljava/lang/Object;>Ljava/lang/Object;`.
+    /// `None` for a non-generic class or a synthetic stub with no attributes.
+    pub signature: Option<String>,
 }
 /// A registry managing loaded classes, their initialization state, and associated native methods.
 pub struct ClassRegistry {
