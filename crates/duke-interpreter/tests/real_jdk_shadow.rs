@@ -36,18 +36,14 @@ fn jimage_loader() -> Option<Arc<dyn ClassLoader + Send + Sync>> {
 }
 
 /// Allowlisted roots that MUST stay synthetic regardless of the flag.
-const KEEP_SYNTHETIC_SAMPLE: &[&str] = &[
-    "java/lang/String",
-    "java/lang/System",
-    "java/lang/Class",
-    "java/lang/Thread",
-];
+const KEEP_SYNTHETIC_SAMPLE: &[&str] = &["java/lang/System", "java/lang/Class", "java/lang/Thread"];
 
 /// Classes that were empirically migrated OUT of `KEEP_SYNTHETIC` (zero-layout-risk: their
 /// synthetic instance-field count matched the real jimage layout, and removing them from the
 /// allowlist regressed no previously-passing fixture). Under the flag they MUST now be
 /// shadowed by real JDK bytecode. This locks in the migration delta.
 const MIGRATED_TO_REAL_SAMPLE: &[&str] = &[
+    "java/lang/String",
     "java/lang/Object",
     "java/lang/Integer",
     "java/lang/Long",
