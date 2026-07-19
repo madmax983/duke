@@ -35246,10 +35246,11 @@ fn concurrent_hashmap_compute_if_absent_does_not_corrupt_key_across_two_gcs() {
 /// Family 2 (CHM forEach). `ConcurrentHashMap.forEach` snapshots (key, value)
 /// pairs and invokes the consumer once per pair. This consumer double forces TWO
 /// full collections per callback. With a bare snapshot the not-yet-visited pairs
-/// go stale and the consumer observes wrong tags / i32::MIN; with the pinned
+/// go stale and the consumer observes wrong tags / `i32::MIN`; with the pinned
 /// snapshot buffer every value is forwarded in place after each collect and
 /// observed correctly. Mirror of `hashmap_for_each_survives_two_gcs_during_callback`.
 #[test]
+#[allow(clippy::too_many_lines)]
 fn concurrent_hashmap_for_each_survives_two_gcs_during_callback() {
     use std::collections::HashMap;
 
@@ -35380,6 +35381,7 @@ fn concurrent_hashmap_for_each_survives_two_gcs_during_callback() {
 /// so the drain stops short or reads garbage. With `NativeRootScope` both refs are
 /// forwarded in place on every collect and the full queue drains in order.
 #[test]
+#[allow(clippy::too_many_lines)]
 fn lbq_drain_to_survives_two_gcs_during_callback() {
     use std::collections::HashMap;
 
@@ -35517,8 +35519,8 @@ fn lbq_drain_to_survives_two_gcs_during_callback() {
 /// while every iteration both runs a callback and allocates fresh key/value
 /// strings. With a bare ref the instance is unrooted across the callback GCs and
 /// its slot is reused, so the returned handle is corrupt. With `NativeRootScope`
-/// the pin keeps it alive (via gather_roots) and forwarded (via
-/// patch_forwarded_slots) across every collection, so the original instance is
+/// the pin keeps it alive (via `gather_roots`) and forwarded (via
+/// `patch_forwarded_slots`) across every collection, so the original instance is
 /// returned intact.
 #[test]
 fn system_get_properties_survives_gc_during_callbacks() {
