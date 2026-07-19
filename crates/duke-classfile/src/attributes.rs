@@ -14,6 +14,7 @@
 //! - `Code` (§4.7.3)
 //! - `ConstantValue` (§4.7.2)
 //! - `SourceFile` (§4.7.10)
+//! - `Signature` (§4.7.9)
 //! - `LineNumberTable` (§4.7.12)
 //! - `LocalVariableTable` (§4.7.13)
 //! - `Exceptions` (§4.7.5)
@@ -111,6 +112,11 @@ pub enum AttributeData {
     SourceFile {
         /// Index into the constant pool representing the name of the source file.
         sourcefile_index: CpIndex,
+    },
+    /// `Signature` attribute (§4.7.9) — generic signature for a class, field, or method.
+    Signature {
+        /// Index into the constant pool of the UTF-8 generic signature string.
+        signature_index: CpIndex,
     },
     /// `LineNumberTable` (§4.7.12).
     LineNumberTable(Vec<LineNumberEntry>),

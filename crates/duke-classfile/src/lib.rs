@@ -21,10 +21,15 @@ pub(crate) mod class;
 pub(crate) mod constant_pool;
 pub(crate) mod error;
 pub(crate) mod parser;
+pub mod signature;
 
 pub use crate::attributes::*;
 pub use crate::class::*;
 pub use crate::constant_pool::*;
+pub use crate::signature::{
+    ClassSignature, ClassTypeSignature, MethodSignature, SignatureError, TypeArgument, TypeParam,
+    TypeSignature, parse_class_signature, parse_field_signature, parse_method_signature,
+};
 pub use access_flags::{ClassAccessFlags, FieldAccessFlags, MethodAccessFlags};
 pub use error::{Error, Result};
 pub use parser::parse;
