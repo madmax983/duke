@@ -1320,3 +1320,85 @@ default path.
 
 No production code changed; no edits to `native/common.rs`, `execution.rs`, `registry.rs`,
 or any audited native body. Tests only.
+
+## 2026-07-18 — "Banner climb, resumed": Properties.forEach pin lands + a 9-rung reflective-bootstrap climb; APP walls in Spring's annotation/generics reflection (branch `swarm/banner-climb-resume`)
+
+Resumed after the `NativeRootScope` pin API (#1386) merged to trunk. This session first
+made trunk build again, then converted the last forEach native and climbed the Spring app
+fixture (`duke -jar duke-spring-boot-app-3.5.12.jar`) rung after rung.
+
+### Trunk unbreak (prerequisite)
+A merge collision left two `#[test] fn hashmap_for_each_survives_mid_iteration_gc` in
+`crates/duke-interpreter/src/tests.rs` (the old #1384 `#[ignore]`d stub and #1386's
+un-ignored acceptance test) — `error[E0428]`, `cargo build --tests` red on trunk. Removed
+the redundant stub, kept #1386's canonical test.
+
+### The `invalid heap reference` wall — CLEARED
+`native_properties_for_each` was converted to the `NativeRootScope` pin API, mirroring
+#1386's `native_hashmap_for_each` 1:1 (flat `[k0,v0,…]` snapshot, pin the consumer ref +
+the whole pair buffer, INDEX the pinned buffer across `ops.invoke`, `drop(scope)`). The
+`properties_for_each_survives_mid_iteration_gc` pin is un-ignored and passes. The Spring
+app's `address=…` / `invalid heap reference` inside `Properties.forEach` is GONE.
+
+### Rungs cleared this session (each observed by re-running `duke -jar`)
+1. `java/util/UnmodifiableMap.getOrDefault(Object,Object)Object` — registered the existing
+   `native_hashmap_get_or_default` on the read-delegating wrapper.
+2. `Class.isAssignableFrom` returned false for a jar-launcher-loaded class vs. its
+   directly-implemented interface, so `SpringFactoriesLoader.instantiateFactory`'s
+   `Assert.isTrue(factoryType.isAssignableFrom(impl))` threw (wrapped ITE). Root cause:
+   `inspect_class` reports superclass/interface names of runtime-loader classes in
+   loader-qualified form (`internal/Name\0loader:<id>`) but the compared `Class` mirrors
+   carry the bare name. Normalized every name in `class_is_assignable_via_callback` to its
+   bare fragment.
+3. `Method`/`Constructor.getModifiers()I` — new `native_reflect_method_get_modifiers`
+   (public/static bits from the mirror).
+4. `java/lang/reflect/Modifier` — new synthetic class, full predicate set (isPublic …
+   isStrict), pure bit tests. (Reached from `ReflectionUtils.makeAccessible`.)
+5. `AccessibleObject.isAccessible()Z` on Method/Constructor/Field — new
+   `native_reflection_member_is_accessible`.
+6. Inherited-method resolution for directed `ops.invoke`: `prepare_execution_state` looked
+   the method up only on the exact class, so `AnnotationAwareOrderComparator.compare`
+   (declared on superclass `OrderComparator`) raised MethodNotFound. Now falls back to
+   `resolve_method_in_hierarchy` when the exact class doesn't declare it — the exact-class
+   fast path is byte-identical, so only previously-erroring inputs change.
+7. `Arrays.hashCode([Ljava/lang/Object;)I` — new native, contract hash with per-element
+   virtual `hashCode()` dispatch (identity-hash = `Object.hashCode` fallback).
+8. `Class.getSuperclass()Ljava/lang/Class;` and
+9. `Class.getInterfaces()[Ljava/lang/Class;` — bare-normalized mirrors; correct
+   null/Object/interface semantics.
+
+### New APP frontier — Spring annotation + generics reflection (PINNED, out of lane)
+Boot now walls in `AnnotationsScanner` / `ResolvableType`. Two blockers surface
+**nondeterministically** (HashMap iteration order picks which is first), both needing a
+deep reflective surface Duke does not model:
+- `java/lang/Class.getTypeParameters()[Ljava/lang/reflect/TypeVariable;` from
+  `ResolvableType.forClassWithGenerics` — which then asserts the type-variable count equals
+  the supplied generics count. Stubbing empty just trips that assert, so honest support
+  needs real generic-signature (`Signature` attribute) parsing plus the
+  `java.lang.reflect.Type`/`TypeVariable`/`ParameterizedType` hierarchy.
+- `class not found: [B` from `AnnotationsScanner.getDeclaredAnnotations` resolving a
+  `byte[]`-typed annotation element — needs primitive array-class resolution (class-loader
+  lane) plus typed annotation-element modelling.
+
+This is a genuinely deep subsystem spanning the generics/reflection surface and the
+class-loader lane — beyond minimal-honest natives — so the app is re-pinned here. The
+Spring pin (`spring_boot_app_surfaces_next_missing_capability_explicitly`) now accepts
+EITHER marker (`APP_BLOCKERS`), since the frontier alternates run-to-run.
+
+### Distance-to-banner
+No banner yet. The app has climbed classpath scan → `SpringFactoriesLoader` → reflective
+factory instantiation → annotation/`ResolvableType` machinery — deep into context
+bootstrapping but well short of the full `ApplicationContext` refresh (bean definitions,
+dependency injection, autoconfiguration) that precedes the `Started … in … seconds` line.
+
+### Files touched (this branch)
+- `crates/duke-interpreter/src/tests.rs` — remove duplicate GC test; un-ignore properties pin.
+- `crates/duke-interpreter/src/native/java_util.rs` — Properties.forEach pin conversion; `Arrays.hashCode`.
+- `crates/duke-interpreter/src/native/reflect.rs` — loader-suffix normalization; method/Modifier/isAccessible/getSuperclass/getInterfaces natives.
+- `crates/duke-interpreter/src/native/common.rs` — inherited-method fallback in `prepare_execution_state`.
+- `crates/duke-interpreter/src/stdlib.rs` — new native registrations.
+- `duke/tests/spring_boot_real_app.rs` — pin re-observed to the annotation/generics frontier.
+- this findings entry.
+
+No edits to the `NativeRootScope` internals, the `native/common.rs` String region,
+`execution.rs`'s dispatch loop, or the audited `java_util.rs` native bodies.

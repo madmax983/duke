@@ -204,6 +204,23 @@ pub(crate) fn native_reflection_member_set_accessible(
     )?;
     Ok(None)
 }
+/// Native: `AccessibleObject.isAccessible()Z` (Field / Method / Constructor) —
+/// reads back the `accessibleFlag` last written by `setAccessible`. Spring's
+/// `ReflectionUtils.makeAccessible` calls it to avoid a redundant
+/// `setAccessible(true)` on an already-accessible member.
+pub(crate) fn native_reflection_member_is_accessible(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let member_ref = extract_ref_arg(args, 0)?;
+    let accessible = matches!(
+        heap.get(member_ref)?.fields.get(REFLECTION_MEMBER_ACCESSIBLE_FIELD),
+        Some(Slot::Int(flag)) if *flag != 0
+    );
+    Ok(Some(Slot::Int(i32::from(accessible))))
+}
 pub(crate) fn native_reflect_field_get(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -553,6 +570,76 @@ pub(crate) fn native_class_get_modifiers(
     ))))
 }
 
+/// Native: `Class.getSuperclass()Ljava/lang/Class;`.
+///
+/// Returns the `Class` mirror of the direct superclass, or `null` for
+/// `java.lang.Object`, interfaces, and primitive types (per the JLS). Array
+/// classes report `Object`. The superclass name is normalized to its bare
+/// internal form so the mirror interns consistently with every other `Class`
+/// mirror Duke mints. Reached from Spring's annotation-hierarchy scanning.
+pub(crate) fn native_class_get_superclass(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    // An array class's superclass is Object.
+    if internal_name.starts_with('[') {
+        let object_ref = allocate_class_object(heap, "java/lang/Object")?;
+        return Ok(Some(Slot::Reference(Some(object_ref))));
+    }
+    // Primitive mirrors (single-character descriptor keys) have no superclass.
+    if internal_name.len() == 1 {
+        return Ok(Some(Slot::Reference(None)));
+    }
+    let Ok(info) = ops.inspect_class(&internal_name) else {
+        return Ok(Some(Slot::Reference(None)));
+    };
+    // Interfaces report null even though their classfile super is Object.
+    if info.access_flags & 0x0200 != 0 {
+        return Ok(Some(Slot::Reference(None)));
+    }
+    match info.super_class {
+        Some(super_name) => {
+            let bare = internal_name_fragment(&super_name).to_string();
+            let super_ref = allocate_class_object(heap, &bare)?;
+            Ok(Some(Slot::Reference(Some(super_ref))))
+        }
+        None => Ok(Some(Slot::Reference(None))),
+    }
+}
+
+/// Native: `Class.getInterfaces()[Ljava/lang/Class;`.
+///
+/// Returns the `Class` mirrors of the interfaces this class/interface directly
+/// declares, in declaration order (an empty array when there are none). Each
+/// interface name is normalized to its bare internal form so the mirrors intern
+/// consistently. Reached from Spring's annotation-hierarchy scanning.
+pub(crate) fn native_class_get_interfaces(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let interfaces = ops
+        .inspect_class(&internal_name)
+        .map(|info| info.interfaces)
+        .unwrap_or_default();
+    let mut class_refs = Vec::with_capacity(interfaces.len());
+    for iface in interfaces {
+        let bare = internal_name_fragment(&iface).to_string();
+        class_refs.push(allocate_class_object(heap, &bare)?);
+    }
+    let array_ref = allocate_reference_array(heap, "[Ljava/lang/Class;", &class_refs)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
 /// Native: `Class.isAnonymousClass()Z` — false for every named class Duke loads.
 #[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
 pub(crate) fn native_class_is_anonymous_class(
@@ -703,6 +790,167 @@ pub(crate) fn native_reflect_field_get_modifiers(
     Ok(Some(Slot::Int(modifiers)))
 }
 
+/// Native: `Method.getModifiers()I` / `Constructor.getModifiers()I` — the
+/// public/static modifier bits recorded on the reflected-member mirror.
+///
+/// `ReflectedMethodInfo` (unlike `ReflectedFieldInfo`) does not carry the raw
+/// classfile `access_flags`, so the honest, available signal is the
+/// `publicFlag`/`staticFlag` the `Method`/`Constructor` mirror was minted with.
+/// That is exactly the set callers like Spring's
+/// `SpringFactoriesLoader.instantiateFactory` test
+/// (`Modifier.isPublic(constructor.getModifiers())`); other bits (`final`,
+/// `abstract`, `private` vs package-private) are not modelled and read as 0.
+pub(crate) fn native_reflect_method_get_modifiers(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let method_ref = extract_ref_arg(args, 0)?;
+    let method = reflected_method_handle(heap, method_ref)?;
+    let mut modifiers = 0;
+    if method.is_public {
+        modifiers |= 0x0001; // ACC_PUBLIC
+    }
+    if method.is_static {
+        modifiers |= 0x0008; // ACC_STATIC
+    }
+    Ok(Some(Slot::Int(modifiers)))
+}
+
+// ─── java/lang/reflect/Modifier predicates ───────────────────────────────────
+// Pure access-flag bit tests over a modifier `int`, exactly as
+// `java.lang.reflect.Modifier` defines them (JVMS §4 access_flags values). First
+// reached from Spring's `ReflectionUtils.makeAccessible`, which gates
+// `setAccessible(true)` on `Modifier.isPublic(ctor.getModifiers())`. Append-only,
+// no heap/callback interaction.
+
+/// Return `Slot::Int(1)` when `(modifier & bit) != 0`, else `Slot::Int(0)`.
+fn modifier_bit_test(args: &[Slot], bit: i32) -> Result<Option<Slot>> {
+    let modifiers = extract_int_arg(args, 0)?;
+    Ok(Some(Slot::Int(i32::from(modifiers & bit != 0))))
+}
+
+/// Native: `Modifier.isPublic(I)Z`.
+pub(crate) fn native_modifier_is_public(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0001)
+}
+
+/// Native: `Modifier.isPrivate(I)Z`.
+pub(crate) fn native_modifier_is_private(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0002)
+}
+
+/// Native: `Modifier.isProtected(I)Z`.
+pub(crate) fn native_modifier_is_protected(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0004)
+}
+
+/// Native: `Modifier.isStatic(I)Z`.
+pub(crate) fn native_modifier_is_static(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0008)
+}
+
+/// Native: `Modifier.isFinal(I)Z`.
+pub(crate) fn native_modifier_is_final(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0010)
+}
+
+/// Native: `Modifier.isSynchronized(I)Z`.
+pub(crate) fn native_modifier_is_synchronized(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0020)
+}
+
+/// Native: `Modifier.isVolatile(I)Z`.
+pub(crate) fn native_modifier_is_volatile(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0040)
+}
+
+/// Native: `Modifier.isTransient(I)Z`.
+pub(crate) fn native_modifier_is_transient(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0080)
+}
+
+/// Native: `Modifier.isNative(I)Z`.
+pub(crate) fn native_modifier_is_native(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0100)
+}
+
+/// Native: `Modifier.isInterface(I)Z`.
+pub(crate) fn native_modifier_is_interface(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0200)
+}
+
+/// Native: `Modifier.isAbstract(I)Z`.
+pub(crate) fn native_modifier_is_abstract(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0400)
+}
+
+/// Native: `Modifier.isStrict(I)Z`.
+pub(crate) fn native_modifier_is_strict(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    modifier_bit_test(args, 0x0800)
+}
+
 /// Native: `Field.isSynthetic()Z` — Duke does not track the `ACC_SYNTHETIC` flag;
 /// user-declared fields (which gson filters on) are never synthetic, so false.
 pub(crate) fn native_reflect_field_is_synthetic(
@@ -768,10 +1016,27 @@ pub(crate) fn native_class_cast(
     }
 }
 
+/// Strip a class key's `\0`-delimited provenance suffix (e.g. `\0loader:<id>` or
+/// `\0code:<hash>`) down to the bare internal name.
+///
+/// Classes loaded through a runtime `ClassLoader` (the Spring Boot fat-jar
+/// `LaunchedClassLoader`, for instance) are keyed as `internal/Name\0loader:<id>`,
+/// and `CallbackOps::inspect_class` reports their superclass/interface names in
+/// that same loader-qualified form. The `Class` mirrors that reflection compares
+/// against (`from`/`to` here) carry the bare internal name, so an un-normalized
+/// walk never matches a loader-qualified supertype. Duke models one logical type
+/// per internal name, so comparing on the bare fragment is the faithful behaviour
+/// (it mirrors the registry's own `class_internal_name_fragment`).
+fn internal_name_fragment(name: &str) -> &str {
+    name.split_once('\0').map_or(name, |(bare, _)| bare)
+}
+
 /// Walk `from`'s superclass/interface closure looking for `to`, resolving each level
 /// through `CallbackOps::inspect_class`. Inspection failures are treated as "no such
 /// supertype" rather than propagated, so this cannot itself error.
 fn class_is_assignable_via_callback(from: &str, to: &str, ops: &mut dyn CallbackOps) -> bool {
+    let from = internal_name_fragment(from);
+    let to = internal_name_fragment(to);
     if from == to || to == "java/lang/Object" {
         return true;
     }
@@ -794,10 +1059,10 @@ fn class_is_assignable_via_callback(from: &str, to: &str, ops: &mut dyn Callback
             continue;
         };
         if let Some(super_class) = info.super_class {
-            queue.push_back(super_class);
+            queue.push_back(internal_name_fragment(&super_class).to_string());
         }
         for iface in info.interfaces {
-            queue.push_back(iface);
+            queue.push_back(internal_name_fragment(&iface).to_string());
         }
     }
     false

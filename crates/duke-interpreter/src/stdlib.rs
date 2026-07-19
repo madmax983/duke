@@ -4365,9 +4365,21 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/reflect/Method",
+        "isAccessible",
+        "()Z",
+        native_reflection_member_is_accessible,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Method",
         "getParameterCount",
         "()I",
         native_reflect_method_get_parameter_count,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Method",
+        "getModifiers",
+        "()I",
+        native_reflect_method_get_modifiers,
     );
     registry.natives_mut().register_callback(
         "java/lang/reflect/Method",
@@ -4458,9 +4470,21 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/reflect/Constructor",
+        "isAccessible",
+        "()Z",
+        native_reflection_member_is_accessible,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Constructor",
         "getParameterCount",
         "()I",
         native_reflect_method_get_parameter_count,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Constructor",
+        "getModifiers",
+        "()I",
+        native_reflect_method_get_modifiers,
     );
     registry.natives_mut().register_callback(
         "java/lang/reflect/Constructor",
@@ -4554,6 +4578,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "setAccessible",
         "(Z)V",
         native_reflection_member_set_accessible,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/Field",
+        "isAccessible",
+        "()Z",
+        native_reflection_member_is_accessible,
     );
     registry.natives_mut().register_callback(
         "java/lang/reflect/Field",
@@ -6296,6 +6326,44 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/lang/Math", "min", "(II)I", native_math_min_int);
+
+    // java/lang/reflect/Modifier — pure access-flag predicate helpers (bit tests
+    // over a modifier int). Reached from Spring's ReflectionUtils.makeAccessible
+    // (Modifier.isPublic(ctor.getModifiers())).
+    let modifier_ctx = ClassContext {
+        class_name: "java/lang/reflect/Modifier".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(modifier_ctx);
+    for (method, handler) in [
+        ("isPublic", native_modifier_is_public as NativeHandler),
+        ("isPrivate", native_modifier_is_private as NativeHandler),
+        ("isProtected", native_modifier_is_protected as NativeHandler),
+        ("isStatic", native_modifier_is_static as NativeHandler),
+        ("isFinal", native_modifier_is_final as NativeHandler),
+        (
+            "isSynchronized",
+            native_modifier_is_synchronized as NativeHandler,
+        ),
+        ("isVolatile", native_modifier_is_volatile as NativeHandler),
+        ("isTransient", native_modifier_is_transient as NativeHandler),
+        ("isNative", native_modifier_is_native as NativeHandler),
+        ("isInterface", native_modifier_is_interface as NativeHandler),
+        ("isAbstract", native_modifier_is_abstract as NativeHandler),
+        ("isStrict", native_modifier_is_strict as NativeHandler),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/lang/reflect/Modifier", method, "(I)Z", handler);
+    }
     registry
         .natives_mut()
         .register("java/lang/Math", "abs", "(I)I", native_math_abs_int);
@@ -9087,6 +9155,14 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         native_arrays_sort_objects,
     );
 
+    // Arrays.hashCode(Object[]) — contract element hash
+    registry.natives_mut().register_callback(
+        "java/util/Arrays",
+        "hashCode",
+        "([Ljava/lang/Object;)I",
+        native_arrays_hash_code_objects,
+    );
+
     // Arrays.copyOfRange (int[] and Object[] variants)
     registry.natives_mut().register(
         "java/util/Arrays",
@@ -9242,6 +9318,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "get",
         "(Ljava/lang/Object;)Ljava/lang/Object;",
         native_hashmap_get,
+    );
+    registry.natives_mut().register(
+        "java/util/UnmodifiableMap",
+        "getOrDefault",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_hashmap_get_or_default,
     );
     registry.natives_mut().register(
         "java/util/UnmodifiableMap",
@@ -15169,6 +15251,18 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getModifiers",
         "()I",
         native_class_get_modifiers,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getSuperclass",
+        "()Ljava/lang/Class;",
+        native_class_get_superclass,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getInterfaces",
+        "()[Ljava/lang/Class;",
+        native_class_get_interfaces,
     );
     registry.natives_mut().register(
         "java/lang/Class",

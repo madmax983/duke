@@ -7458,26 +7458,9 @@ fn resource_loading_fixture_runs_directory_cases() {
 // fix is GC-core (a native root-handle/pin API, or cumulative/chained forward
 // resolution) — see docs/findings/2026-07-10-spring-boot-real-app.md.
 #[test]
-#[ignore = "GC-core frontier: forEach/callback natives lose native-held Rust-local refs across \
-            an ops.invoke when >1 major GC fires mid-callback (single-shot apply_forward can't \
-            chase the chain). Un-ignore when the native-root-pin lands. See \
-            docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn properties_for_each_survives_mid_iteration_gc() {
     assert_eq!(
         run_bootstrap_int_completion("PropertiesForEachGcTest.class", "run", "()I"),
-        0
-    );
-}
-
-#[test]
-#[ignore = "GC-core frontier (audited native): native_hashmap_for_each loses native-held \
-            Rust-local refs across an ops.invoke when >1 major GC fires mid-callback — the same \
-            family-wide root cause as properties_for_each_survives_mid_iteration_gc and the Spring \
-            Boot app wall. Un-ignore when the native-root-pin lands. See \
-            docs/findings/2026-07-10-spring-boot-real-app.md"]
-fn hashmap_for_each_survives_mid_iteration_gc() {
-    assert_eq!(
-        run_bootstrap_int_completion("HashMapForEachGcTest.class", "run", "()I"),
         0
     );
 }
