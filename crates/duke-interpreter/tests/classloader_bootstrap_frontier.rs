@@ -162,15 +162,22 @@ fn slf4j_real_jdk_shadow_classloader_frontier_pin() {
     // intrinsics lane in one move.
     //
     // The new honest frontier is
-    // `MethodNotFound { name: "java/lang/String.<init>", descriptor: "(Ljava/lang/StringBuilder;)V" }`:
-    // past the Unsafe lane, the chain reaches the `String(StringBuilder)`
-    // constructor, which the synthetic `String` does not provide as a native. That
-    // is String work (String stages 3-4), a distinct lane owned elsewhere, so we
-    // stop and pin here rather than force past it.
+    // `MethodNotFound { name: "java/lang/String.<init>", descriptor: ... }`:
+    // past the Unsafe lane, the chain reaches a `String` constructor overload,
+    // which the synthetic `String` does not provide as a native. That is String
+    // work (String stages 3-4), a distinct lane owned elsewhere, so we stop and
+    // pin here rather than force past it.
+    //
+    // We pin the method NAME only and deliberately do NOT pin the exact descriptor:
+    // both `(Ljava/lang/StringBuilder;)V` and `([BB)V` are valid JDK-21 `String`
+    // constructor overloads, and which one is the *first-missing* method in the
+    // encode path is JDK-build-specific (differs between local and CI runner JDKs).
+    // The frontier is the String-constructor wall regardless of which overload
+    // surfaces first.
     //
     // When a native pushes the wall past this point, re-run with `-- --nocapture`,
     // read the new verbatim blocker above, and update this substring to lock it in.
-    const EXPECTED_FRONTIER: &str = "MethodNotFound { name: \"java/lang/String.<init>\", descriptor: \"(Ljava/lang/StringBuilder;)V\" }";
+    const EXPECTED_FRONTIER: &str = "MethodNotFound { name: \"java/lang/String.<init>\",";
 
     let rendered = match run_slf4j_real_jdk_shadow() {
         Ok(()) => {
