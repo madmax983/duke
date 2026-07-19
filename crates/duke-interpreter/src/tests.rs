@@ -35758,6 +35758,164 @@ fn system_get_properties_survives_gc_during_callbacks() {
     );
 }
 
+/// Group D (two-key comparator natives). Drives `native_comparing_int_compare`,
+/// which extracts a key from each of two elements by calling the comparator's
+/// `applyAsInt` twice. The receiver `fn_ref` is re-passed to BOTH invokes and the
+/// second element `b` is held across the FIRST invoke. This callback forces two
+/// full collections per invoke; with the pin (`NativeRootScope`) `fn_ref`/`b` are
+/// rooted and forwarded across every collect, so the second invoke sees the
+/// correct receiver and element. Without the pin they go stale/reused and the
+/// second invoke observes wrong tags.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn comparing_int_comparator_survives_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const FN_TAG: i32 = 4242;
+    const A_KEY: i32 = 10;
+    const B_KEY: i32 = 20;
+
+    struct CmpGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_receiver_tags: Vec<i32>,
+        observed_elem_keys: Vec<i32>,
+    }
+
+    impl CallbackOps for CmpGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            // args[0] = comparator receiver (fn), args[1] = element.
+            let recv_tag = match args.first() {
+                Some(Slot::Reference(Some(r))) => heap
+                    .get(*r)
+                    .ok()
+                    .and_then(|o| match o.fields.first() {
+                        Some(Slot::Int(n)) => Some(*n),
+                        _ => None,
+                    })
+                    .unwrap_or(i32::MIN),
+                _ => i32::MIN,
+            };
+            let elem_key = match args.get(1) {
+                Some(Slot::Reference(Some(r))) => heap
+                    .get(*r)
+                    .ok()
+                    .and_then(|o| match o.fields.first() {
+                        Some(Slot::Int(n)) => Some(*n),
+                        _ => None,
+                    })
+                    .unwrap_or(i32::MIN),
+                _ => i32::MIN,
+            };
+            self.observed_receiver_tags.push(recv_tag);
+            self.observed_elem_keys.push(elem_key);
+
+            for _ in 0..2 {
+                for _ in 0..4 {
+                    let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                    if let Ok(o) = heap.get_mut(g) {
+                        o.fields[0] = Slot::Int(-777);
+                    }
+                }
+                let roots =
+                    gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                heap.collect(&roots);
+                patch_forwarded_slots(
+                    &mut self.caller_frame,
+                    &mut [],
+                    &mut self.registry,
+                    heap,
+                    &mut self.string_intern,
+                );
+            }
+            // Return the extracted key as the comparator's applyAsInt result.
+            Ok(Some(Slot::Int(elem_key)))
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let this_ref = heap.allocate("duke/util/ComparingIntComparator".to_string(), 1);
+    let fn_ref = heap.allocate("duke/test/KeyFn".to_string(), 1);
+    heap.get_mut(fn_ref).unwrap().fields[0] = Slot::Int(FN_TAG);
+    heap.get_mut(this_ref).unwrap().fields[0] = Slot::Reference(Some(fn_ref));
+    let a_ref = heap.allocate("duke/test/Elem".to_string(), 1);
+    heap.get_mut(a_ref).unwrap().fields[0] = Slot::Int(A_KEY);
+    let b_ref = heap.allocate("duke/test/Elem".to_string(), 1);
+    heap.get_mut(b_ref).unwrap().fields[0] = Slot::Int(B_KEY);
+
+    // Caller frame roots the LIVE this/a/b (as an interpreter frame would), so
+    // those survive and forward; only the native's private fn_ref/b copies are
+    // at risk without the pin (fn_ref survives via this_ref.fields[0]).
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(a_ref)),
+            Slot::Reference(Some(b_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = CmpGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_receiver_tags: Vec::new(),
+        observed_elem_keys: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_comparing_int_compare(
+        &[
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(a_ref)),
+            Slot::Reference(Some(b_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_receiver_tags,
+        vec![FN_TAG, FN_TAG],
+        "comparator receiver went stale across the first callback's GCs; the \
+         second applyAsInt invoke was handed a dangling fn reference"
+    );
+    assert_eq!(
+        ops.observed_elem_keys,
+        vec![A_KEY, B_KEY],
+        "the second key `b` was held across the first callback's GCs and read \
+         stale/reused at the second applyAsInt invoke"
+    );
+    assert_eq!(
+        result,
+        Some(Slot::Int(-1)),
+        "compare(a, b) should order the smaller key before the larger one"
+    );
+}
+
 /// Family 5a (Class.newInstance). `native_class_new_instance` allocates the
 /// instance, then holds its bare reference across the `<init>` constructor
 /// callback and returns it. A nested constructor can allocate heavily and trigger

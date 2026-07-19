@@ -2358,12 +2358,19 @@ pub(crate) fn native_comparing_int_compare(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let fn_slot = extract_first_field_arg(heap, this_ref)?;
-    let Slot::Reference(Some(fn_ref)) = fn_slot else {
+    let Slot::Reference(Some(mut fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Int(0)));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let a = extract_slot_arg(args, 1);
-    let b = extract_slot_arg(args, 2);
+    let mut b = extract_slot_arg(args, 2);
+    // Pin the comparator receiver (re-passed to both `applyAsInt` invokes) and
+    // the second key `b`, which is held across the first invoke. Without this a
+    // relocating GC inside the first callback leaves `fn_ref`/`b` stale before
+    // the second invoke reads them.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut fn_ref);
+    scope.pin_slot(&mut b);
     let ka = ops
         .invoke(
             heap,
@@ -2384,6 +2391,7 @@ pub(crate) fn native_comparing_int_compare(
             vec![Slot::Reference(Some(fn_ref)), b],
         )?
         .unwrap_or(Slot::Int(0));
+    drop(scope);
     let result = match (ka, kb) {
         (Slot::Int(ia), Slot::Int(ib)) => ia.cmp(&ib) as i32,
         _ => 0,
@@ -2476,13 +2484,21 @@ pub(crate) fn native_comparing_comparator_compare(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let a = extract_slot_arg(args, 1);
-    let b = extract_slot_arg(args, 2);
-    let fn_slot = extract_first_field_arg(heap, this_ref)?;
+    let mut b = extract_slot_arg(args, 2);
+    let mut fn_slot = extract_first_field_arg(heap, this_ref)?;
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Int(0)));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
-    let ka = ops
+    // Pin the key-extractor receiver (`fn_slot`, re-passed to both `apply`
+    // invokes) and the second element `b` (held across the first invoke). After
+    // the first invoke returns, also pin its object-typed key result `ka`, which
+    // is held across the second invoke and read by `compare_treemap_keys`.
+    // Without this a relocating GC inside either callback leaves these stale.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
+    scope.pin_slot(&mut b);
+    let mut ka = ops
         .invoke(
             heap,
             out,
@@ -2492,6 +2508,7 @@ pub(crate) fn native_comparing_comparator_compare(
             vec![fn_slot, a],
         )?
         .unwrap_or(Slot::Reference(None));
+    scope.pin_slot(&mut ka);
     let kb = ops
         .invoke(
             heap,
@@ -2502,6 +2519,7 @@ pub(crate) fn native_comparing_comparator_compare(
             vec![fn_slot, b],
         )?
         .unwrap_or(Slot::Reference(None));
+    drop(scope);
     // Compare extracted keys via natural ordering (String, Integer, Long, or raw int).
     let cmp = compare_treemap_keys(ka, kb, heap) as i32;
     Ok(Some(Slot::Int(cmp)))
@@ -4367,13 +4385,20 @@ pub(crate) fn native_comparing_long_compare(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_first_field_arg(heap, this_ref)?;
+    let mut fn_slot = extract_first_field_arg(heap, this_ref)?;
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Int(0)));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let a = extract_slot_arg(args, 1);
-    let b = extract_slot_arg(args, 2);
+    let mut b = extract_slot_arg(args, 2);
+    // Pin the comparator receiver (`fn_slot`, re-passed to both `applyAsLong`
+    // invokes) and the second key `b`, held across the first invoke. Without
+    // this a relocating GC inside the first callback leaves them stale before
+    // the second invoke reads them.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
+    scope.pin_slot(&mut b);
     let ka = ops
         .invoke(
             heap,
@@ -4394,6 +4419,7 @@ pub(crate) fn native_comparing_long_compare(
             vec![fn_slot, b],
         )?
         .unwrap_or(Slot::Long(0));
+    drop(scope);
     let result = match (ka, kb) {
         (Slot::Long(la), Slot::Long(lb)) => la.cmp(&lb) as i32,
         (Slot::Int(ia), Slot::Int(ib)) => ia.cmp(&ib) as i32,
