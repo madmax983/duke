@@ -830,6 +830,7 @@ fn register_string_byte_conversion_natives(registry: &mut ClassRegistry) {
 
     for (descriptor, handler) in [
         ("([B)V", native_string_init_bytes_default as NativeHandler),
+        ("([BB)V", native_string_init_bytes_coder),
         ("([BII)V", native_string_init_bytes_default_range),
         ("([BLjava/lang/String;)V", native_string_init_bytes_named),
         (

@@ -1546,6 +1546,40 @@ pub(crate) fn native_string_init_bytes_default_range(
     init_string_from_bytes(args, heap, &bytes, StandardCharset::Utf8)
 }
 
+/// Native: `String.<init>([BB)V` — the package-private compact-strings
+/// constructor `String(byte[] value, byte coder)`. The real JDK ctor performs no
+/// copy or validation: `this.value = value; this.coder = coder;`. The incoming
+/// `value` bytes are already in the JDK compact-strings encoding, which is the
+/// same convention Duke's 4-slot layout uses (see
+/// [`duke_gc::Heap::set_string_layout`]): Latin-1 when `coder == 0`,
+/// little-endian UTF-16 when `coder == 1`. We decode `(value, coder)` into a Rust
+/// `String` — inverting that encoding exactly as [`read_string_bytes`] does — and
+/// mint the receiver through [`store_string_init_value`], which re-establishes
+/// slot 0 (`value:[B`), slot 1 (`coder:B`), and the `string_value` cache
+/// coherently. Because JDK's compact-strings encoding matches ours, the decode →
+/// re-encode round-trips: `value`/`coder` are preserved.
+///
+/// Real-JDK boot (JDK 21 jimage) reaches this ctor in the `String` encode path;
+/// without it the chain fails as `MethodNotFound java/lang/String.<init>([BB)V`.
+pub(crate) fn native_string_init_bytes_coder(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let bytes_ref = extract_ref_arg(args, 1)?;
+    let coder = extract_int_arg(args, 2)?;
+    let bytes = full_byte_array(heap, bytes_ref)?;
+    let decoded: String = if coder == 1 {
+        decode_utf16_bytes(&bytes, Utf16Endian::Little)
+    } else {
+        bytes.iter().map(|&b| char::from(b)).collect()
+    };
+    store_string_init_value(heap, this_ref, decoded)?;
+    Ok(None)
+}
+
 /// Native: `String.<init>([III)V` — construct a `String` from a range of a
 /// code-point `int[]` (`new String(int[] codePoints, int offset, int count)`).
 /// Used by `StringUtils.capitalize`, which rebuilds a string from its code
@@ -18209,6 +18243,64 @@ mod read_string_bytes_tests {
         }
         let moved = root.as_reference().expect("String survives the collections");
         assert_eq!(read_string_bytes(&heap, moved).unwrap(), value);
+    }
+
+    /// Drive the compact-strings ctor `String.<init>([BB)V`
+    /// ([`native_string_init_bytes_coder`]) exactly as the JDK boot does: take an
+    /// already-encoded `(value:[B, coder)` pair off a source String and assign it
+    /// to a fresh receiver. The receiver must decode back to the source value for
+    /// both the Latin-1 (`coder == 0`) and UTF-16 (`coder == 1`) paths.
+    fn assert_compact_ctor_round_trips(value: &str, expected_coder: i32) {
+        let mut heap = Heap::new();
+        // Source String supplies a well-formed (value:[B, coder) pair.
+        let src = heap.allocate_string(value.to_string());
+        let bytes_ref = match heap.get(src).unwrap().fields[0] {
+            Slot::Reference(Some(r)) => r,
+            other => panic!("source value:[B slot must be a live ref, got {other:?}"),
+        };
+        let coder = match heap.get(src).unwrap().fields[1] {
+            Slot::Int(c) => c,
+            other => panic!("source coder slot must be Int, got {other:?}"),
+        };
+        assert_eq!(coder, expected_coder, "coder for {value:?}");
+
+        // Fresh, empty 4-slot receiver — the `new java/lang/String` shape before
+        // `<init>` runs.
+        let this = heap.allocate("java/lang/String".to_string(), 4);
+        let args = [
+            Slot::Reference(Some(this)),
+            Slot::Reference(Some(bytes_ref)),
+            Slot::Int(coder),
+        ];
+        let ret = native_string_init_bytes_coder(
+            &args,
+            &mut heap,
+            &mut Vec::new(),
+            &mut NativeControl::default(),
+        )
+        .expect("compact-strings ctor must succeed");
+        assert!(ret.is_none(), "a void <init> returns no value");
+
+        assert_eq!(
+            heap.get(this).unwrap().fields[1],
+            Slot::Int(coder),
+            "receiver coder must match the supplied coder"
+        );
+        assert_eq!(
+            read_string_bytes(&heap, this).unwrap(),
+            value,
+            "receiver must decode back to the source value"
+        );
+    }
+
+    #[test]
+    fn compact_ctor_round_trips_latin1() {
+        assert_compact_ctor_round_trips("café", 0);
+    }
+
+    #[test]
+    fn compact_ctor_round_trips_utf16() {
+        assert_compact_ctor_round_trips("中文🚀ok", 1);
     }
 }
 
