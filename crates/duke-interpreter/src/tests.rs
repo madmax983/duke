@@ -35371,3 +35371,143 @@ fn concurrent_hashmap_for_each_survives_two_gcs_during_callback() {
          (dangling snapshot references)"
     );
 }
+
+/// Family 3 (LinkedBlockingQueue.drainTo). `lbq_drain_into` dequeues an element
+/// from the queue, hands it to `target.add(elem)`, and loops — re-dereferencing
+/// the bare `this_ref` (to dequeue the next element) and re-passing `target_ref`
+/// on every iteration. Each `add` callback fires two collections; with bare refs
+/// the queue/target relocate and the next dequeue reads a stale (reused) address,
+/// so the drain stops short or reads garbage. With `NativeRootScope` both refs are
+/// forwarded in place on every collect and the full queue drains in order.
+#[test]
+fn lbq_drain_to_survives_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    struct AddGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_tags: Vec<i32>,
+    }
+
+    impl CallbackOps for AddGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            // args[0] = target, args[1] = the element handed to target.add(...).
+            let tag = match args.get(1) {
+                Some(Slot::Reference(Some(r))) => heap
+                    .get(*r)
+                    .ok()
+                    .and_then(|o| match o.fields.first() {
+                        Some(Slot::Int(n)) => Some(*n),
+                        _ => None,
+                    })
+                    .unwrap_or(i32::MIN),
+                _ => i32::MIN,
+            };
+            self.observed_tags.push(tag);
+
+            for _ in 0..2 {
+                for _ in 0..4 {
+                    let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                    if let Ok(o) = heap.get_mut(g) {
+                        o.fields[0] = Slot::Int(-777);
+                    }
+                }
+                let roots =
+                    gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                heap.collect(&roots);
+                patch_forwarded_slots(
+                    &mut self.caller_frame,
+                    &mut [],
+                    &mut self.registry,
+                    heap,
+                    &mut self.string_intern,
+                );
+            }
+            Ok(Some(Slot::Int(1)))
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    // Queue: fields[0] = size, fields[1..] = elements.
+    let queue_ref =
+        heap.allocate("java/util/concurrent/LinkedBlockingQueue".to_string(), 4);
+    let target_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+    heap.get_mut(target_ref).unwrap().fields[0] = Slot::Int(0);
+
+    let mut elems = Vec::new();
+    for i in 0..3i32 {
+        let v = heap.allocate("duke/test/Val".to_string(), 1);
+        heap.get_mut(v).unwrap().fields[0] = Slot::Int(100 + i);
+        elems.push(v);
+    }
+    {
+        let q = heap.get_mut(queue_ref).unwrap();
+        q.fields[0] = Slot::Int(3);
+        for (i, v) in elems.iter().enumerate() {
+            q.fields[1 + i] = Slot::Reference(Some(*v));
+        }
+    }
+
+    // Caller frame roots the LIVE queue + target (as an interpreter frame would),
+    // so those survive and are forwarded; only the native's private bare
+    // this_ref/target_ref copies are at risk without the pin.
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(queue_ref)),
+            Slot::Reference(Some(target_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = AddGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_tags: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_lbq_drain_to(
+        &[
+            Slot::Reference(Some(queue_ref)),
+            Slot::Reference(Some(target_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_tags,
+        vec![100, 101, 102],
+        "drainTo handed target.add stale/wrong elements after multiple GCs \
+         (dangling queue reference across the drain loop)"
+    );
+    assert_eq!(
+        result,
+        Some(Slot::Int(3)),
+        "drainTo should have drained all three elements"
+    );
+}

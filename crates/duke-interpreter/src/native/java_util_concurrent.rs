@@ -2499,11 +2499,19 @@ fn lbq_drain_into(
     heap: &mut duke_gc::Heap,
     output: &mut dyn Write,
     ops: &mut dyn CallbackOps,
-    this_ref: u64,
-    target_ref: u64,
+    mut this_ref: u64,
+    mut target_ref: u64,
     max: i32,
 ) -> Result<Option<Slot>> {
     let target_class = heap.get(target_ref)?.class_name.clone();
+    // Pin the queue and the target across the whole drain loop. Each `add`
+    // callback may trigger GC, and both refs are re-dereferenced afterwards on
+    // the next iteration (lbq_dequeue reads `this_ref`, and `target_ref` is
+    // re-passed into the callback). The pin forwards them in place on every
+    // collection, so both stay valid across ANY number of GCs.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut this_ref);
+    scope.pin_ref(&mut target_ref);
     let mut count: i32 = 0;
     while count < max {
         let Some(elem) = lbq_dequeue(heap, this_ref)? else {
@@ -2519,6 +2527,7 @@ fn lbq_drain_into(
         )?;
         count += 1;
     }
+    drop(scope);
     Ok(Some(Slot::Int(count)))
 }
 
