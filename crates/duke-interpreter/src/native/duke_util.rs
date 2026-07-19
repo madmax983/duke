@@ -3356,11 +3356,17 @@ pub(crate) fn native_bifunction_and_then_apply(
     let a = extract_slot_arg(args, 1);
     let b = extract_slot_arg(args, 2);
     let bifunction = extract_first_field_arg(heap, this_ref)?;
-    let after = extract_field_arg(heap, this_ref, 1)?;
+    let mut after = extract_field_arg(heap, this_ref, 1)?;
     let Slot::Reference(Some(bf_ref)) = bifunction else {
         return Ok(Some(Slot::Reference(None)));
     };
     let bf_class = heap.get(bf_ref)?.class_name.clone();
+    // Pin the `after` function, which is held across the wrapped bifunction's
+    // `apply` invoke and only consumed at the following `invoke_function_apply`.
+    // Without this a relocating GC inside the first callback leaves `after`
+    // stale before the second stage runs it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut after);
     let mid = ops
         .invoke(
             heap,
@@ -3371,6 +3377,7 @@ pub(crate) fn native_bifunction_and_then_apply(
             vec![bifunction, a, b],
         )?
         .unwrap_or(Slot::Reference(None));
+    drop(scope);
     Ok(Some(invoke_function_apply(after, mid, heap, out, ops)?))
 }
 /// Native: `Stream.mapToLong(ToLongFunction)LongStream` — maps each element via `applyAsLong`.

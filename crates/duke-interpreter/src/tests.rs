@@ -35916,6 +35916,164 @@ fn comparing_int_comparator_survives_two_gcs_during_callback() {
     );
 }
 
+/// Group E (`native_bifunction_and_then_apply`). The native calls the wrapped
+/// bifunction's `apply(a, b)` and then applies the `after` function to the
+/// result. `after` is a heap ref held across the first `apply` invoke and only
+/// consumed at the following `invoke_function_apply`. This callback forces two
+/// full collections during the first `apply`; with the pin (`NativeRootScope`)
+/// `after` is rooted and forwarded across every collect and the second stage runs
+/// the correct function. Without the pin `after` goes stale/reused and the second
+/// stage reads a dangling function reference.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn bifunction_and_then_apply_survives_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const AFTER_TAG: i32 = 9191;
+    const RESULT_TAG: i32 = 5050;
+
+    struct BiFnGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        call_count: usize,
+        observed_after_tag: Option<i32>,
+    }
+
+    impl CallbackOps for BiFnGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            self.call_count += 1;
+            if self.call_count == 1 {
+                // First stage: bifunction.apply(a, b). Force two collections so
+                // the native's held `after` reference relocates mid-call.
+                for _ in 0..2 {
+                    for _ in 0..4 {
+                        let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                        if let Ok(o) = heap.get_mut(g) {
+                            o.fields[0] = Slot::Int(-777);
+                        }
+                    }
+                    let roots =
+                        gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                    heap.collect(&roots);
+                    patch_forwarded_slots(
+                        &mut self.caller_frame,
+                        &mut [],
+                        &mut self.registry,
+                        heap,
+                        &mut self.string_intern,
+                    );
+                }
+                // Intermediate `mid` value handed to the second stage; allocated
+                // after the collections so it is a live, valid reference.
+                let mid = heap.allocate("duke/test/Mid".to_string(), 1);
+                heap.get_mut(mid)?.fields[0] = Slot::Int(0);
+                Ok(Some(Slot::Reference(Some(mid))))
+            } else {
+                // Second stage: after.apply(mid). args[0] is the `after` receiver.
+                let tag = match args.first() {
+                    Some(Slot::Reference(Some(r))) => heap
+                        .get(*r)
+                        .ok()
+                        .and_then(|o| match o.fields.first() {
+                            Some(Slot::Int(n)) => Some(*n),
+                            _ => None,
+                        })
+                        .unwrap_or(i32::MIN),
+                    _ => i32::MIN,
+                };
+                self.observed_after_tag = Some(tag);
+                let res = heap.allocate("duke/test/Result".to_string(), 1);
+                heap.get_mut(res)?.fields[0] = Slot::Int(RESULT_TAG);
+                Ok(Some(Slot::Reference(Some(res))))
+            }
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let this_ref = heap.allocate("duke/util/BiFunctionAndThen".to_string(), 2);
+    let bifunction_ref = heap.allocate("duke/test/BiFn".to_string(), 1);
+    heap.get_mut(bifunction_ref).unwrap().fields[0] = Slot::Int(1);
+    let after_ref = heap.allocate("duke/test/AfterFn".to_string(), 1);
+    heap.get_mut(after_ref).unwrap().fields[0] = Slot::Int(AFTER_TAG);
+    heap.get_mut(this_ref).unwrap().fields[0] = Slot::Reference(Some(bifunction_ref));
+    heap.get_mut(this_ref).unwrap().fields[1] = Slot::Reference(Some(after_ref));
+    let a_ref = heap.allocate("duke/test/ArgA".to_string(), 1);
+    let b_ref = heap.allocate("duke/test/ArgB".to_string(), 1);
+
+    // Caller frame roots the LIVE this/a/b, so those (and `after` via
+    // this_ref.fields[1]) survive and forward; only the native's private `after`
+    // copy is at risk without the pin.
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(a_ref)),
+            Slot::Reference(Some(b_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = BiFnGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        call_count: 0,
+        observed_after_tag: None,
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_bifunction_and_then_apply(
+        &[
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(a_ref)),
+            Slot::Reference(Some(b_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    );
+
+    assert_eq!(
+        ops.observed_after_tag,
+        Some(AFTER_TAG),
+        "the `after` function went stale across the bifunction's apply GCs; the \
+         andThen second stage was handed a dangling function reference"
+    );
+    let result = result.expect("andThen apply should not error");
+    let res_ref = match result {
+        Some(Slot::Reference(Some(r))) => r,
+        other => panic!("andThen apply did not return a reference: {other:?}"),
+    };
+    let res_tag = match heap.get(res_ref).unwrap().fields.first() {
+        Some(Slot::Int(n)) => *n,
+        other => panic!("andThen result has no int tag: {other:?}"),
+    };
+    assert_eq!(
+        res_tag, RESULT_TAG,
+        "andThen apply returned the wrong result after callback GCs"
+    );
+}
+
 /// Family 5a (Class.newInstance). `native_class_new_instance` allocates the
 /// instance, then holds its bare reference across the `<init>` constructor
 /// callback and returns it. A nested constructor can allocate heavily and trigger
