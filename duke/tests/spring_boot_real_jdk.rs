@@ -70,15 +70,25 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // are now provided as coder-converting copy natives, so the getBytes wall is cleared and the
 // real String encode path runs past it.
 //
+// The former `--real-jdk` frontier was the CLI runtime error
+// `constant pool index 0 is not a valid Fieldref`: after String encode completed, bootstrap
+// advanced past String into a `getstatic jdk/internal/misc/Unsafe.ARRAY_BOOLEAN_INDEX_SCALE`,
+// a static field the synthetic `Unsafe` did not declare (a static miss reported as the
+// hardcoded `InvalidFieldref { index: 0 }`). The synthetic `Unsafe` now declares the full
+// 9-kind array-intrinsics surface — `ARRAY_<K>_BASE_OFFSET` (== 0) / `ARRAY_<K>_INDEX_SCALE`
+// (== 1) for each element kind — so `getstatic Unsafe.ARRAY_*` resolves and the entire Unsafe
+// intrinsics lane clears (see `register_unsafe_stdlib` in `crates/duke-interpreter/src/stdlib.rs`).
+//
 // The new `--real-jdk` frontier is the CLI runtime error
-// `constant pool index 0 is not a valid Fieldref`: after String encode completes, bootstrap
-// advances well past String into a `getstatic jdk/internal/misc/Unsafe.ARRAY_BOOLEAN_INDEX_SCALE`,
-// a static field the synthetic `Unsafe` does not declare (a static miss is reported as the
-// hardcoded `InvalidFieldref { index: 0 }`). This is the SAME frontier pinned by
+// `method not found: java/lang/String.<init>(Ljava/lang/StringBuilder;)V`: past the Unsafe lane,
+// the chain reaches the `String(StringBuilder)` constructor, which the synthetic `String` does
+// not provide as a native. This is the SAME frontier pinned by
 // `crates/duke-interpreter/tests/classloader_bootstrap_frontier.rs` (rendered there as
-// `InvalidFieldref { index: 0 }`), a distinct downstream lane (Unsafe intrinsics). Out of scope
-// here. If either boot advances past this, re-observe and update.
-const REAL_JDK_FRONTIER: &str = "constant pool index 0 is not a valid Fieldref";
+// `MethodNotFound { name: "java/lang/String.<init>", descriptor: "(Ljava/lang/StringBuilder;)V" }`),
+// a distinct downstream lane (String stages 3-4). Out of scope here. If either boot advances
+// past this, re-observe and update.
+const REAL_JDK_FRONTIER: &str =
+    "method not found: java/lang/String.<init>(Ljava/lang/StringBuilder;)V";
 
 // Markers of the OLD raw panic that this fix eliminates. None of these must appear.
 const RAW_PANIC_MARKERS: &[&str] = &["index out of bounds", "execution.rs", "panicked at"];

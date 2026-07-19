@@ -148,18 +148,29 @@ fn slf4j_real_jdk_shadow_classloader_frontier_pin() {
     // (`([BIIBI)V`) — are now provided as coder-converting copy natives, so the
     // getBytes wall is cleared and real String encode bytecode runs past it.
     //
-    // The new honest frontier is `InvalidFieldref { index: 0 }`: once the String
-    // encode path completes, bootstrap advances well past String into a `getstatic
+    // The former wall was `InvalidFieldref { index: 0 }`: once the String encode
+    // path completed, bootstrap advanced past String into a `getstatic
     // jdk/internal/misc/Unsafe.ARRAY_BOOLEAN_INDEX_SCALE`, a static field the
-    // synthetic `Unsafe` does not declare. `resolve_static_field` reports a static
-    // miss as the hardcoded `InvalidFieldref { index: 0 }`. This is a distinct,
-    // downstream lane (Unsafe intrinsics), entirely separate from the String
-    // real-layout / KEEP_SYNTHETIC work. We pin the error variant only, since the
-    // hardcoded index makes it stable across which static first surfaces.
+    // synthetic `Unsafe` did not declare. The synthetic `Unsafe` now declares the
+    // full 9-kind array-intrinsics surface — `ARRAY_<K>_BASE_OFFSET` (== 0) and
+    // `ARRAY_<K>_INDEX_SCALE` (== 1) for each of BOOLEAN/BYTE/CHAR/SHORT/INT/LONG/
+    // FLOAT/DOUBLE/OBJECT — seeded as static-final int fields (see
+    // `register_unsafe_stdlib` in `stdlib.rs`). Those values are coherent with
+    // Duke's positional one-slot-per-element heap (offset == index ⇒ base 0,
+    // scale 1) and with the existing `arrayBaseOffset()==0` / `arrayIndexScale()==1`
+    // natives. `getstatic Unsafe.ARRAY_*` now resolves, clearing the entire Unsafe
+    // intrinsics lane in one move.
+    //
+    // The new honest frontier is
+    // `MethodNotFound { name: "java/lang/String.<init>", descriptor: "(Ljava/lang/StringBuilder;)V" }`:
+    // past the Unsafe lane, the chain reaches the `String(StringBuilder)`
+    // constructor, which the synthetic `String` does not provide as a native. That
+    // is String work (String stages 3-4), a distinct lane owned elsewhere, so we
+    // stop and pin here rather than force past it.
     //
     // When a native pushes the wall past this point, re-run with `-- --nocapture`,
     // read the new verbatim blocker above, and update this substring to lock it in.
-    const EXPECTED_FRONTIER: &str = "InvalidFieldref { index: 0 }";
+    const EXPECTED_FRONTIER: &str = "MethodNotFound { name: \"java/lang/String.<init>\", descriptor: \"(Ljava/lang/StringBuilder;)V\" }";
 
     let rendered = match run_slf4j_real_jdk_shadow() {
         Ok(()) => {
