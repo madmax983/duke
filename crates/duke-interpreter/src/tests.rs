@@ -35822,6 +35822,7 @@ fn class_new_instance_survives_gc_during_constructor() {
                 is_static: false,
                 annotations: Vec::new(),
                 annotation_default: None,
+                signature: None,
             }];
             Ok(info)
         }
