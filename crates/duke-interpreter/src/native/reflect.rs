@@ -697,12 +697,236 @@ pub(crate) fn native_class_is_primitive(
     Ok(Some(Slot::Int(i32::from(is_primitive))))
 }
 
+// ---------------------------------------------------------------------------
+// Generics: java.lang.reflect.Type materialization from parsed signatures.
+//
+// The duke/internal/reflect/*Impl backing classes registered in stdlib.rs have
+// fixed field layouts, mirrored by these indices. Objects are allocated directly
+// (heap.allocate + write_field, no <init> bytecode); heap.allocate never
+// relocates existing objects, so refs held across successive allocations stay
+// valid without pinning.
+// ---------------------------------------------------------------------------
+
+/// `duke/internal/reflect/TypeVariableImpl` field indices.
+const TYPEVAR_NAME_FIELD: usize = 0;
+const TYPEVAR_BOUNDS_FIELD: usize = 1;
+const TYPEVAR_GENERIC_DECL_FIELD: usize = 2;
+/// `duke/internal/reflect/ParameterizedTypeImpl` field indices.
+const PARAMTYPE_RAW_FIELD: usize = 0;
+const PARAMTYPE_ARGS_FIELD: usize = 1;
+const PARAMTYPE_OWNER_FIELD: usize = 2;
+/// `duke/internal/reflect/GenericArrayTypeImpl` field indices.
+const GENARRAY_COMPONENT_FIELD: usize = 0;
+/// `duke/internal/reflect/WildcardTypeImpl` field indices.
+const WILDCARD_UPPER_FIELD: usize = 0;
+const WILDCARD_LOWER_FIELD: usize = 1;
+
+/// Read the reference/int [`Slot`] at field `idx` of a backing-type object.
+fn type_impl_field(heap: &duke_gc::Heap, obj_ref: u64, idx: usize) -> Result<Slot> {
+    heap.get(obj_ref)?
+        .fields
+        .get(idx)
+        .copied()
+        .ok_or(Error::InvalidRef { address: obj_ref })
+}
+
+/// Allocate a `TypeVariableImpl` mirror carrying its name, erased bounds array,
+/// and generic-declaration reference.
+fn allocate_type_variable_mirror(
+    heap: &mut duke_gc::Heap,
+    name: &str,
+    bound_refs: &[u64],
+    generic_declaration: Option<u64>,
+) -> Result<u64> {
+    let tv_ref = heap.allocate("duke/internal/reflect/TypeVariableImpl".to_string(), 3);
+    let name_ref = heap.allocate_string(name.to_string());
+    let bounds_array = allocate_reference_array(heap, "[Ljava/lang/reflect/Type;", bound_refs)?;
+    heap.write_field(tv_ref, TYPEVAR_NAME_FIELD, Slot::Reference(Some(name_ref)))?;
+    heap.write_field(
+        tv_ref,
+        TYPEVAR_BOUNDS_FIELD,
+        Slot::Reference(Some(bounds_array)),
+    )?;
+    heap.write_field(
+        tv_ref,
+        TYPEVAR_GENERIC_DECL_FIELD,
+        Slot::Reference(generic_declaration),
+    )?;
+    Ok(tv_ref)
+}
+
+/// Allocate a `ParameterizedTypeImpl` mirror (raw type + actual type arguments).
+fn allocate_parameterized_type_mirror(
+    heap: &mut duke_gc::Heap,
+    raw_ref: u64,
+    arg_refs: &[u64],
+) -> Result<u64> {
+    let pt_ref = heap.allocate("duke/internal/reflect/ParameterizedTypeImpl".to_string(), 3);
+    let args_array = allocate_reference_array(heap, "[Ljava/lang/reflect/Type;", arg_refs)?;
+    heap.write_field(pt_ref, PARAMTYPE_RAW_FIELD, Slot::Reference(Some(raw_ref)))?;
+    heap.write_field(
+        pt_ref,
+        PARAMTYPE_ARGS_FIELD,
+        Slot::Reference(Some(args_array)),
+    )?;
+    heap.write_field(pt_ref, PARAMTYPE_OWNER_FIELD, Slot::Reference(None))?;
+    Ok(pt_ref)
+}
+
+/// Allocate a `GenericArrayTypeImpl` mirror (generic component type).
+fn allocate_generic_array_type_mirror(
+    heap: &mut duke_gc::Heap,
+    component_ref: u64,
+) -> Result<u64> {
+    let ga_ref = heap.allocate("duke/internal/reflect/GenericArrayTypeImpl".to_string(), 1);
+    heap.write_field(
+        ga_ref,
+        GENARRAY_COMPONENT_FIELD,
+        Slot::Reference(Some(component_ref)),
+    )?;
+    Ok(ga_ref)
+}
+
+/// Allocate a `WildcardTypeImpl` mirror (upper + lower bound arrays).
+fn allocate_wildcard_type_mirror(
+    heap: &mut duke_gc::Heap,
+    upper_refs: &[u64],
+    lower_refs: &[u64],
+) -> Result<u64> {
+    let wc_ref = heap.allocate("duke/internal/reflect/WildcardTypeImpl".to_string(), 2);
+    let upper_array = allocate_reference_array(heap, "[Ljava/lang/reflect/Type;", upper_refs)?;
+    let lower_array = allocate_reference_array(heap, "[Ljava/lang/reflect/Type;", lower_refs)?;
+    heap.write_field(
+        wc_ref,
+        WILDCARD_UPPER_FIELD,
+        Slot::Reference(Some(upper_array)),
+    )?;
+    heap.write_field(
+        wc_ref,
+        WILDCARD_LOWER_FIELD,
+        Slot::Reference(Some(lower_array)),
+    )?;
+    Ok(wc_ref)
+}
+
+/// Materialize a parsed [`duke_classfile::TypeSignature`] into a live
+/// `java.lang.reflect.Type` heap object (erased `Class`, `ParameterizedType`,
+/// `GenericArrayType`, or `TypeVariable`).
+fn materialize_type_signature(
+    heap: &mut duke_gc::Heap,
+    sig: &duke_classfile::TypeSignature,
+) -> Result<u64> {
+    use duke_classfile::TypeSignature;
+    match sig {
+        TypeSignature::Primitive(c) => allocate_class_object(heap, &c.to_string()),
+        TypeSignature::Void => allocate_class_object(heap, "V"),
+        TypeSignature::TypeVariable(name) => {
+            // A bare type-variable reference, represented by its name with the
+            // default {Object} bound and no declaration link.
+            let object_ref = allocate_class_object(heap, "java/lang/Object")?;
+            allocate_type_variable_mirror(heap, name, &[object_ref], None)
+        }
+        TypeSignature::Array(inner) => {
+            let component_ref = materialize_type_signature(heap, inner)?;
+            allocate_generic_array_type_mirror(heap, component_ref)
+        }
+        TypeSignature::Class(cts) => materialize_class_type_signature(heap, cts),
+    }
+}
+
+/// Materialize a parsed [`duke_classfile::ClassTypeSignature`]: an erased `Class`
+/// when it carries no type arguments, else a `ParameterizedType`.
+fn materialize_class_type_signature(
+    heap: &mut duke_gc::Heap,
+    cts: &duke_classfile::ClassTypeSignature,
+) -> Result<u64> {
+    if cts.type_arguments.is_empty() {
+        return allocate_class_object(heap, &cts.name);
+    }
+    let raw_ref = allocate_class_object(heap, &cts.name)?;
+    let mut arg_refs = Vec::with_capacity(cts.type_arguments.len());
+    for arg in &cts.type_arguments {
+        arg_refs.push(materialize_type_argument(heap, arg)?);
+    }
+    allocate_parameterized_type_mirror(heap, raw_ref, &arg_refs)
+}
+
+/// Materialize a parsed [`duke_classfile::TypeArgument`]: an exact type, or a
+/// `WildcardType` for `*` / `+Bound` / `-Bound`.
+fn materialize_type_argument(
+    heap: &mut duke_gc::Heap,
+    arg: &duke_classfile::TypeArgument,
+) -> Result<u64> {
+    use duke_classfile::TypeArgument;
+    match arg {
+        TypeArgument::Exact(t) => materialize_type_signature(heap, t),
+        TypeArgument::Wildcard => {
+            let object_ref = allocate_class_object(heap, "java/lang/Object")?;
+            allocate_wildcard_type_mirror(heap, &[object_ref], &[])
+        }
+        TypeArgument::Extends(t) => {
+            let bound = materialize_type_signature(heap, t)?;
+            allocate_wildcard_type_mirror(heap, &[bound], &[])
+        }
+        TypeArgument::Super(t) => {
+            let object_ref = allocate_class_object(heap, "java/lang/Object")?;
+            let bound = materialize_type_signature(heap, t)?;
+            allocate_wildcard_type_mirror(heap, &[object_ref], &[bound])
+        }
+    }
+}
+
+/// Native: `Class.getTypeParameters()[Ljava/lang/reflect/TypeVariable;`.
+///
+/// Resolves the class's parsed `Signature` (JVMS §4.7.9.1) via
+/// [`CallbackOps::inspect_class`] and builds a `TypeVariable[]` whose length is
+/// exactly the number of declared formal type parameters — the count Spring's
+/// `ResolvableType.forClassWithGenerics` asserts against. Each element carries
+/// its name, its erased bounds (defaulting to `{Object}`), and this `Class` as
+/// the generic declaration. Returns a zero-length array when the class is not
+/// generic (no signature).
+pub(crate) fn native_class_get_type_parameters(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let type_params = ops
+        .inspect_class(&internal_name)
+        .ok()
+        .and_then(|info| info.signature)
+        .and_then(|sig| duke_classfile::parse_class_signature(&sig).ok())
+        .map(|class_sig| class_sig.type_params)
+        .unwrap_or_default();
+
+    let mut element_refs = Vec::with_capacity(type_params.len());
+    for tp in &type_params {
+        let mut bound_refs = Vec::with_capacity(tp.bounds.len());
+        for bound in &tp.bounds {
+            bound_refs.push(materialize_type_signature(heap, bound)?);
+        }
+        if bound_refs.is_empty() {
+            // JLS: a type variable with no explicit bound has bound {Object}.
+            bound_refs.push(allocate_class_object(heap, "java/lang/Object")?);
+        }
+        let tv_ref =
+            allocate_type_variable_mirror(heap, &tp.name, &bound_refs, Some(class_ref))?;
+        element_refs.push(tv_ref);
+    }
+    let array_ref =
+        allocate_reference_array(heap, "[Ljava/lang/reflect/TypeVariable;", &element_refs)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
 /// Native: `Class.getGenericSuperclass()Ljava/lang/reflect/Type;`.
 ///
-/// Duke does not parse the `Signature` attribute, so this returns the erased
-/// superclass `Class` (which implements `java/lang/reflect/Type`), or `null` when the
-/// class has no superclass. gson walks this while resolving type variables; for
-/// Pojo (extends `Object`) it yields `Object.class` and the walk terminates.
+/// When the class's `Signature` records a *parameterized* superclass (e.g.
+/// `extends AbstractList<String>`), returns a real `ParameterizedType`. Otherwise
+/// returns the erased superclass `Class` (which implements
+/// `java/lang/reflect/Type`), or `null` when the class has no superclass.
 pub(crate) fn native_class_get_generic_superclass(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -712,17 +936,161 @@ pub(crate) fn native_class_get_generic_superclass(
 ) -> Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let internal_name = class_internal_name_from_ref(heap, class_ref)?;
-    let super_class = ops
-        .inspect_class(&internal_name)
-        .ok()
-        .and_then(|info| info.super_class);
-    match super_class {
+    let info = ops.inspect_class(&internal_name).ok();
+    if let Some(class_sig) = info
+        .as_ref()
+        .and_then(|i| i.signature.as_deref())
+        .and_then(|sig| duke_classfile::parse_class_signature(sig).ok())
+        && !class_sig.super_class.type_arguments.is_empty()
+    {
+        let pt_ref = materialize_class_type_signature(heap, &class_sig.super_class)?;
+        return Ok(Some(Slot::Reference(Some(pt_ref))));
+    }
+    match info.and_then(|i| i.super_class) {
         Some(super_name) => {
             let super_ref = allocate_class_object(heap, &super_name)?;
             Ok(Some(Slot::Reference(Some(super_ref))))
         }
         None => Ok(Some(Slot::Reference(None))),
     }
+}
+
+/// Native: `Class.getGenericInterfaces()[Ljava/lang/reflect/Type;`.
+///
+/// Materializes each directly-implemented interface from the class's `Signature`
+/// (a `ParameterizedType` when it carries type arguments, else the erased
+/// `Class`). Falls back to erased `Class` objects for every interface when the
+/// class has no generic signature.
+pub(crate) fn native_class_get_generic_interfaces(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let info = ops.inspect_class(&internal_name).ok();
+    if let Some(class_sig) = info
+        .as_ref()
+        .and_then(|i| i.signature.as_deref())
+        .and_then(|sig| duke_classfile::parse_class_signature(sig).ok())
+    {
+        let mut refs = Vec::with_capacity(class_sig.interfaces.len());
+        for iface in &class_sig.interfaces {
+            refs.push(materialize_class_type_signature(heap, iface)?);
+        }
+        let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Type;", &refs)?;
+        return Ok(Some(Slot::Reference(Some(array_ref))));
+    }
+    let interfaces = info.map(|i| i.interfaces).unwrap_or_default();
+    let mut refs = Vec::with_capacity(interfaces.len());
+    for iface in &interfaces {
+        refs.push(allocate_class_object(heap, iface)?);
+    }
+    let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Type;", &refs)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+// ---- Type accessor natives (registered on the interface names) --------------
+
+/// Native: `TypeVariable.getName()Ljava/lang/String;`.
+pub(crate) fn native_type_variable_get_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this = extract_ref_arg(args, 0)?;
+    Ok(Some(type_impl_field(heap, this, TYPEVAR_NAME_FIELD)?))
+}
+
+/// Native: `TypeVariable.getBounds()[Ljava/lang/reflect/Type;`.
+pub(crate) fn native_type_variable_get_bounds(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this = extract_ref_arg(args, 0)?;
+    Ok(Some(type_impl_field(heap, this, TYPEVAR_BOUNDS_FIELD)?))
+}
+
+/// Native: `TypeVariable.getGenericDeclaration()Ljava/lang/reflect/GenericDeclaration;`.
+pub(crate) fn native_type_variable_get_generic_declaration(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this = extract_ref_arg(args, 0)?;
+    Ok(Some(type_impl_field(heap, this, TYPEVAR_GENERIC_DECL_FIELD)?))
+}
+
+/// Native: `ParameterizedType.getRawType()Ljava/lang/reflect/Type;`.
+pub(crate) fn native_parameterized_type_get_raw_type(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this = extract_ref_arg(args, 0)?;
+    Ok(Some(type_impl_field(heap, this, PARAMTYPE_RAW_FIELD)?))
+}
+
+/// Native: `ParameterizedType.getActualTypeArguments()[Ljava/lang/reflect/Type;`.
+pub(crate) fn native_parameterized_type_get_actual_type_arguments(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this = extract_ref_arg(args, 0)?;
+    Ok(Some(type_impl_field(heap, this, PARAMTYPE_ARGS_FIELD)?))
+}
+
+/// Native: `ParameterizedType.getOwnerType()Ljava/lang/reflect/Type;`.
+pub(crate) fn native_parameterized_type_get_owner_type(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this = extract_ref_arg(args, 0)?;
+    Ok(Some(type_impl_field(heap, this, PARAMTYPE_OWNER_FIELD)?))
+}
+
+/// Native: `GenericArrayType.getGenericComponentType()Ljava/lang/reflect/Type;`.
+pub(crate) fn native_generic_array_type_get_component_type(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this = extract_ref_arg(args, 0)?;
+    Ok(Some(type_impl_field(heap, this, GENARRAY_COMPONENT_FIELD)?))
+}
+
+/// Native: `WildcardType.getUpperBounds()[Ljava/lang/reflect/Type;`.
+pub(crate) fn native_wildcard_type_get_upper_bounds(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this = extract_ref_arg(args, 0)?;
+    Ok(Some(type_impl_field(heap, this, WILDCARD_UPPER_FIELD)?))
+}
+
+/// Native: `WildcardType.getLowerBounds()[Ljava/lang/reflect/Type;`.
+pub(crate) fn native_wildcard_type_get_lower_bounds(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this = extract_ref_arg(args, 0)?;
+    Ok(Some(type_impl_field(heap, this, WILDCARD_LOWER_FIELD)?))
 }
 
 /// Native: `Class.isInterface()Z`.
@@ -966,10 +1334,12 @@ pub(crate) fn native_reflect_field_is_synthetic(
 
 /// Native: `Field.getGenericType()Ljava/lang/reflect/Type;`.
 ///
-/// Duke does not parse the `Signature` attribute, so generic type arguments are not
-/// modelled; this returns the erased declared type (the field's `Class`, which
-/// implements `java/lang/reflect/Type`). gson then wraps it in a `TypeToken`, which is
-/// exactly correct for non-parameterized fields such as Pojo's `int`/`String`.
+/// When the field carries a generic `Signature` (e.g.
+/// `Ljava/util/List<Ljava/lang/String;>;`) this materializes the real generic
+/// type (a `ParameterizedType`/`GenericArrayType`/`TypeVariable`). Otherwise it
+/// returns the erased declared type (the field's `Class`, which implements
+/// `java/lang/reflect/Type`) — exactly correct for non-parameterized fields such
+/// as Pojo's `int`/`String`.
 pub(crate) fn native_reflect_field_get_generic_type(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -979,6 +1349,19 @@ pub(crate) fn native_reflect_field_get_generic_type(
 ) -> Result<Option<Slot>> {
     let field_ref = extract_ref_arg(args, 0)?;
     let field = reflected_field_handle(heap, field_ref)?;
+    let declaring = class_internal_name_from_key(&field.declaring_class_key).to_string();
+    // Prefer the field's own generic Signature attribute, if present.
+    if let Some(sig) = ops.inspect_class(&declaring).ok().and_then(|info| {
+        info.fields.into_iter().find_map(|candidate| {
+            let matches = candidate.name == field.field_name
+                && candidate.descriptor == field.descriptor;
+            if matches { candidate.signature } else { None }
+        })
+    }) && let Ok(type_sig) = duke_classfile::parse_field_signature(&sig)
+    {
+        let type_ref = materialize_type_signature(heap, &type_sig)?;
+        return Ok(Some(Slot::Reference(Some(type_ref))));
+    }
     Ok(Some(descriptor_class_slot_from_source(
         heap,
         ops,

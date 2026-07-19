@@ -15454,6 +15454,79 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/lang/reflect/Type;",
         native_class_get_generic_superclass,
     );
+    // Generics reflection: getTypeParameters drives Spring's ResolvableType
+    // type-variable-count assertion; getGenericInterfaces yields real
+    // ParameterizedType for parameterized supertypes. Both parse the class's
+    // Signature attribute (JVMS §4.7.9.1).
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getTypeParameters",
+        "()[Ljava/lang/reflect/TypeVariable;",
+        native_class_get_type_parameters,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getGenericInterfaces",
+        "()[Ljava/lang/reflect/Type;",
+        native_class_get_generic_interfaces,
+    );
+    // Type accessors, registered on the interface names (invokeinterface resolves
+    // the native via the callee interface class). Backed by the direct field
+    // reads on the duke/internal/reflect/*Impl objects.
+    registry.natives_mut().register(
+        "java/lang/reflect/TypeVariable",
+        "getName",
+        "()Ljava/lang/String;",
+        native_type_variable_get_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/TypeVariable",
+        "getBounds",
+        "()[Ljava/lang/reflect/Type;",
+        native_type_variable_get_bounds,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/TypeVariable",
+        "getGenericDeclaration",
+        "()Ljava/lang/reflect/GenericDeclaration;",
+        native_type_variable_get_generic_declaration,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/ParameterizedType",
+        "getRawType",
+        "()Ljava/lang/reflect/Type;",
+        native_parameterized_type_get_raw_type,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/ParameterizedType",
+        "getActualTypeArguments",
+        "()[Ljava/lang/reflect/Type;",
+        native_parameterized_type_get_actual_type_arguments,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/ParameterizedType",
+        "getOwnerType",
+        "()Ljava/lang/reflect/Type;",
+        native_parameterized_type_get_owner_type,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/GenericArrayType",
+        "getGenericComponentType",
+        "()Ljava/lang/reflect/Type;",
+        native_generic_array_type_get_component_type,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/WildcardType",
+        "getUpperBounds",
+        "()[Ljava/lang/reflect/Type;",
+        native_wildcard_type_get_upper_bounds,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/WildcardType",
+        "getLowerBounds",
+        "()[Ljava/lang/reflect/Type;",
+        native_wildcard_type_get_lower_bounds,
+    );
     registry.natives_mut().register_callback(
         "java/lang/Class",
         "cast",
