@@ -282,30 +282,47 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //     hierarchy + `getTypeParameters`/`getGenericSuperclass`/`toGenericString` natives), so
 //     `ResolvableType.forClassWithGenerics`'s type-variable-count assert now passes.
 //   * `class not found: [B` (and its object-array sibling `class not found: [L…;`) — CLEARED
-//     2026-07-19 by THIS array-class-resolution lane: `[`-prefixed names resolve by
+//     2026-07-19 by the array-class-resolution lane: `[`-prefixed names resolve by
 //     synthesizing array `Class` mirrors (JVMS 5.3.3), so
 //     `AnnotationsScanner.getDeclaredAnnotations` no longer walls on a `byte[]`/object-array
 //     annotation element.
-// With BOTH walls down, the app advances further and now walls, nondeterministically (HashMap
-// iteration order decides which surfaces first), on a cluster of class-loader / invokedynamic
-// lanes that are ALL out of the array-class lane's scope. Frontier re-observed empirically on
-// the rebased binary over 20 runs:
+//
+// LAMBDA-REFLECTION UPDATE (2026-07-19, lambda-proxy lane, THIS branch): the
+// `class not found: $$Lambda$N` reflection wall is CLEARED at its source.
+// `ClassRegistry::register_lambda` (crates/duke-interpreter/src/registry.rs) now ALSO
+// registers a synthetic `ClassContext` for each `$$Lambda$N` proxy (super
+// `java/lang/Object`, `interfaces = [sam_interface]`, `methods` carrying the SAM so
+// `getDeclaredMethods`/`getMethods` answer honestly while the existing Missing-method
+// lambda-dispatch fallback in invokevirtual/invokeinterface still routes the SAM to the
+// impl body, `instance_field_count = captured_count`, `ClassLoadSource::Synthetic`).
+// Reflection on a lambda now resolves: a focused probe
+// (`Function<String,Integer> f = s -> s.length()`) shows `f.getClass().getMethods()` /
+// `getDeclaredMethods()` — which previously aborted the VM with `class not found: $$Lambda$0`
+// — now succeed, `getInterfaces()` returns `[java.util.function.Function]` (was empty), and
+// `Class.forName("$$Lambda$0")` resolves.
+//
+// With the generics, array-class, and lambda-reflection walls all down, the app advances
+// further and now walls, nondeterministically (HashMap iteration order decides which surfaces
+// first), on a cluster of class-loader / class-identity lanes that are ALL out of this lane's
+// scope. Frontier re-observed empirically on the rebased binary (see `APP_BLOCKERS`):
 //   * `ambiguous class name: org/springframework/context/ApplicationListener matches [..\0, ..\0]`
-//     — DOMINANT (~17/20). A loader-qualified class-key dedup issue: the SAME class is
-//     registered under two loader-suffixed keys, so a bare-name lookup finds both and cannot
-//     disambiguate (class-loader lane).
-//   * `java exception: java/lang/reflect/InvocationTargetException` — ~2/20. The launcher's
+//     — DOMINANT. A loader-qualified class-key dedup issue: the SAME class is registered under
+//     two loader-suffixed keys, so a bare-name lookup finds both and cannot disambiguate
+//     (class-loader / class-identity lane, still OPEN).
+//   * `java exception: java/lang/reflect/InvocationTargetException` — rarer. The launcher's
 //     reflective `main.invoke` wraps a `java/lang/ClassCastException` from the SAME loader-key
 //     root: `ConcurrentReferenceHashMap$SoftEntryReference` casts its soft referent to
 //     `…$Entry`, and `is_assignable_from` misses because the referent's runtime key is
 //     loader-qualified (`…$Entry\0loader:NN`) while the checkcast target resolves to the bare
-//     key — the interpreter class-identity/assignability lane, NOT the array-class lane.
-//   * `class not found: $$Lambda$N` — rare (~1/20). A lambda proxy class looked up by name
-//     before the invokedynamic/`LambdaMetafactory` path registered it (lambda-proxy lane).
-// All three are out of scope here, so the pin accepts ANY of the three de-flaking terminal
-// markers (see `APP_BLOCKERS`) — all three are needed to keep the single-run pin stable
-// against the nondeterministic frontier. `getTypeParameters` and `class not found: [` are
-// deliberately ABSENT: both walls are cleared and neither must reappear.
+//     key — the interpreter class-identity/assignability lane, NOT this lane.
+//   * `class not found: $$Lambda$N` — rare. A lambda proxy class looked up by name before the
+//     invokedynamic/`LambdaMetafactory` path registered it. The reflection wall above is fixed
+//     at its source, but this marker is RETAINED in `APP_BLOCKERS` pending empirical
+//     confirmation that boot never surfaces it now that array-class merged.
+// These are out of scope here, so the pin accepts ANY of the de-flaking terminal markers (see
+// `APP_BLOCKERS`) to stay stable against the nondeterministic frontier. `getTypeParameters`
+// and `class not found: [` are deliberately ABSENT: both walls are cleared and neither must
+// reappear.
 const APP_BLOCKERS: [&str; 3] = [
     // Loader-qualified class-key dedup (ApplicationListener) — dominant (~17/20).
     "ambiguous class name",
