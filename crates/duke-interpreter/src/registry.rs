@@ -1302,6 +1302,20 @@ impl ClassRegistry {
             }
             return Ok(true);
         }
+        // Array classes have no backing classfile: the JVM synthesizes them
+        // (JVMS 5.3.3). Resolve the element type first, then register a synthetic
+        // array `ClassContext` keyed by the bare `[`-name. Provenance deliberately
+        // stays bare (`class_key_from_provenance` leaves `[`-names unqualified), so
+        // array keys are never loader-suffixed.
+        if let Some(component) = class_key.strip_prefix('[') {
+            return self.ensure_array_class_registered(
+                &class_key,
+                component,
+                loader,
+                code_source,
+                runtime_loader,
+            );
+        }
         let Ok(bytes) = loader.find_class(&internal_name) else {
             return Ok(false);
         };
@@ -1335,6 +1349,64 @@ impl ClassRegistry {
         if let Some(loader_ref) = runtime_loader {
             self.class_runtime_loaders.insert(class_key, loader_ref);
         }
+        Ok(true)
+    }
+
+    /// Synthesize and register an array class (`[B`, `[[I`, `[Ljava/lang/String;`).
+    ///
+    /// Array classes are created by the JVM rather than loaded from a classfile
+    /// (JVMS 5.3.3), so no `find_class` is attempted. The element type is resolved
+    /// first — so an array is only registered once its component is known-good:
+    /// nested-array components recurse through [`Self::ensure_loaded_inner`],
+    /// reference components (`L…;`) load as ordinary classes (and a genuine load
+    /// failure is propagated, never masked into a bogus array class), and primitive
+    /// components (`B`/`C`/`D`/`F`/`I`/`J`/`S`/`Z`) are synthetic and need no
+    /// loading. The array itself is registered under its bare `[`-name with
+    /// `super_class` `java/lang/Object` and [`ClassLoadSource::Synthetic`], keeping
+    /// provenance coherent with [`Self::class_key_from_provenance`] (which leaves
+    /// `[`-names unqualified). Registration is idempotent: the `contains_key` guard
+    /// in [`Self::ensure_loaded_inner`] short-circuits an already-synthesized array.
+    fn ensure_array_class_registered(
+        &mut self,
+        array_key: &str,
+        component: &str,
+        loader: &dyn ClassLoader,
+        code_source: Option<&str>,
+        runtime_loader: Option<u64>,
+    ) -> Result<bool> {
+        // The three component forms are mutually exclusive, so these guards are
+        // independent: a nested-array component recurses, a reference component
+        // (`L…;`) loads as an ordinary class, and a primitive element
+        // (`B`/`C`/`D`/`F`/`I`/`J`/`S`/`Z`) is synthetic and needs no loading. A
+        // component that fails to load short-circuits so the array is never
+        // registered against a missing element type.
+        if component.starts_with('[')
+            && !self.ensure_loaded_inner(component, loader, code_source, runtime_loader)?
+        {
+            return Ok(false);
+        }
+        if let Some(element) = component
+            .strip_prefix('L')
+            .and_then(|s| s.strip_suffix(';'))
+            && !self.ensure_loaded_inner(element, loader, code_source, runtime_loader)?
+        {
+            return Ok(false);
+        }
+        self.classes.insert(
+            Arc::from(array_key),
+            ClassContext {
+                class_name: array_key.to_string(),
+                super_class: Some("java/lang/Object".to_string()),
+                interfaces: Vec::new(),
+                constant_pool: Vec::new(),
+                methods: Vec::new(),
+                fields: Vec::new(),
+                static_fields: Vec::new(),
+                instance_field_count: 0,
+                bootstrap_methods: Vec::new(),
+                load_source: ClassLoadSource::Synthetic,
+            },
+        );
         Ok(true)
     }
 

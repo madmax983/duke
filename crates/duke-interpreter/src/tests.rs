@@ -22835,6 +22835,137 @@ fn native_class_for_name_with_loader_uses_binary_name() {
     );
 }
 
+/// Array classes have no backing classfile — the JVM synthesizes them (JVMS
+/// 5.3.3). This drives the real resolution path (`InterpreterCallbackOps` ->
+/// `ClassRegistry::ensure_loaded` -> `ensure_array_class_registered`) through
+/// `Class.forName` and asserts that every primitive array, an object array, and a
+/// nested array resolve to a synthetic array `Class` mirror with the correct
+/// `isArray`/`getComponentType`/`getName`, and that each is registered as
+/// `Synthetic` (proving the synthesis path, not a classfile read).
+#[test]
+#[allow(clippy::too_many_lines)]
+fn array_classes_resolve_via_synthesis() {
+    fn for_name(
+        registry: &mut ClassRegistry,
+        heap: &mut duke_gc::Heap,
+        loader: &dyn ClassLoader,
+        binary_name: &str,
+    ) -> u64 {
+        let name_ref = heap.allocate_string(binary_name.to_string());
+        let mut ops = InterpreterCallbackOps { registry, loader };
+        let slot = native_class_for_name(
+            &[Slot::Reference(Some(name_ref))],
+            heap,
+            &mut Vec::new(),
+            &mut NativeControl::default(),
+            &mut ops,
+        )
+        .expect("Class.forName should succeed for an array class")
+        .expect("Class.forName should return a Class mirror");
+        match slot {
+            Slot::Reference(Some(class_ref)) => class_ref,
+            other => panic!("expected a Class reference, got {other:?}"),
+        }
+    }
+
+    fn is_array(heap: &mut duke_gc::Heap, class_ref: u64) -> bool {
+        let slot = native_class_is_array(
+            &[Slot::Reference(Some(class_ref))],
+            heap,
+            &mut Vec::new(),
+            &mut NativeControl::default(),
+        )
+        .expect("isArray should succeed")
+        .expect("isArray should return a value");
+        matches!(slot, Slot::Int(1))
+    }
+
+    fn component_key(heap: &mut duke_gc::Heap, class_ref: u64) -> String {
+        let slot = native_class_get_component_type(
+            &[Slot::Reference(Some(class_ref))],
+            heap,
+            &mut Vec::new(),
+            &mut NativeControl::default(),
+        )
+        .expect("getComponentType should succeed")
+        .expect("getComponentType should return a value");
+        match slot {
+            Slot::Reference(Some(component_ref)) => {
+                class_key_from_ref(heap, component_ref).expect("component key")
+            }
+            other => panic!("expected a component Class reference, got {other:?}"),
+        }
+    }
+
+    fn get_name(heap: &mut duke_gc::Heap, class_ref: u64) -> String {
+        let slot = native_class_get_name(
+            &[Slot::Reference(Some(class_ref))],
+            heap,
+            &mut Vec::new(),
+            &mut NativeControl::default(),
+        )
+        .expect("getName should succeed")
+        .expect("getName should return a value");
+        match slot {
+            Slot::Reference(Some(name_ref)) => {
+                string_value_from_ref(heap, name_ref).expect("name string")
+            }
+            other => panic!("expected a name String reference, got {other:?}"),
+        }
+    }
+
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let loader = fixtures_loader();
+
+    // Every primitive array resolves; the component mirror is keyed by the bare
+    // descriptor letter (matching `int.class`/`Integer.TYPE`), `isArray` is true,
+    // `getName` reports the `[`-form, and the array is a synthesized class.
+    for (array_name, component) in [
+        ("[B", "B"),
+        ("[I", "I"),
+        ("[J", "J"),
+        ("[Z", "Z"),
+        ("[S", "S"),
+        ("[C", "C"),
+        ("[F", "F"),
+        ("[D", "D"),
+    ] {
+        let class_ref = for_name(&mut registry, &mut heap, &loader, array_name);
+        assert_eq!(class_key_from_ref(&heap, class_ref).unwrap(), array_name);
+        assert!(
+            is_array(&mut heap, class_ref),
+            "{array_name} should be an array"
+        );
+        assert_eq!(component_key(&mut heap, class_ref), component);
+        assert_eq!(get_name(&mut heap, class_ref), array_name);
+        assert_eq!(
+            registry.load_source_of(array_name),
+            Some(ClassLoadSource::Synthetic),
+            "{array_name} must be a synthesized array class, not a classfile"
+        );
+    }
+
+    // Object array: the component is the real `java/lang/String` class; `getName`
+    // uses the binary `[L…;` form with a dotted package.
+    let string_array = for_name(&mut registry, &mut heap, &loader, "[Ljava.lang.String;");
+    assert!(is_array(&mut heap, string_array));
+    assert_eq!(component_key(&mut heap, string_array), "java/lang/String");
+    assert_eq!(get_name(&mut heap, string_array), "[Ljava.lang.String;");
+    assert_eq!(
+        registry.load_source_of("[Ljava/lang/String;"),
+        Some(ClassLoadSource::Synthetic)
+    );
+
+    // Nested array: the component is the inner `[B`, which is itself an array.
+    let nested = for_name(&mut registry, &mut heap, &loader, "[[B");
+    assert!(is_array(&mut heap, nested));
+    assert_eq!(component_key(&mut heap, nested), "[B");
+    let inner = for_name(&mut registry, &mut heap, &loader, "[B");
+    assert!(is_array(&mut heap, inner), "inner [B is an array");
+}
+
 /// Regression: a `Class.forName(name, false, cl)` availability probe for an absent
 /// class must surface a catchable `ClassNotFoundException`, even when computing the
 /// class identity key would itself raise `ClassNotFound`. The native previously
@@ -35691,6 +35822,7 @@ fn class_new_instance_survives_gc_during_constructor() {
                 is_static: false,
                 annotations: Vec::new(),
                 annotation_default: None,
+                signature: None,
             }];
             Ok(info)
         }

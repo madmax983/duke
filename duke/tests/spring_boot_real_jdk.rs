@@ -80,15 +80,20 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // intrinsics lane clears (see `register_unsafe_stdlib` in `crates/duke-interpreter/src/stdlib.rs`).
 //
 // The new `--real-jdk` frontier is the CLI runtime error
-// `method not found: java/lang/String.<init>(Ljava/lang/StringBuilder;)V`: past the Unsafe lane,
-// the chain reaches the `String(StringBuilder)` constructor, which the synthetic `String` does
-// not provide as a native. This is the SAME frontier pinned by
+// `method not found: java/lang/String.<init>(...)`: past the Unsafe lane, the chain reaches a
+// `String` constructor overload which the synthetic `String` does not provide as a native. This
+// is the SAME frontier pinned by
 // `crates/duke-interpreter/tests/classloader_bootstrap_frontier.rs` (rendered there as
-// `MethodNotFound { name: "java/lang/String.<init>", descriptor: "(Ljava/lang/StringBuilder;)V" }`),
-// a distinct downstream lane (String stages 3-4). Out of scope here. If either boot advances
-// past this, re-observe and update.
-const REAL_JDK_FRONTIER: &str =
-    "method not found: java/lang/String.<init>(Ljava/lang/StringBuilder;)V";
+// `MethodNotFound { name: "java/lang/String.<init>", descriptor: ... }`), a distinct downstream
+// lane (String stages 3-4). Out of scope here. If either boot advances past this, re-observe and
+// update.
+//
+// We prefix-match on `java/lang/String.<init>(` and deliberately do NOT pin the exact descriptor:
+// both `(Ljava/lang/StringBuilder;)V` and `([BB)V` are valid JDK-21 `String` constructor
+// overloads, and which one is the *first-missing* method in the encode path is JDK-build-specific
+// (differs between local and CI runner JDKs). The frontier is the String-constructor wall
+// regardless of which overload surfaces first.
+const REAL_JDK_FRONTIER: &str = "method not found: java/lang/String.<init>(";
 
 // Markers of the OLD raw panic that this fix eliminates. None of these must appear.
 const RAW_PANIC_MARKERS: &[&str] = &["index out of bounds", "execution.rs", "panicked at"];
