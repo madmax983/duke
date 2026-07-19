@@ -3684,17 +3684,27 @@ pub(crate) fn native_then_comparing_compare(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let a = extract_slot_arg(args, 1);
-    let b = extract_slot_arg(args, 2);
+    let mut a = extract_slot_arg(args, 1);
+    let mut b = extract_slot_arg(args, 2);
     let primary = extract_first_field_arg(heap, this_ref)?;
-    let secondary = extract_field_arg(heap, this_ref, 1)?;
+    let mut secondary = extract_field_arg(heap, this_ref, 1)?;
+    // `secondary`, `a`, and `b` are held across the primary comparator's
+    // `compare` invoke (a GC point) and reused for the tie-break invoke.
+    // Without pinning, a relocating GC inside the primary callback would leave
+    // them stale before the secondary comparator runs.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut secondary);
+    scope.pin_slot(&mut a);
+    scope.pin_slot(&mut b);
     // Invoke primary.compare(a, b)
     let result = invoke_comparator(primary, a, b, heap, out, ops)?;
     if result != 0 {
+        drop(scope);
         return Ok(Some(Slot::Int(result)));
     }
     // Tie-break with secondary
     let result2 = invoke_comparator(secondary, a, b, heap, out, ops)?;
+    drop(scope);
     Ok(Some(Slot::Int(result2)))
 }
 /// Native: `AndPredicate.test(O)Z` — both predicates must return true.
@@ -3706,14 +3716,22 @@ pub(crate) fn native_and_predicate_test(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let elem = extract_slot_arg(args, 1);
+    let mut elem = extract_slot_arg(args, 1);
     let left = extract_first_field_arg(heap, this_ref)?;
-    let right = extract_field_arg(heap, this_ref, 1)?;
+    let mut right = extract_field_arg(heap, this_ref, 1)?;
+    // `right` and `elem` are held across the left predicate's `test` invoke
+    // (a GC point) and reused for the right predicate. Pin them so a relocating
+    // GC inside the left callback cannot leave them stale.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut right);
+    scope.pin_slot(&mut elem);
     let la = invoke_predicate_test(left, elem, heap, out, ops)?;
     if !la {
+        drop(scope);
         return Ok(Some(Slot::Int(0)));
     }
     let rb = invoke_predicate_test(right, elem, heap, out, ops)?;
+    drop(scope);
     Ok(Some(Slot::Int(i32::from(rb))))
 }
 /// Native: `OrPredicate.test(O)Z` — either predicate returning true is sufficient.
@@ -3725,14 +3743,22 @@ pub(crate) fn native_or_predicate_test(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let elem = extract_slot_arg(args, 1);
+    let mut elem = extract_slot_arg(args, 1);
     let left = extract_first_field_arg(heap, this_ref)?;
-    let right = extract_field_arg(heap, this_ref, 1)?;
+    let mut right = extract_field_arg(heap, this_ref, 1)?;
+    // `right` and `elem` are held across the left predicate's `test` invoke
+    // (a GC point) and reused for the right predicate. Pin them so a relocating
+    // GC inside the left callback cannot leave them stale.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut right);
+    scope.pin_slot(&mut elem);
     let la = invoke_predicate_test(left, elem, heap, out, ops)?;
     if la {
+        drop(scope);
         return Ok(Some(Slot::Int(1)));
     }
     let rb = invoke_predicate_test(right, elem, heap, out, ops)?;
+    drop(scope);
     Ok(Some(Slot::Int(i32::from(rb))))
 }
 /// Native: `NegatedPredicate.test(O)Z` — inverts the wrapped predicate.
@@ -3760,9 +3786,16 @@ pub(crate) fn native_and_then_function_apply(
     let this_ref = extract_ref_arg(args, 0)?;
     let input = extract_slot_arg(args, 1);
     let first = extract_first_field_arg(heap, this_ref)?;
-    let second = extract_field_arg(heap, this_ref, 1)?;
+    let mut second = extract_field_arg(heap, this_ref, 1)?;
+    // `second` is held across the first function's `apply` invoke (a GC point)
+    // and only consumed by the second-stage apply. Pin it so a relocating GC
+    // inside the first callback cannot leave it stale.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut second);
     let mid = invoke_function_apply(first, input, heap, out, ops)?;
-    invoke_function_apply(second, mid, heap, out, ops).map(Some)
+    let result = invoke_function_apply(second, mid, heap, out, ops)?;
+    drop(scope);
+    Ok(Some(result))
 }
 /// Native: `AndThenConsumer.accept(O)V` — runs first then second consumer.
 pub(crate) fn native_and_then_consumer_accept(
@@ -3773,11 +3806,18 @@ pub(crate) fn native_and_then_consumer_accept(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let arg = extract_slot_arg(args, 1);
+    let mut arg = extract_slot_arg(args, 1);
     let first = extract_first_field_arg(heap, this_ref)?;
-    let second = extract_field_arg(heap, this_ref, 1)?;
+    let mut second = extract_field_arg(heap, this_ref, 1)?;
+    // `second` and `arg` are held across the first consumer's `accept` invoke
+    // (a GC point) and reused for the second consumer. Pin them so a relocating
+    // GC inside the first callback cannot leave them stale.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut second);
+    scope.pin_slot(&mut arg);
     invoke_consumer_accept(first, arg, heap, out, ops)?;
     invoke_consumer_accept(second, arg, heap, out, ops)?;
+    drop(scope);
     Ok(None)
 }
 /// Native: `ComposeFunction.apply(O)O` — applies inner then outer.
@@ -3790,10 +3830,17 @@ pub(crate) fn native_compose_function_apply(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let input = extract_slot_arg(args, 1);
-    let outer = extract_first_field_arg(heap, this_ref)?;
+    let mut outer = extract_first_field_arg(heap, this_ref)?;
     let inner = extract_field_arg(heap, this_ref, 1)?;
+    // `outer` is held across the inner function's `apply` invoke (a GC point)
+    // and only consumed by the outer-stage apply. Pin it so a relocating GC
+    // inside the inner callback cannot leave it stale.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut outer);
     let mid = invoke_function_apply(inner, input, heap, out, ops)?;
-    invoke_function_apply(outer, mid, heap, out, ops).map(Some)
+    let result = invoke_function_apply(outer, mid, heap, out, ops)?;
+    drop(scope);
+    Ok(Some(result))
 }
 /// Native: `BiFunction.andThen(Function)BiFunction` — returns `BiFunctionAndThen` proxy.
 pub(crate) fn native_bifunction_and_then(

@@ -36074,6 +36074,743 @@ fn bifunction_and_then_apply_survives_two_gcs_during_callback() {
     );
 }
 
+/// Helper-invoke combinators (via the `invoke_*` common.rs helpers, which each
+/// run `ops.invoke` internally and are therefore GC points). Each native holds a
+/// second-stage receiver (and sometimes the element/argument) in a Rust local
+/// across the FIRST helper call and consumes it in the SECOND. The first callback
+/// forces two full relocating collections; without the `NativeRootScope` pin the
+/// held second-stage ref relocates mid-call and the second stage reads a
+/// dangling reference. With the pin it is rooted and forwarded across every
+/// collect, so the combined result is correct.
+///
+/// Predicate `and` leg — drives `native_and_predicate_test`.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn and_predicate_test_survives_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const RIGHT_TAG: i32 = 7001;
+    const ELEM_TAG: i32 = 7002;
+
+    struct AndPredGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        call_count: usize,
+        observed_right_tag: Option<i32>,
+        observed_elem_tag: Option<i32>,
+    }
+
+    fn tag_of(heap: &duke_gc::Heap, slot: Option<&Slot>) -> i32 {
+        match slot {
+            Some(Slot::Reference(Some(r))) => heap
+                .get(*r)
+                .ok()
+                .and_then(|o| match o.fields.first() {
+                    Some(Slot::Int(n)) => Some(*n),
+                    _ => None,
+                })
+                .unwrap_or(i32::MIN),
+            _ => i32::MIN,
+        }
+    }
+
+    impl CallbackOps for AndPredGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            self.call_count += 1;
+            if self.call_count == 1 {
+                // First stage: left.test(elem). Force two collections so the
+                // native's held `right`/`elem` copies relocate mid-call.
+                for _ in 0..2 {
+                    for _ in 0..4 {
+                        let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                        if let Ok(o) = heap.get_mut(g) {
+                            o.fields[0] = Slot::Int(-777);
+                        }
+                    }
+                    let roots =
+                        gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                    heap.collect(&roots);
+                    patch_forwarded_slots(
+                        &mut self.caller_frame,
+                        &mut [],
+                        &mut self.registry,
+                        heap,
+                        &mut self.string_intern,
+                    );
+                }
+                Ok(Some(Slot::Int(1))) // left is true → proceed to right
+            } else {
+                // Second stage: right.test(elem). args[0]=right, args[1]=elem.
+                self.observed_right_tag = Some(tag_of(heap, args.first()));
+                self.observed_elem_tag = Some(tag_of(heap, args.get(1)));
+                Ok(Some(Slot::Int(1)))
+            }
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let this_ref = heap.allocate("duke/util/AndPredicate".to_string(), 2);
+    let left_ref = heap.allocate("duke/test/LeftPred".to_string(), 1);
+    heap.get_mut(left_ref).unwrap().fields[0] = Slot::Int(1);
+    let right_ref = heap.allocate("duke/test/RightPred".to_string(), 1);
+    heap.get_mut(right_ref).unwrap().fields[0] = Slot::Int(RIGHT_TAG);
+    heap.get_mut(this_ref).unwrap().fields[0] = Slot::Reference(Some(left_ref));
+    heap.get_mut(this_ref).unwrap().fields[1] = Slot::Reference(Some(right_ref));
+    let elem_ref = heap.allocate("duke/test/Elem".to_string(), 1);
+    heap.get_mut(elem_ref).unwrap().fields[0] = Slot::Int(ELEM_TAG);
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(elem_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = AndPredGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        call_count: 0,
+        observed_right_tag: None,
+        observed_elem_tag: None,
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_and_predicate_test(
+        &[
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(elem_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    );
+
+    assert_eq!(
+        ops.observed_right_tag,
+        Some(RIGHT_TAG),
+        "the `right` predicate went stale across the left predicate's test GCs; \
+         the and() second stage was handed a dangling predicate reference"
+    );
+    assert_eq!(
+        ops.observed_elem_tag,
+        Some(ELEM_TAG),
+        "the tested `elem` went stale across the left predicate's test GCs"
+    );
+    let result = result.expect("and predicate test should not error");
+    assert_eq!(
+        result,
+        Some(Slot::Int(1)),
+        "and() returned the wrong result after callback GCs"
+    );
+}
+
+/// Function `andThen` leg — drives `native_and_then_function_apply`.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn and_then_function_apply_survives_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const SECOND_TAG: i32 = 8101;
+    const RESULT_TAG: i32 = 8102;
+
+    struct AndThenFnGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        call_count: usize,
+        observed_second_tag: Option<i32>,
+    }
+
+    impl CallbackOps for AndThenFnGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            self.call_count += 1;
+            if self.call_count == 1 {
+                // First stage: first.apply(input). Force two collections so the
+                // native's held `second` copy relocates mid-call.
+                for _ in 0..2 {
+                    for _ in 0..4 {
+                        let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                        if let Ok(o) = heap.get_mut(g) {
+                            o.fields[0] = Slot::Int(-777);
+                        }
+                    }
+                    let roots =
+                        gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                    heap.collect(&roots);
+                    patch_forwarded_slots(
+                        &mut self.caller_frame,
+                        &mut [],
+                        &mut self.registry,
+                        heap,
+                        &mut self.string_intern,
+                    );
+                }
+                let mid = heap.allocate("duke/test/Mid".to_string(), 1);
+                heap.get_mut(mid)?.fields[0] = Slot::Int(0);
+                Ok(Some(Slot::Reference(Some(mid))))
+            } else {
+                // Second stage: second.apply(mid). args[0] is the `second` receiver.
+                let tag = match args.first() {
+                    Some(Slot::Reference(Some(r))) => heap
+                        .get(*r)
+                        .ok()
+                        .and_then(|o| match o.fields.first() {
+                            Some(Slot::Int(n)) => Some(*n),
+                            _ => None,
+                        })
+                        .unwrap_or(i32::MIN),
+                    _ => i32::MIN,
+                };
+                self.observed_second_tag = Some(tag);
+                let res = heap.allocate("duke/test/Result".to_string(), 1);
+                heap.get_mut(res)?.fields[0] = Slot::Int(RESULT_TAG);
+                Ok(Some(Slot::Reference(Some(res))))
+            }
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let this_ref = heap.allocate("duke/util/AndThenFunction".to_string(), 2);
+    let first_ref = heap.allocate("duke/test/FirstFn".to_string(), 1);
+    heap.get_mut(first_ref).unwrap().fields[0] = Slot::Int(1);
+    let second_ref = heap.allocate("duke/test/SecondFn".to_string(), 1);
+    heap.get_mut(second_ref).unwrap().fields[0] = Slot::Int(SECOND_TAG);
+    heap.get_mut(this_ref).unwrap().fields[0] = Slot::Reference(Some(first_ref));
+    heap.get_mut(this_ref).unwrap().fields[1] = Slot::Reference(Some(second_ref));
+    let input_ref = heap.allocate("duke/test/Input".to_string(), 1);
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(input_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = AndThenFnGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        call_count: 0,
+        observed_second_tag: None,
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_and_then_function_apply(
+        &[
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(input_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    );
+
+    assert_eq!(
+        ops.observed_second_tag,
+        Some(SECOND_TAG),
+        "the `second` function went stale across the first function's apply GCs; \
+         andThen's second stage was handed a dangling function reference"
+    );
+    let result = result.expect("andThen function apply should not error");
+    let res_ref = match result {
+        Some(Slot::Reference(Some(r))) => r,
+        other => panic!("andThen function apply did not return a reference: {other:?}"),
+    };
+    let res_tag = match heap.get(res_ref).unwrap().fields.first() {
+        Some(Slot::Int(n)) => *n,
+        other => panic!("andThen function result has no int tag: {other:?}"),
+    };
+    assert_eq!(
+        res_tag, RESULT_TAG,
+        "andThen function apply returned the wrong result after callback GCs"
+    );
+}
+
+/// Function `compose` leg — drives `native_compose_function_apply`.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn compose_function_apply_survives_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const OUTER_TAG: i32 = 8201;
+    const RESULT_TAG: i32 = 8202;
+
+    struct ComposeGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        call_count: usize,
+        observed_outer_tag: Option<i32>,
+    }
+
+    impl CallbackOps for ComposeGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            self.call_count += 1;
+            if self.call_count == 1 {
+                // First stage: inner.apply(input). Force two collections so the
+                // native's held `outer` copy relocates mid-call.
+                for _ in 0..2 {
+                    for _ in 0..4 {
+                        let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                        if let Ok(o) = heap.get_mut(g) {
+                            o.fields[0] = Slot::Int(-777);
+                        }
+                    }
+                    let roots =
+                        gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                    heap.collect(&roots);
+                    patch_forwarded_slots(
+                        &mut self.caller_frame,
+                        &mut [],
+                        &mut self.registry,
+                        heap,
+                        &mut self.string_intern,
+                    );
+                }
+                let mid = heap.allocate("duke/test/Mid".to_string(), 1);
+                heap.get_mut(mid)?.fields[0] = Slot::Int(0);
+                Ok(Some(Slot::Reference(Some(mid))))
+            } else {
+                // Second stage: outer.apply(mid). args[0] is the `outer` receiver.
+                let tag = match args.first() {
+                    Some(Slot::Reference(Some(r))) => heap
+                        .get(*r)
+                        .ok()
+                        .and_then(|o| match o.fields.first() {
+                            Some(Slot::Int(n)) => Some(*n),
+                            _ => None,
+                        })
+                        .unwrap_or(i32::MIN),
+                    _ => i32::MIN,
+                };
+                self.observed_outer_tag = Some(tag);
+                let res = heap.allocate("duke/test/Result".to_string(), 1);
+                heap.get_mut(res)?.fields[0] = Slot::Int(RESULT_TAG);
+                Ok(Some(Slot::Reference(Some(res))))
+            }
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let this_ref = heap.allocate("duke/util/ComposeFunction".to_string(), 2);
+    let outer_ref = heap.allocate("duke/test/OuterFn".to_string(), 1);
+    heap.get_mut(outer_ref).unwrap().fields[0] = Slot::Int(OUTER_TAG);
+    let inner_ref = heap.allocate("duke/test/InnerFn".to_string(), 1);
+    heap.get_mut(inner_ref).unwrap().fields[0] = Slot::Int(1);
+    heap.get_mut(this_ref).unwrap().fields[0] = Slot::Reference(Some(outer_ref));
+    heap.get_mut(this_ref).unwrap().fields[1] = Slot::Reference(Some(inner_ref));
+    let input_ref = heap.allocate("duke/test/Input".to_string(), 1);
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(input_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = ComposeGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        call_count: 0,
+        observed_outer_tag: None,
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_compose_function_apply(
+        &[
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(input_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    );
+
+    assert_eq!(
+        ops.observed_outer_tag,
+        Some(OUTER_TAG),
+        "the `outer` function went stale across the inner function's apply GCs; \
+         compose's outer stage was handed a dangling function reference"
+    );
+    let result = result.expect("compose function apply should not error");
+    let res_ref = match result {
+        Some(Slot::Reference(Some(r))) => r,
+        other => panic!("compose function apply did not return a reference: {other:?}"),
+    };
+    let res_tag = match heap.get(res_ref).unwrap().fields.first() {
+        Some(Slot::Int(n)) => *n,
+        other => panic!("compose function result has no int tag: {other:?}"),
+    };
+    assert_eq!(
+        res_tag, RESULT_TAG,
+        "compose function apply returned the wrong result after callback GCs"
+    );
+}
+
+/// Consumer `andThen` leg — drives `native_and_then_consumer_accept`.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn and_then_consumer_accept_survives_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const SECOND_TAG: i32 = 8301;
+    const ARG_TAG: i32 = 8302;
+
+    struct AndThenConsGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        call_count: usize,
+        observed_second_tag: Option<i32>,
+        observed_arg_tag: Option<i32>,
+    }
+
+    fn tag_of(heap: &duke_gc::Heap, slot: Option<&Slot>) -> i32 {
+        match slot {
+            Some(Slot::Reference(Some(r))) => heap
+                .get(*r)
+                .ok()
+                .and_then(|o| match o.fields.first() {
+                    Some(Slot::Int(n)) => Some(*n),
+                    _ => None,
+                })
+                .unwrap_or(i32::MIN),
+            _ => i32::MIN,
+        }
+    }
+
+    impl CallbackOps for AndThenConsGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            self.call_count += 1;
+            if self.call_count == 1 {
+                // First stage: first.accept(arg). Force two collections so the
+                // native's held `second`/`arg` copies relocate mid-call.
+                for _ in 0..2 {
+                    for _ in 0..4 {
+                        let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                        if let Ok(o) = heap.get_mut(g) {
+                            o.fields[0] = Slot::Int(-777);
+                        }
+                    }
+                    let roots =
+                        gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                    heap.collect(&roots);
+                    patch_forwarded_slots(
+                        &mut self.caller_frame,
+                        &mut [],
+                        &mut self.registry,
+                        heap,
+                        &mut self.string_intern,
+                    );
+                }
+                Ok(None)
+            } else {
+                // Second stage: second.accept(arg). args[0]=second, args[1]=arg.
+                self.observed_second_tag = Some(tag_of(heap, args.first()));
+                self.observed_arg_tag = Some(tag_of(heap, args.get(1)));
+                Ok(None)
+            }
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let this_ref = heap.allocate("duke/util/AndThenConsumer".to_string(), 2);
+    let first_ref = heap.allocate("duke/test/FirstCons".to_string(), 1);
+    heap.get_mut(first_ref).unwrap().fields[0] = Slot::Int(1);
+    let second_ref = heap.allocate("duke/test/SecondCons".to_string(), 1);
+    heap.get_mut(second_ref).unwrap().fields[0] = Slot::Int(SECOND_TAG);
+    heap.get_mut(this_ref).unwrap().fields[0] = Slot::Reference(Some(first_ref));
+    heap.get_mut(this_ref).unwrap().fields[1] = Slot::Reference(Some(second_ref));
+    let arg_ref = heap.allocate("duke/test/Arg".to_string(), 1);
+    heap.get_mut(arg_ref).unwrap().fields[0] = Slot::Int(ARG_TAG);
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(arg_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = AndThenConsGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        call_count: 0,
+        observed_second_tag: None,
+        observed_arg_tag: None,
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_and_then_consumer_accept(
+        &[
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(arg_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    );
+
+    assert_eq!(
+        ops.observed_second_tag,
+        Some(SECOND_TAG),
+        "the `second` consumer went stale across the first consumer's accept GCs; \
+         andThen's second stage was handed a dangling consumer reference"
+    );
+    assert_eq!(
+        ops.observed_arg_tag,
+        Some(ARG_TAG),
+        "the accepted `arg` went stale across the first consumer's accept GCs"
+    );
+    result.expect("andThen consumer accept should not error");
+}
+
+/// Comparator `thenComparing` leg — drives `native_then_comparing_compare`.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn then_comparing_compare_survives_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const SECONDARY_TAG: i32 = 8401;
+    const A_TAG: i32 = 8402;
+    const B_TAG: i32 = 8403;
+    const SECONDARY_RESULT: i32 = 42;
+
+    struct ThenComparingGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        call_count: usize,
+        observed_secondary_tag: Option<i32>,
+        observed_a_tag: Option<i32>,
+        observed_b_tag: Option<i32>,
+    }
+
+    fn tag_of(heap: &duke_gc::Heap, slot: Option<&Slot>) -> i32 {
+        match slot {
+            Some(Slot::Reference(Some(r))) => heap
+                .get(*r)
+                .ok()
+                .and_then(|o| match o.fields.first() {
+                    Some(Slot::Int(n)) => Some(*n),
+                    _ => None,
+                })
+                .unwrap_or(i32::MIN),
+            _ => i32::MIN,
+        }
+    }
+
+    impl CallbackOps for ThenComparingGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            self.call_count += 1;
+            if self.call_count == 1 {
+                // First stage: primary.compare(a, b). Force two collections so the
+                // native's held `secondary`/`a`/`b` copies relocate mid-call.
+                for _ in 0..2 {
+                    for _ in 0..4 {
+                        let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                        if let Ok(o) = heap.get_mut(g) {
+                            o.fields[0] = Slot::Int(-777);
+                        }
+                    }
+                    let roots =
+                        gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                    heap.collect(&roots);
+                    patch_forwarded_slots(
+                        &mut self.caller_frame,
+                        &mut [],
+                        &mut self.registry,
+                        heap,
+                        &mut self.string_intern,
+                    );
+                }
+                Ok(Some(Slot::Int(0))) // primary ties → tie-break with secondary
+            } else {
+                // Second stage: secondary.compare(a, b).
+                // args[0]=secondary, args[1]=a, args[2]=b.
+                self.observed_secondary_tag = Some(tag_of(heap, args.first()));
+                self.observed_a_tag = Some(tag_of(heap, args.get(1)));
+                self.observed_b_tag = Some(tag_of(heap, args.get(2)));
+                Ok(Some(Slot::Int(SECONDARY_RESULT)))
+            }
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let this_ref = heap.allocate("duke/util/ThenComparingComparator".to_string(), 2);
+    let primary_ref = heap.allocate("duke/test/PrimaryCmp".to_string(), 1);
+    heap.get_mut(primary_ref).unwrap().fields[0] = Slot::Int(1);
+    let secondary_ref = heap.allocate("duke/test/SecondaryCmp".to_string(), 1);
+    heap.get_mut(secondary_ref).unwrap().fields[0] = Slot::Int(SECONDARY_TAG);
+    heap.get_mut(this_ref).unwrap().fields[0] = Slot::Reference(Some(primary_ref));
+    heap.get_mut(this_ref).unwrap().fields[1] = Slot::Reference(Some(secondary_ref));
+    let a_ref = heap.allocate("duke/test/ArgA".to_string(), 1);
+    heap.get_mut(a_ref).unwrap().fields[0] = Slot::Int(A_TAG);
+    let b_ref = heap.allocate("duke/test/ArgB".to_string(), 1);
+    heap.get_mut(b_ref).unwrap().fields[0] = Slot::Int(B_TAG);
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(a_ref)),
+            Slot::Reference(Some(b_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = ThenComparingGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        call_count: 0,
+        observed_secondary_tag: None,
+        observed_a_tag: None,
+        observed_b_tag: None,
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_then_comparing_compare(
+        &[
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(a_ref)),
+            Slot::Reference(Some(b_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    );
+
+    assert_eq!(
+        ops.observed_secondary_tag,
+        Some(SECONDARY_TAG),
+        "the `secondary` comparator went stale across the primary's compare GCs; \
+         thenComparing's tie-break was handed a dangling comparator reference"
+    );
+    assert_eq!(
+        ops.observed_a_tag,
+        Some(A_TAG),
+        "the compared `a` went stale across the primary's compare GCs"
+    );
+    assert_eq!(
+        ops.observed_b_tag,
+        Some(B_TAG),
+        "the compared `b` went stale across the primary's compare GCs"
+    );
+    let result = result.expect("thenComparing compare should not error");
+    assert_eq!(
+        result,
+        Some(Slot::Int(SECONDARY_RESULT)),
+        "thenComparing returned the wrong tie-break result after callback GCs"
+    );
+}
+
 /// Group C (primitive Int/Long/Double stream loops). These natives loop over a
 /// primitive element snapshot and re-pass the callback RECEIVER (the lambda ref)
 /// into `ops.invoke` on every iteration. The elements are primitives (never at
