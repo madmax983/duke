@@ -11270,6 +11270,49 @@ fn class_registry_register_lambda_increments_counter() {
 }
 
 #[test]
+fn class_registry_register_lambda_registers_synthetic_class_context() {
+    let mut reg = ClassRegistry::new();
+    let info = LambdaInfo {
+        impl_class: "Foo".to_string(),
+        impl_method: "lambda$0".to_string(),
+        impl_desc: "(Ljava/lang/Object;)Ljava/lang/Object;".to_string(),
+        impl_kind: 6,
+        sam_method: "apply".to_string(),
+        sam_desc: "(Ljava/lang/Object;)Ljava/lang/Object;".to_string(),
+        sam_interface: "java/util/function/Function".to_string(),
+        captured_count: 2,
+    };
+    let name = reg.register_lambda(info);
+
+    // The proxy class is now resolvable, so reflective paths that call
+    // `registry.get`/`contains` no longer fail with `class not found: $$Lambda$N`.
+    assert!(
+        reg.contains(&name),
+        "register_lambda should register a synthetic ClassContext for {name}"
+    );
+    let ctx = reg.get(&name).expect("synthetic lambda ClassContext");
+    assert_eq!(ctx.class_name, name);
+    assert_eq!(ctx.super_class.as_deref(), Some("java/lang/Object"));
+    assert_eq!(
+        ctx.interfaces,
+        vec!["java/util/function/Function".to_string()],
+        "getInterfaces/instanceof read the SAM interface from ClassContext.interfaces"
+    );
+    assert!(
+        ctx.methods.is_empty(),
+        "methods MUST stay empty so the Missing-method lambda-dispatch fallback \
+         (registry.get_lambda) keeps routing the SAM to the impl method"
+    );
+    assert_eq!(
+        ctx.instance_field_count, 2,
+        "instance_field_count must match heap.allocate(name, captured_count)"
+    );
+    assert_eq!(ctx.load_source, ClassLoadSource::Synthetic);
+    // The lambda dispatch side-channel is still present.
+    assert!(reg.get_lambda(&name).is_some());
+}
+
+#[test]
 fn class_registry_natives_returns_registry() {
     #[allow(clippy::unnecessary_wraps)]
     fn dummy(

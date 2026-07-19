@@ -520,6 +520,31 @@ impl ClassRegistry {
     pub(crate) fn register_lambda(&mut self, info: LambdaInfo) -> String {
         let name = format!("$$Lambda${}", self.lambda_counter);
         self.lambda_counter += 1;
+
+        // Register a synthetic `ClassContext` for the lambda proxy so reflective
+        // paths (`getClass().getName()`, `Class.forName`, `getInterfaces()`,
+        // `isInstance`, ...) can resolve `$$Lambda$N` instead of failing with
+        // `class not found: $$Lambda$N`. The SAM is still dispatched through the
+        // `Missing`-method fallback in invokevirtual/invokeinterface, which routes
+        // via `registry.get_lambda(class)`; adding a real callable `MethodEntry`
+        // here would let method resolution succeed and break that fallback, so
+        // `methods` MUST stay empty. `instance_field_count` matches the
+        // `heap.allocate(name, captured_count)` layout used at the invokedynamic
+        // site so heap objects and the ClassContext agree on field count.
+        let ctx = ClassContext {
+            class_name: name.clone(),
+            super_class: Some("java/lang/Object".to_string()),
+            interfaces: vec![info.sam_interface.clone()],
+            constant_pool: Vec::new(),
+            methods: Vec::new(),
+            fields: Vec::new(),
+            static_fields: Vec::new(),
+            instance_field_count: info.captured_count,
+            bootstrap_methods: Vec::new(),
+            load_source: ClassLoadSource::Synthetic,
+        };
+        self.register(ctx);
+
         self.lambdas.insert(name.clone(), info);
         name
     }
