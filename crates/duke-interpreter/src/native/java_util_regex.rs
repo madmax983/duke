@@ -52,11 +52,7 @@ pub(crate) fn native_pattern_matches_static(
     let pat_ref = extract_ref_arg(args, 0)?;
     let input_ref = extract_ref_arg(args, 1)?;
     let pattern_str = string_value_from_ref(heap, pat_ref).unwrap_or_default();
-    let input = heap
-        .get(input_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
+    let input = charsequence_chars(heap, input_ref)?.unwrap_or_default();
     let re = compile_java_regex(&pattern_str)?;
     let result = re
         .find(&input)
@@ -105,11 +101,7 @@ pub(crate) fn native_matcher_find(
         _ => 0,
     };
     let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
-    let input = heap
-        .get(input_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
+    let input = charsequence_chars(heap, input_ref)?.unwrap_or_default();
     let re = compile_java_regex_with_flags(&pattern_str, flags)?;
     if let Some(m) = re.find_at(&input, pos.min(input.len())) {
         store_matcher_match(heap, m_ref, &input, m.start(), m.end())?;
@@ -135,11 +127,7 @@ pub(crate) fn native_matcher_matches(
         return Ok(Some(Slot::Int(0)));
     };
     let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
-    let input = heap
-        .get(input_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
+    let input = charsequence_chars(heap, input_ref)?.unwrap_or_default();
     let re = compile_java_regex_with_flags(&pattern_str, flags)?;
     let matched = re
         .find(&input)
@@ -378,11 +366,7 @@ pub(crate) fn native_matcher_replace_all(
         return Ok(Some(Slot::Reference(None)));
     };
     let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
-    let input = heap
-        .get(input_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
+    let input = charsequence_chars(heap, input_ref)?.unwrap_or_default();
     let repl = string_value_from_ref(heap, repl_ref).unwrap_or_default();
     let re = compile_java_regex_with_flags(&pattern_str, flags)?;
     let result = re.replace_all(&input, repl.as_str()).into_owned();
@@ -406,11 +390,7 @@ pub(crate) fn native_matcher_replace_first(
         return Ok(Some(Slot::Reference(None)));
     };
     let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
-    let input = heap
-        .get(input_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
+    let input = charsequence_chars(heap, input_ref)?.unwrap_or_default();
     let repl = string_value_from_ref(heap, repl_ref).unwrap_or_default();
     let re = compile_java_regex_with_flags(&pattern_str, flags)?;
     let result = re.replace(&input, repl.as_str()).into_owned();

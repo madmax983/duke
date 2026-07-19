@@ -7,12 +7,7 @@ pub(crate) fn native_zip_file_init(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let path_ref = extract_ref_arg(args, 1)?;
-    let path_str = heap
-        .get(path_ref)?
-        .string_value
-        .as_deref()
-        .ok_or(Error::NullPointerException)?
-        .to_string();
+    let path_str = string_value_from_ref(heap, path_ref)?;
     let fd = zip_open(std::path::Path::new(&path_str))?;
     let obj = heap.get_mut(this_ref)?;
     obj.fields[0] = Slot::Int(fd);
@@ -75,12 +70,7 @@ pub(crate) fn native_zip_file_get_entry(
     let this_ref = extract_ref_arg(args, 0)?;
     let name_ref = extract_ref_arg(args, 1)?;
     let fd = extract_io_fd(heap, this_ref)?;
-    let entry_name = heap
-        .get(name_ref)?
-        .string_value
-        .as_deref()
-        .ok_or(Error::NullPointerException)?
-        .to_string();
+    let entry_name = string_value_from_ref(heap, name_ref)?;
     let info = zip_get_entry_info(fd, &entry_name)?;
     let Some(info) = info else {
         return Ok(Some(Slot::Reference(None)));
@@ -112,12 +102,7 @@ pub(crate) fn native_zip_file_get_input_stream(
         Some(Slot::Reference(Some(r))) => *r,
         _ => return Err(Error::NullPointerException),
     };
-    let entry_name = heap
-        .get(name_slot_ref)?
-        .string_value
-        .as_deref()
-        .ok_or(Error::NullPointerException)?
-        .to_string();
+    let entry_name = string_value_from_ref(heap, name_slot_ref)?;
     // Decompress the entry and wrap in a ByteBuffer.
     let data = zip_read_entry(fd, &entry_name)?;
     let buf_fd = heap.open_host_byte_buffer(data);
@@ -1168,7 +1153,7 @@ pub(crate) fn native_treeset_contains(
     let this_ref = extract_ref_arg(args, 0)?;
     let elem = extract_slot_arg(args, 1);
     let elem_str = match &elem {
-        Slot::Reference(Some(r)) => heap.get(*r)?.string_value.clone(),
+        Slot::Reference(Some(r)) => charsequence_chars(heap, *r)?,
         Slot::Int(v) => Some(v.to_string()),
         _ => None,
     };
@@ -1179,7 +1164,7 @@ pub(crate) fn native_treeset_contains(
     for i in 0..size {
         let ex = heap.get(this_ref)?.fields[1 + i];
         let ex_str = match &ex {
-            Slot::Reference(Some(r)) => heap.get(*r).ok().and_then(|o| o.string_value.clone()),
+            Slot::Reference(Some(r)) => charsequence_chars(heap, *r).ok().flatten(),
             Slot::Int(v) => Some(v.to_string()),
             _ => None,
         };
@@ -1919,7 +1904,7 @@ pub(crate) fn native_objects_tostring(
     let s = match args.first() {
         Some(Slot::Reference(None)) | None => heap.allocate_string("null".to_string()),
         Some(Slot::Reference(Some(r))) => {
-            let text = heap_object_to_string(heap.get(*r)?, *r);
+            let text = heap_object_to_string_ref(heap, *r)?;
             heap.allocate_string(text)
         }
         Some(Slot::Int(n)) => heap.allocate_string(n.to_string()),
@@ -1945,7 +1930,7 @@ pub(crate) fn native_objects_tostring_default(
             Ok(Some(Slot::Reference(Some(default_ref))))
         }
         Some(Slot::Reference(Some(r))) => {
-            let text = heap_object_to_string(heap.get(*r)?, *r);
+            let text = heap_object_to_string_ref(heap, *r)?;
             let s = heap.allocate_string(text);
             Ok(Some(Slot::Reference(Some(s))))
         }
@@ -3926,7 +3911,7 @@ pub(crate) fn native_stringjoiner_length(
     // Reuse toString and measure
     let result = native_stringjoiner_tostring(args, heap, out, control)?;
     let len = match result {
-        Some(Slot::Reference(Some(r))) => heap.get(r)?.string_value.as_deref().unwrap_or("").len(),
+        Some(Slot::Reference(Some(r))) => string_value_from_ref(heap, r).unwrap_or_default().len(),
         _ => 0,
     };
     Ok(Some(Slot::Int(i32::try_from(len).unwrap_or(i32::MAX))))
@@ -4923,10 +4908,9 @@ pub(crate) fn native_arrays_to_string_object(
         }
         match s {
             Slot::Reference(Some(r)) => {
-                let part = heap
-                    .get(*r)
+                let part = charsequence_chars(heap, *r)
                     .ok()
-                    .and_then(|o| o.string_value.clone())
+                    .flatten()
                     .unwrap_or_else(|| "null".to_string());
                 result.push_str(&part);
             }
@@ -5534,11 +5518,11 @@ pub(crate) fn native_locale_to_string(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let language = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
+        Some(Slot::Reference(Some(r))) => string_value_from_ref(heap, *r).unwrap_or_default(),
         _ => String::new(),
     };
     let country = match heap.get(this_ref)?.fields.get(1) {
-        Some(Slot::Reference(Some(r))) => heap.get(*r)?.string_value.clone().unwrap_or_default(),
+        Some(Slot::Reference(Some(r))) => string_value_from_ref(heap, *r).unwrap_or_default(),
         _ => String::new(),
     };
     let text = if country.is_empty() {

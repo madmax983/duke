@@ -172,14 +172,11 @@ pub(crate) fn native_string_coder(
     if let Some(Slot::Int(coder)) = obj.fields.get(1) {
         return Ok(Some(Slot::Int(*coder)));
     }
-    // Fallback: derive coder from the string payload.
-    let latin1 = obj
-        .string_value
-        .as_deref()
-        .unwrap_or("")
-        .chars()
-        .all(|c| c as u32 <= 0xFF);
-    Ok(Some(Slot::Int(i32::from(!latin1))))
+    // Defensive fallback: slot 1 (`coder:B`) is authoritative and populated by
+    // every real-layout String mint path, so this branch is effectively
+    // unreachable. Default to Latin-1 rather than dereferencing the String's
+    // `string_value` side-channel.
+    Ok(Some(Slot::Int(0)))
 }
 /// Native: `String.equals(Object)` — compares string content.
 pub(crate) fn native_string_equals(
@@ -365,7 +362,7 @@ pub(crate) fn native_object_tostring(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let s = heap_object_to_string(heap.get(this_ref)?, this_ref);
+    let s = heap_object_to_string_ref(heap, this_ref)?;
     let r = heap.allocate_string(s);
     Ok(Some(Slot::Reference(Some(r))))
 }
@@ -3041,7 +3038,7 @@ pub(crate) fn native_string_value_of_object(
 ) -> Result<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(Some(r))) => {
-            let s = heap_object_to_string(heap.get(*r)?, *r);
+            let s = heap_object_to_string_ref(heap, *r)?;
             let r = heap.allocate_string(s);
             Ok(Some(Slot::Reference(Some(r))))
         }
@@ -4469,7 +4466,7 @@ pub(crate) fn native_sb_append_charsequence_range(
     let end = extract_int_arg(args, 3)? as usize;
     let sub = match args.get(1) {
         Some(Slot::Reference(Some(r))) => {
-            let s = heap.get(*r)?.string_value.clone().unwrap_or_default();
+            let s = charsequence_chars(heap, *r)?.unwrap_or_default();
             let char_count = s.chars().count();
             if begin > end || end > char_count {
                 return Err(Error::ArrayIndexOutOfBounds {
@@ -4599,7 +4596,7 @@ pub(crate) fn native_sb_append_object(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let append_str = match args.get(1) {
-        Some(Slot::Reference(Some(r))) => heap_object_to_string(heap.get(*r)?, *r),
+        Some(Slot::Reference(Some(r))) => heap_object_to_string_ref(heap, *r)?,
         _ => "null".to_string(),
     };
     let obj = heap.get_mut(this_ref)?;
@@ -4934,11 +4931,7 @@ pub(crate) fn native_string_join(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let delim_ref = extract_ref_arg(args, 0)?;
-    let delim = heap
-        .get(delim_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
+    let delim = charsequence_chars(heap, delim_ref)?.unwrap_or_default();
     // args[1] can be an Object[] array (varargs) or a single Iterable (ArrayList)
     let parts: Vec<String> = match args.get(1) {
         Some(Slot::Reference(Some(arr_ref))) => {
@@ -4951,11 +4944,9 @@ pub(crate) fn native_string_join(
                 let _ = obj;
                 for slot in slots {
                     let s = match slot {
-                        Slot::Reference(Some(r)) => heap
-                            .get(r)?
-                            .string_value
-                            .clone()
-                            .unwrap_or_else(|| "null".to_string()),
+                        Slot::Reference(Some(r)) => {
+                            charsequence_chars(heap, r)?.unwrap_or_else(|| "null".to_string())
+                        }
                         Slot::Reference(None) => "null".to_string(),
                         Slot::Int(n) => n.to_string(),
                         Slot::Long(n) => n.to_string(),
@@ -4980,11 +4971,9 @@ pub(crate) fn native_string_join(
                 let mut result = Vec::with_capacity(size_val);
                 for slot in elems {
                     let s = match slot {
-                        Slot::Reference(Some(r)) => heap
-                            .get(r)?
-                            .string_value
-                            .clone()
-                            .unwrap_or_else(|| "null".to_string()),
+                        Slot::Reference(Some(r)) => {
+                            charsequence_chars(heap, r)?.unwrap_or_else(|| "null".to_string())
+                        }
                         Slot::Reference(None) => "null".to_string(),
                         Slot::Int(n) => n.to_string(),
                         Slot::Long(n) => n.to_string(),
@@ -5255,11 +5244,9 @@ pub(crate) fn native_stringbuffer_append(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let frag = match extract_slot_arg(args, 1) {
-        Slot::Reference(Some(r)) => heap
-            .get(r)?
-            .string_value
-            .clone()
-            .unwrap_or_else(|| "null".to_string()),
+        Slot::Reference(Some(r)) => {
+            charsequence_chars(heap, r)?.unwrap_or_else(|| "null".to_string())
+        }
         Slot::Reference(None) => "null".to_string(),
         Slot::Int(n) => n.to_string(),
         Slot::Long(n) => n.to_string(),
