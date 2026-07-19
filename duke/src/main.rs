@@ -21,6 +21,8 @@ mod jar_analyze;
 #[cfg(feature = "nova")]
 mod jar_diff;
 #[cfg(feature = "nova")]
+mod jar_implements;
+#[cfg(feature = "nova")]
 mod jar_search;
 mod jdwp;
 #[cfg(feature = "nova")]
@@ -399,6 +401,8 @@ fn main() {
         eprintln!("       duke jar-dead-code <file.jar>");
         #[cfg(feature = "nova")]
         eprintln!("       duke jar-search <file.jar> <query>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke jar-implements <file.jar> <interface_or_class>");
         eprintln!("       duke -jar <file.jar> [string-arg...]");
         eprintln!("Options: --telemetry[=path]  dump telemetry JSON after execution");
         eprintln!("         --telemetry-md[=p]  dump telemetry Markdown report after execution");
@@ -456,6 +460,24 @@ fn main() {
         #[cfg(not(feature = "nova"))]
         {
             eprintln!("duke: unknown subcommand 'jar-search'");
+            std::process::exit(1);
+        }
+    }
+
+    // Dispatch `jar-implements`
+    if args.len() > 1 && args[1] == "jar-implements" {
+        if args.len() < 4 {
+            eprintln!("Usage: duke jar-implements <file.jar> <interface_or_class>");
+            std::process::exit(1);
+        }
+        #[cfg(feature = "nova")]
+        {
+            jar_implements::dump_jar_implements(&args[2], &args[3]);
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: unknown subcommand 'jar-implements'");
             std::process::exit(1);
         }
     }
