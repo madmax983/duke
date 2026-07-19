@@ -36085,7 +36085,7 @@ fn bifunction_and_then_apply_survives_two_gcs_during_callback() {
 ///
 /// Predicate `and` leg — drives `native_and_predicate_test`.
 #[test]
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::branches_sharing_code)]
 fn and_predicate_test_survives_two_gcs_during_callback() {
     use std::collections::HashMap;
 
@@ -36515,7 +36515,7 @@ fn compose_function_apply_survives_two_gcs_during_callback() {
 
 /// Consumer `andThen` leg — drives `native_and_then_consumer_accept`.
 #[test]
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::branches_sharing_code)]
 fn and_then_consumer_accept_survives_two_gcs_during_callback() {
     use std::collections::HashMap;
 
@@ -36823,7 +36823,12 @@ fn then_comparing_compare_survives_two_gcs_during_callback() {
 ///
 /// IntStream leg — drives `native_int_stream_for_each`.
 #[test]
-#[allow(clippy::too_many_lines)]
+#[allow(
+    clippy::too_many_lines,
+    clippy::doc_markdown,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap
+)]
 fn int_stream_for_each_receiver_survives_two_gcs_during_callback() {
     use std::collections::HashMap;
 
@@ -36954,7 +36959,12 @@ fn int_stream_for_each_receiver_survives_two_gcs_during_callback() {
 
 /// Group C — LongStream leg — drives `native_long_stream_for_each`.
 #[test]
-#[allow(clippy::too_many_lines)]
+#[allow(
+    clippy::too_many_lines,
+    clippy::doc_markdown,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap
+)]
 fn long_stream_for_each_receiver_survives_two_gcs_during_callback() {
     use std::collections::HashMap;
 
@@ -37081,7 +37091,12 @@ fn long_stream_for_each_receiver_survives_two_gcs_during_callback() {
 
 /// Group C — DoubleStream leg — drives `native_double_stream_for_each`.
 #[test]
-#[allow(clippy::too_many_lines)]
+#[allow(
+    clippy::too_many_lines,
+    clippy::doc_markdown,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap
+)]
 fn double_stream_for_each_receiver_survives_two_gcs_during_callback() {
     use std::collections::HashMap;
 
@@ -37275,6 +37290,7 @@ fn stream_gc_two_collections(
 
 /// Builds a `duke/util/Stream` whose elements are freshly-allocated objects each
 /// tagged with a distinct int in `fields[0]`. Returns the stream ref.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
 fn build_tagged_object_stream(heap: &mut duke_gc::Heap, tags: &[i32]) -> u64 {
     let stream_ref = heap.allocate("duke/util/Stream".to_string(), 1);
     heap.get_mut(stream_ref).unwrap().fields[0] = Slot::Int(tags.len() as i32);
@@ -37521,6 +37537,11 @@ fn stream_map_receiver_element_and_result_survive_two_gcs_during_callback() {
 /// allocated before the loop and written after it — every one of which the
 /// native holds across the fold's per-element callbacks.
 #[test]
+#[allow(
+    clippy::too_many_lines,
+    clippy::branches_sharing_code,
+    clippy::similar_names
+)]
 fn stream_reduce_receiver_accumulator_and_elements_survive_two_gcs_during_callback() {
     use std::collections::HashMap;
 
@@ -37795,6 +37816,7 @@ fn build_collector(heap: &mut duke_gc::Heap, class: &str, fields: &[Slot]) -> u6
 /// produced inside each callback; the assembled map must have every key and
 /// value intact.
 #[test]
+#[allow(clippy::too_many_lines, clippy::doc_markdown, clippy::cast_sign_loss)]
 fn collect_to_map_accumulator_keys_and_values_survive_two_gcs_during_callback() {
     use std::collections::HashMap;
 
@@ -37948,6 +37970,7 @@ fn collect_to_map_accumulator_keys_and_values_survive_two_gcs_during_callback() 
 /// element pushed into each bucket AFTER its key callback. A distinct key is
 /// produced per element so every element lands in its own single-element list.
 #[test]
+#[allow(clippy::too_many_lines, clippy::doc_markdown, clippy::cast_sign_loss)]
 fn collect_grouping_by_elements_and_map_survive_two_gcs_during_callback() {
     use std::collections::HashMap;
 
@@ -38094,6 +38117,7 @@ fn collect_grouping_by_elements_and_map_survive_two_gcs_during_callback() {
 /// [10,20,30] via `op(acc, elem) = acc + elem`, so the accumulator advances
 /// 0 -> 10 -> 30 -> 60.
 #[test]
+#[allow(clippy::too_many_lines)]
 fn collect_reducing_accumulator_survives_two_gcs_during_callback() {
     use std::collections::HashMap;
 
@@ -38228,6 +38252,7 @@ fn collect_reducing_accumulator_survives_two_gcs_during_callback() {
 /// each of which forces two relocating GCs. The container accumulates the sum of
 /// element tags; the finisher reads it back.
 #[test]
+#[allow(clippy::too_many_lines)]
 fn collect_real_collector_chain_container_survives_two_gcs_during_callback() {
     use std::collections::HashMap;
 
@@ -38407,6 +38432,7 @@ fn collect_real_collector_chain_container_survives_two_gcs_during_callback() {
 /// collections. Without pinning the finisher slot, the finisher `apply` after
 /// the recursive collect is handed a dangling/reused receiver.
 #[test]
+#[allow(clippy::too_many_lines)]
 fn collect_collecting_and_then_finisher_survives_two_gcs_during_recursive_collect() {
     use std::collections::HashMap;
 
