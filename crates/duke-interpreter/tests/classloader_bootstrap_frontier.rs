@@ -161,10 +161,11 @@ fn slf4j_real_jdk_shadow_classloader_frontier_pin() {
     // natives. `getstatic Unsafe.ARRAY_*` now resolves, clearing the entire Unsafe
     // intrinsics lane in one move.
     //
-    // The `String(StringBuilder)` / `String(StringBuffer)` constructors are now
-    // provided as real-layout natives (String stage 3a), so the chain no longer
-    // stalls on `MethodNotFound { java/lang/String.<init> (Ljava/lang/StringBuilder;)V }`.
-    // It advances materially further — through the `String(StringBuilder)` mint and
+    // The `String(StringBuilder)` / `String(StringBuffer)` / `String([BB)V`
+    // constructors are now provided as real-layout natives (String stages 3-4), so
+    // the chain no longer stalls on
+    // `MethodNotFound { java/lang/String.<init> (Ljava/lang/StringBuilder;)V }`.
+    // It advances materially further — through the full String-constructor family and
     // deep into the real JDK's own bootstrap — before hitting the next wall:
     //
     //   JavaException { class_name: "java/lang/InternalError" }
@@ -176,6 +177,11 @@ fn slf4j_real_jdk_shadow_classloader_frontier_pin() {
     // throws `InternalError`. That is the VM saved-system-properties bootstrap lane,
     // a distinct concern owned elsewhere, so we stop and pin here rather than force
     // past it.
+    //
+    // Honest-pin: this migration clears the full String-constructor wall, so this
+    // InternalError pin intentionally supersedes trunk's name-match
+    // `java/lang/String.<init>(` idiom for these String rungs — recording the real
+    // post-String-wall frontier is honest advancement.
     //
     // When a native pushes the wall past this point, re-run with `-- --nocapture`,
     // read the new verbatim blocker above, and update this substring to lock it in.

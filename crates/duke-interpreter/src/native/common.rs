@@ -10642,6 +10642,27 @@ fn qualify_reflected_class_info_ancestry(
     info
 }
 
+/// Synthesize the SAM as a reflectively-visible method for a `$$Lambda$N` proxy.
+///
+/// The proxy's `ClassContext.methods` is deliberately empty so the SAM keeps
+/// dispatching through the `Missing`-method lambda fallback in
+/// invokevirtual/invokeinterface (see `ClassRegistry::register_lambda`). Reflective
+/// enumeration (`getDeclaredMethods`/`getMethods`) must still list the SAM, so it is
+/// synthesized here from the `LambdaInfo` side-channel — sourced ONLY at the
+/// reflection-enumeration boundary, never added to `ClassContext.methods`. The SAM
+/// is a concrete public instance method (the lambda's implemented functional method).
+fn synthesized_lambda_sam(registry: &ClassRegistry, class: &str) -> Option<ReflectedMethodInfo> {
+    registry.get_lambda(class).map(|info| ReflectedMethodInfo {
+        name: info.sam_method.clone(),
+        descriptor: info.sam_desc.clone(),
+        is_public: true,
+        is_static: false,
+        annotations: Vec::new(),
+        annotation_default: None,
+        signature: None,
+    })
+}
+
 // Threading `signature: Option<String>` through the class/field/method
 // synthetic-stub literals tipped this data-plumbing fn just over the line limit.
 #[allow(clippy::too_many_lines)]
@@ -10667,7 +10688,7 @@ fn inspect_reflected_class(
                 ));
             }
             let ctx = registry.get(&class_key)?;
-            let methods = ctx
+            let mut methods: Vec<ReflectedMethodInfo> = ctx
                 .methods
                 .iter()
                 .map(|method| ReflectedMethodInfo {
@@ -10680,6 +10701,9 @@ fn inspect_reflected_class(
                     signature: None,
                 })
                 .collect();
+            // Lambda proxies carry an empty ClassContext.methods (dispatch
+            // constraint); synthesize the SAM so reflection lists it.
+            methods.extend(synthesized_lambda_sam(registry, &class_key));
             let fields = ctx
                 .fields
                 .iter()
@@ -10720,7 +10744,7 @@ fn inspect_reflected_class(
     }
     let class_key = registry.resolve_loaded_class_key(class)?;
     let ctx = registry.get(&class_key)?;
-    let methods = ctx
+    let mut methods: Vec<ReflectedMethodInfo> = ctx
         .methods
         .iter()
         .map(|method| ReflectedMethodInfo {
@@ -10733,6 +10757,9 @@ fn inspect_reflected_class(
             signature: None,
         })
         .collect();
+    // Lambda proxies carry an empty ClassContext.methods (dispatch constraint);
+    // synthesize the SAM so reflection lists it.
+    methods.extend(synthesized_lambda_sam(registry, &class_key));
     let fields = ctx
         .fields
         .iter()
@@ -18908,5 +18935,83 @@ mod tests_char_titlecase {
                 "toTitleCase(0x{cp:04X}) expected 0x{expected:04X}",
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod lambda_reflection_tests {
+    use super::*;
+    use crate::registry::LambdaInfo;
+
+    fn empty_loader() -> duke_loader::DirectoryLoader {
+        // Points at the workspace root; it will never resolve a `$$Lambda$N`
+        // classfile, so `inspect_reflected_class` falls to the registered
+        // synthetic `ClassContext`.
+        duke_loader::DirectoryLoader::new(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap(),
+        )
+    }
+
+    fn function_lambda() -> LambdaInfo {
+        LambdaInfo {
+            impl_class: "Foo".to_string(),
+            impl_method: "lambda$0".to_string(),
+            impl_desc: "(Ljava/lang/Object;)Ljava/lang/Object;".to_string(),
+            impl_kind: 6,
+            sam_method: "apply".to_string(),
+            sam_desc: "(Ljava/lang/Object;)Ljava/lang/Object;".to_string(),
+            sam_interface: "java/util/function/Function".to_string(),
+            captured_count: 0,
+        }
+    }
+
+    #[test]
+    fn synthesized_lambda_sam_returns_sam_for_lambda_only() {
+        let mut registry = ClassRegistry::new();
+        let name = registry.register_lambda(function_lambda());
+
+        let sam = synthesized_lambda_sam(&registry, &name).expect("lambda SAM synthesized");
+        assert_eq!(sam.name, "apply");
+        assert_eq!(sam.descriptor, "(Ljava/lang/Object;)Ljava/lang/Object;");
+        assert!(sam.is_public, "the SAM is a public method");
+        assert!(!sam.is_static, "the SAM is a concrete instance method");
+        assert!(sam.signature.is_none());
+
+        // Non-lambda classes get no synthesized method.
+        assert!(synthesized_lambda_sam(&registry, "java/lang/Object").is_none());
+    }
+
+    #[test]
+    fn inspect_reflected_class_lists_the_lambda_sam() {
+        // `inspect_reflected_class` is the shared source of the method list for
+        // both `getDeclaredMethods` (reads `.methods` directly) and `getMethods`
+        // (walks classes via `collect_public_reflected_methods`, reading the same
+        // per-class `.methods`). The lambda ClassContext has EMPTY methods (so the
+        // Missing-fallback SAM dispatch stays intact), so the SAM must come from
+        // the synthesized entry.
+        let mut registry = ClassRegistry::new();
+        let name = registry.register_lambda(function_lambda());
+        let loader = empty_loader();
+
+        let info = inspect_reflected_class(&mut registry, &loader, &name)
+            .expect("reflect the synthetic lambda proxy");
+        let names: Vec<&str> = info.methods.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["apply"],
+            "getDeclaredMethods must enumerate exactly the lambda SAM"
+        );
+        let sam = &info.methods[0];
+        assert_eq!(sam.descriptor, "(Ljava/lang/Object;)Ljava/lang/Object;");
+        assert!(sam.is_public && !sam.is_static);
+        // The dispatch side-channel is untouched: ClassContext.methods stays empty.
+        assert!(
+            registry.get(&name).expect("lambda ctx").methods.is_empty(),
+            "the synthesized SAM must NOT be added to ClassContext.methods"
+        );
     }
 }

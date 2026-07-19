@@ -275,36 +275,65 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // dispatches through `AnnotationAwareOrderComparator`); `Arrays.hashCode(Object[])`; and
 // `Class.getSuperclass`/`getInterfaces`.
 //
-// The Spring GENERICS-reflection wall is now CLEARED (2026-07-19,
-// generics-reflection lane): real `Signature`-attribute parsing (JVMS §4.7.9.1),
-// a synthetic `java.lang.reflect.Type`/`TypeVariable`/`ParameterizedType`/
-// `GenericArrayType`/`WildcardType` hierarchy, and honest natives —
-// `Class.getTypeParameters` (TypeVariable[] of the correct arity, so
-// `ResolvableType.forClassWithGenerics`'s type-variable-count assert passes),
-// `getGenericSuperclass`/`getGenericInterfaces` (ParameterizedType when
-// parameterized), `Class.toGenericString`, and `Field.getGenericType`. Curated
-// JDK generic signatures back synthetic generic types (Map = <K,V>, List = <E>,
-// …) that carry no classfile Signature. A tiny `Boolean.getBoolean(String)`
-// bootstrap read was also cleared.
+// Two annotation/generics-reflection walls are now BOTH cleared, from independent lanes:
+//   * `java/lang/Class.getTypeParameters()[Ljava/lang/reflect/TypeVariable;` — CLEARED
+//     2026-07-19 by the generics-reflection lane (real `Signature`-attribute parsing per
+//     JVMS §4.7.9.1 + the `java.lang.reflect.Type`/`TypeVariable`/`ParameterizedType`
+//     hierarchy + `getTypeParameters`/`getGenericSuperclass`/`toGenericString` natives), so
+//     `ResolvableType.forClassWithGenerics`'s type-variable-count assert now passes.
+//   * `class not found: [B` (and its object-array sibling `class not found: [L…;`) — CLEARED
+//     2026-07-19 by the array-class-resolution lane: `[`-prefixed names resolve by
+//     synthesizing array `Class` mirrors (JVMS 5.3.3), so
+//     `AnnotationsScanner.getDeclaredAnnotations` no longer walls on a `byte[]`/object-array
+//     annotation element.
 //
-// The app now advances PAST the generics wall and walls, nondeterministically
-// (HashMap iteration order decides which surfaces first), on a cluster of
-// downstream lanes that are ALL out of the generics-reflection lane:
-//   * `class not found: [B` / `class not found: [Lorg/...ConcurrentReferenceHashMap$*;`
-//     — primitive AND object array-class resolution (class-loader lane), the
-//     dominant frontier.
-//   * `ambiguous class name: org/springframework/context/ApplicationListener
-//     matches [..\0, ..\0]` — a loader-qualified class-key dedup issue
-//     (class-loader lane).
-//   * `class not found: $$Lambda$N` — LambdaMetafactory / invokedynamic lane.
-// The pin below accepts ANY of these de-flaking markers (see `APP_BLOCKERS`).
-const APP_BLOCKERS: [&str; 3] = [
-    // Primitive + object array-class resolution (`[B`, `[Lorg/...;`).
-    "class not found: [",
-    // Loader-qualified class-key dedup (ApplicationListener).
+// LAMBDA-REFLECTION UPDATE (2026-07-19, lambda-proxy lane, THIS branch): the
+// `class not found: $$Lambda$N` reflection wall is CLEARED at its source.
+// `ClassRegistry::register_lambda` (crates/duke-interpreter/src/registry.rs) now ALSO
+// registers a synthetic `ClassContext` for each `$$Lambda$N` proxy (super
+// `java/lang/Object`, `interfaces = [sam_interface]`, `methods` carrying the SAM so
+// `getDeclaredMethods`/`getMethods` answer honestly while the existing Missing-method
+// lambda-dispatch fallback in invokevirtual/invokeinterface still routes the SAM to the
+// impl body, `instance_field_count = captured_count`, `ClassLoadSource::Synthetic`).
+// Reflection on a lambda now resolves: a focused probe
+// (`Function<String,Integer> f = s -> s.length()`) shows `f.getClass().getMethods()` /
+// `getDeclaredMethods()` — which previously aborted the VM with `class not found: $$Lambda$0`
+// — now succeed, `getInterfaces()` returns `[java.util.function.Function]` (was empty), and
+// `Class.forName("$$Lambda$0")` resolves.
+//
+// The `class not found: $$Lambda$N` wall is CLEARED at its source (this branch) and
+// CONFIRMED EMPIRICALLY: on the rebased binary (array-class #1394 merged + this lambda fix),
+// the app fixture was run 20 times and `$$Lambda` appears in ZERO runs — the marker is now
+// dead, so it has been REMOVED from `APP_BLOCKERS`. Previously (before array-class merged) it
+// surfaced ~1/20 as a lambda proxy looked up by name before the invokedynamic/
+// `LambdaMetafactory` path registered it; the synthetic-`ClassContext` registration above
+// makes that name lookup resolve, and the unit/reflection tests cover the reflection path.
+//
+// With the generics, array-class, and lambda-reflection walls all down, the app advances
+// further. Frontier re-observed empirically on the rebased binary over 20 runs (see
+// `APP_BLOCKERS`) — now DETERMINISTIC (20/20) rather than the earlier nondeterministic cluster:
+//   * `ambiguous class name: org/springframework/context/ApplicationListener matches [..\0, ..\0]`
+//     — 20/20, the current first blocker. A loader-qualified class-key dedup issue: the SAME
+//     class is registered under two loader-suffixed keys, so a bare-name lookup finds both and
+//     cannot disambiguate (class-identity lane #1404, still OPEN — out of this lane's scope).
+//   * `java exception: java/lang/reflect/InvocationTargetException` — not observed in these 20
+//     runs (the `ambiguous class name` wall now precedes it every time), but RETAINED as a
+//     de-flaking marker: the launcher's reflective `main.invoke` wraps a
+//     `java/lang/ClassCastException` from the SAME loader-key root
+//     (`ConcurrentReferenceHashMap$SoftEntryReference` casts its soft referent to `…$Entry`,
+//     and `is_assignable_from` misses because the referent's runtime key is loader-qualified
+//     while the checkcast target resolves to the bare key) — the class-identity/assignability
+//     lane, NOT this lane; it is owned by lane #1404.
+// The pin accepts ANY of these markers to stay stable against the frontier. `getTypeParameters`,
+// `class not found: [`, and `class not found: $$Lambda$` are deliberately ABSENT: all three
+// walls are cleared (generics, array-class, and lambda-reflection lanes respectively) and none
+// must reappear.
+const APP_BLOCKERS: [&str; 2] = [
+    // Loader-qualified class-key dedup (ApplicationListener) — now the deterministic first
+    // blocker (20/20 runs on the rebased binary; class-identity lane, still OPEN).
     "ambiguous class name",
-    // LambdaMetafactory / invokedynamic synthetic classes.
-    "$$Lambda",
+    // Reflective main.invoke wrapping a ClassCastException from the same loader-key root.
+    "java exception: java/lang/reflect/InvocationTargetException",
 ];
 // LADDER now boots END-TO-END (2026-07-15, same-class-reflection lane, trunk): main
 // climbs into `LadderApplication.main`, clears Properties.load + the BufferedReader
@@ -352,13 +381,15 @@ fn combined_output(output: &Output) -> String {
             for directed ops.invoke (OrderComparator.compare via AnnotationAwareOrderComparator); \
             Arrays.hashCode(Object[]); and Class.getSuperclass/getInterfaces. The Spring \
             annotation/generics reflection wall (AnnotationsScanner / ResolvableType) was then \
-            CLEARED 2026-07-19 by the generics-reflection lane: real Signature-attribute parsing, \
-            the java.lang.reflect.Type/TypeVariable/ParameterizedType hierarchy, and the \
-            getTypeParameters/getGenericSuperclass/getGenericInterfaces/toGenericString natives. \
-            The app now advances PAST the generics wall and walls, nondeterministically, on the \
-            array-class resolution lane (`class not found: [B` / `[Lorg/...;`), a loader class-key \
-            dedup (`ambiguous class name`), and the LambdaMetafactory lane (`$$Lambda`) — all out \
-            of the generics lane. Keep ignored until the Spring Boot app boot completes. \
+            CLEARED 2026-07-19 by the generics-reflection lane, and the `class not found: [B`/`[L…;` \
+            array-class wall cleared 2026-07-19 by the array-class-resolution lane (array classes \
+            now resolve by synthesizing array Class mirrors, JVMS 5.3.3). With both cleared, the \
+            app now walls, nondeterministically, on a loader-qualified class-key dedup \
+            (`ambiguous class name` for ApplicationListener, dominant), a ClassCastException from \
+            the same loader-key root wrapped as InvocationTargetException by the reflective \
+            main.invoke, and a LambdaMetafactory synthetic (`$$Lambda`) — all class-loader / \
+            invokedynamic lanes out of the array-class lane. Keep ignored until the Spring Boot \
+            app boot completes. \
             See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_app_boots_end_to_end() {
     let output = run_fixture(APP_JAR);
@@ -391,10 +422,11 @@ fn spring_boot_app_surfaces_next_missing_capability_explicitly() {
     );
     assert!(
         APP_BLOCKERS.iter().any(|marker| combined.contains(marker)),
-        "expected the app fixture to stay pinned at the current frontier cluster \
-         (any of {APP_BLOCKERS:?} — the generics wall is cleared; the app now walls \
-         nondeterministically on the array-class / class-loader-dedup / lambda lanes); \
-         if it moved, re-observe and update this pin \
+        "expected the app fixture to stay pinned at the current frontier \
+         (any of {APP_BLOCKERS:?} — the generics, array-class, AND lambda-reflection walls are \
+         all cleared; the app now walls on the class-identity lane, `ambiguous class name` for \
+         ApplicationListener deterministically, with the reflective-ITE marker retained for \
+         de-flaking); if it moved, re-observe and update this pin \
          (docs/findings/2026-07-10-spring-boot-real-app.md). Output:\n{combined}"
     );
 }

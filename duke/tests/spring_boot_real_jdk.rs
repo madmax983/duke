@@ -93,6 +93,11 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // `crates/duke-interpreter/tests/classloader_bootstrap_frontier.rs` (rendered there as
 // `JavaException { class_name: "java/lang/InternalError" }`), a distinct VM saved-system-properties
 // bootstrap lane. Out of scope here. If either boot advances past this, re-observe and update.
+//
+// Honest-pin: this migration clears the full String-constructor wall (StringBuilder/StringBuffer/
+// `[BB)V` real-layout intrinsics), so the real-JDK boot advances PAST trunk's name-match
+// `java/lang/String.<init>(` idiom to this next frontier. This InternalError pin intentionally
+// supersedes trunk's name-match idiom for these String rungs.
 const REAL_JDK_FRONTIER: &str = "java exception: java/lang/InternalError";
 
 // Markers of the OLD raw panic that this fix eliminates. None of these must appear.
