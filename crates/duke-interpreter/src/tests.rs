@@ -37025,6 +37025,782 @@ fn stream_filter_receiver_and_element_survive_two_gcs_during_callback() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Group B — `native_stream_collect` mega-dispatch.
+//
+// Each collector branch loops over the (reference-typed) element snapshot
+// calling the collector's `*_fn` lambda(s) per element, while HOLDING the
+// element snapshot, the accumulator being built (a heap map/list/StringBuilder
+// or a running `acc`/`min`/`container` ref), and the re-passed lambda receiver
+// in Rust locals across each `ops.invoke`. The real-`Collector` protocol
+// additionally chains supplier→get→accumulator→accept→finisher→apply, holding
+// the container across the whole chain, and `collectingAndThen` holds its
+// finisher across a *recursive* collect (itself a GC point). Every callback
+// below retains no garbage of its own but forces >=2 relocating collections,
+// and every element/key/value/accumulator is a distinctly-tagged heap object,
+// so a stale native-local copy is observed as a reused (-777) or wrong object.
+// ---------------------------------------------------------------------------
+
+/// Builds a synthetic `duke/util/*` collector marker object of the given class
+/// whose fields hold the supplied function/argument slots.
+fn build_collector(heap: &mut duke_gc::Heap, class: &str, fields: &[Slot]) -> u64 {
+    let c = heap.allocate(class.to_string(), fields.len().max(1));
+    for (i, f) in fields.iter().enumerate() {
+        heap.get_mut(c).unwrap().fields[i] = *f;
+    }
+    c
+}
+
+/// Group B — `Collectors.toMap(keyFn, valFn)`. The accumulator HashMap ref, the
+/// element snapshot, both function receivers, and the intermediate key result
+/// (held across the value callback) are all held in native Rust locals across
+/// the per-element `apply` callbacks. Distinct-tagged key/value objects are
+/// produced inside each callback; the assembled map must have every key and
+/// value intact.
+#[test]
+fn collect_to_map_accumulator_keys_and_values_survive_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const KEY_FN_TAG: i32 = 7001;
+    const VAL_FN_TAG: i32 = 7002;
+    const ELEM_TAGS: [i32; 3] = [100, 101, 102];
+
+    struct CollectGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_receiver_tags: Vec<i32>,
+        observed_elem_tags: Vec<i32>,
+    }
+
+    impl CallbackOps for CollectGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            // args[0] = key or value function receiver, args[1] = the element.
+            let recv_tag = stream_gc_tag(heap, args.first());
+            let elem_tag = stream_gc_tag(heap, args.get(1));
+            self.observed_receiver_tags.push(recv_tag);
+            self.observed_elem_tags.push(elem_tag);
+            // Key call produces an object tagged `elem`; value call one tagged
+            // `elem + 1000`. Each must survive its own callback's GCs and (for
+            // the key) the following value callback's GCs.
+            let out_tag = if recv_tag == VAL_FN_TAG {
+                elem_tag + 1000
+            } else {
+                elem_tag
+            };
+            let res = heap.allocate("duke/test/MapEntryPart".to_string(), 1);
+            heap.get_mut(res).unwrap().fields[0] = Slot::Int(out_tag);
+            let forwarded = stream_gc_two_collections(
+                heap,
+                &mut self.caller_frame,
+                &mut self.registry,
+                &mut self.string_intern,
+                Some(res),
+            );
+            Ok(Some(Slot::Reference(forwarded)))
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let stream_ref = build_tagged_object_stream(&mut heap, &ELEM_TAGS);
+    let key_fn = heap.allocate("duke/test/KeyFn".to_string(), 1);
+    heap.get_mut(key_fn).unwrap().fields[0] = Slot::Int(KEY_FN_TAG);
+    let val_fn = heap.allocate("duke/test/ValFn".to_string(), 1);
+    heap.get_mut(val_fn).unwrap().fields[0] = Slot::Int(VAL_FN_TAG);
+    let collector_ref = build_collector(
+        &mut heap,
+        "duke/util/ToMapCollector",
+        &[Slot::Reference(Some(key_fn)), Slot::Reference(Some(val_fn))],
+    );
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(collector_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = CollectGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_receiver_tags: Vec::new(),
+        observed_elem_tags: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_stream_collect(
+        &[
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(collector_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_receiver_tags,
+        vec![
+            KEY_FN_TAG, VAL_FN_TAG, KEY_FN_TAG, VAL_FN_TAG, KEY_FN_TAG, VAL_FN_TAG
+        ],
+        "toMap key/value function receivers went stale across a callback's GCs"
+    );
+    assert_eq!(
+        ops.observed_elem_tags,
+        vec![100, 100, 101, 101, 102, 102],
+        "toMap element snapshot went stale across a callback's GCs; a key/value \
+         function was handed a dangling/reused element"
+    );
+
+    let Some(Slot::Reference(Some(map_ref))) = result else {
+        panic!("toMap did not return a map");
+    };
+    let map_fields = heap.get(map_ref).unwrap().fields.clone();
+    let count = match map_fields.first() {
+        Some(Slot::Int(n)) => *n,
+        _ => -1,
+    };
+    let mut keys: Vec<i32> = Vec::new();
+    let mut vals: Vec<i32> = Vec::new();
+    for i in 0..count.max(0) as usize {
+        keys.push(stream_gc_tag(&heap, map_fields.get(1 + i * 2)));
+        vals.push(stream_gc_tag(&heap, map_fields.get(2 + i * 2)));
+    }
+    assert_eq!(
+        count, 3,
+        "toMap accumulator map lost entries across the GCs"
+    );
+    assert_eq!(
+        keys,
+        vec![100, 101, 102],
+        "toMap accumulator map keys went stale across later callbacks; the \
+         accumulator (map) reference was not tracked across a relocating GC"
+    );
+    assert_eq!(
+        vals,
+        vec![1100, 1101, 1102],
+        "toMap accumulator map values went stale across later callbacks"
+    );
+}
+
+/// Group B — `Collectors.groupingBy(keyFn)`. Exercises the key-function
+/// receiver, the accumulator HashMap ref, and — the element-snapshot pin — the
+/// element pushed into each bucket AFTER its key callback. A distinct key is
+/// produced per element so every element lands in its own single-element list.
+#[test]
+fn collect_grouping_by_elements_and_map_survive_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const KEY_FN_TAG: i32 = 8001;
+    const ELEM_TAGS: [i32; 3] = [100, 101, 102];
+
+    struct CollectGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_receiver_tags: Vec<i32>,
+        observed_elem_tags: Vec<i32>,
+    }
+
+    impl CallbackOps for CollectGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            self.observed_receiver_tags
+                .push(stream_gc_tag(heap, args.first()));
+            let elem_tag = stream_gc_tag(heap, args.get(1));
+            self.observed_elem_tags.push(elem_tag);
+            // Distinct key per element (tag + 500) so each gets its own bucket.
+            let key = heap.allocate("duke/test/GroupKey".to_string(), 1);
+            heap.get_mut(key).unwrap().fields[0] = Slot::Int(elem_tag + 500);
+            let forwarded = stream_gc_two_collections(
+                heap,
+                &mut self.caller_frame,
+                &mut self.registry,
+                &mut self.string_intern,
+                Some(key),
+            );
+            Ok(Some(Slot::Reference(forwarded)))
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let stream_ref = build_tagged_object_stream(&mut heap, &ELEM_TAGS);
+    let key_fn = heap.allocate("duke/test/KeyFn".to_string(), 1);
+    heap.get_mut(key_fn).unwrap().fields[0] = Slot::Int(KEY_FN_TAG);
+    let collector_ref = build_collector(
+        &mut heap,
+        "duke/util/GroupingByCollector",
+        &[Slot::Reference(Some(key_fn))],
+    );
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(collector_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = CollectGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_receiver_tags: Vec::new(),
+        observed_elem_tags: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_stream_collect(
+        &[
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(collector_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_receiver_tags,
+        vec![KEY_FN_TAG; ELEM_TAGS.len()],
+        "groupingBy key-function receiver went stale across a callback's GCs"
+    );
+    assert_eq!(
+        ops.observed_elem_tags,
+        ELEM_TAGS.to_vec(),
+        "groupingBy element snapshot went stale across a callback's GCs"
+    );
+
+    let Some(Slot::Reference(Some(map_ref))) = result else {
+        panic!("groupingBy did not return a map");
+    };
+    let map_fields = heap.get(map_ref).unwrap().fields.clone();
+    let count = match map_fields.first() {
+        Some(Slot::Int(n)) => *n,
+        _ => -1,
+    };
+    assert_eq!(
+        count, 3,
+        "groupingBy accumulator map lost buckets across the GCs"
+    );
+    let mut key_tags: Vec<i32> = Vec::new();
+    let mut grouped_elem_tags: Vec<i32> = Vec::new();
+    for i in 0..count.max(0) as usize {
+        key_tags.push(stream_gc_tag(&heap, map_fields.get(1 + i * 2)));
+        // Each bucket is a one-element ArrayList: [count=1, elem].
+        if let Some(Slot::Reference(Some(list_ref))) = map_fields.get(2 + i * 2) {
+            let list_fields = heap.get(*list_ref).unwrap().fields.clone();
+            grouped_elem_tags.push(stream_gc_tag(&heap, list_fields.get(1)));
+        } else {
+            grouped_elem_tags.push(i32::MIN);
+        }
+    }
+    assert_eq!(
+        key_tags,
+        vec![600, 601, 602],
+        "groupingBy accumulator map keys went stale across later callbacks"
+    );
+    assert_eq!(
+        grouped_elem_tags,
+        vec![100, 101, 102],
+        "groupingBy grouped element went stale across a callback's GCs; the \
+         element pushed into its bucket was a dangling/reused reference"
+    );
+}
+
+/// Group B — `Collectors.reducing(identity, op)`. The running accumulator ref is
+/// carried across, and re-passed to, every fold callback, alongside the operator
+/// receiver and the element snapshot. The fold chains identity(0) with elements
+/// [10,20,30] via `op(acc, elem) = acc + elem`, so the accumulator advances
+/// 0 -> 10 -> 30 -> 60.
+#[test]
+fn collect_reducing_accumulator_survives_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const OP_TAG: i32 = 9001;
+    const IDENTITY_TAG: i32 = 0;
+    const ELEM_TAGS: [i32; 3] = [10, 20, 30];
+
+    struct CollectGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_receiver_tags: Vec<i32>,
+        observed_acc_tags: Vec<i32>,
+        observed_elem_tags: Vec<i32>,
+    }
+
+    impl CallbackOps for CollectGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            // args[0] = operator receiver, args[1] = running acc, args[2] = elem.
+            self.observed_receiver_tags
+                .push(stream_gc_tag(heap, args.first()));
+            let acc_tag = stream_gc_tag(heap, args.get(1));
+            let elem_tag = stream_gc_tag(heap, args.get(2));
+            self.observed_acc_tags.push(acc_tag);
+            self.observed_elem_tags.push(elem_tag);
+            let res = heap.allocate("duke/test/Acc".to_string(), 1);
+            heap.get_mut(res).unwrap().fields[0] = Slot::Int(acc_tag + elem_tag);
+            let forwarded = stream_gc_two_collections(
+                heap,
+                &mut self.caller_frame,
+                &mut self.registry,
+                &mut self.string_intern,
+                Some(res),
+            );
+            Ok(Some(Slot::Reference(forwarded)))
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let stream_ref = build_tagged_object_stream(&mut heap, &ELEM_TAGS);
+    let identity = heap.allocate("duke/test/Identity".to_string(), 1);
+    heap.get_mut(identity).unwrap().fields[0] = Slot::Int(IDENTITY_TAG);
+    let op_fn = heap.allocate("duke/test/BinOp".to_string(), 1);
+    heap.get_mut(op_fn).unwrap().fields[0] = Slot::Int(OP_TAG);
+    let collector_ref = build_collector(
+        &mut heap,
+        "duke/util/ReducingCollector",
+        &[
+            Slot::Reference(Some(identity)),
+            Slot::Reference(Some(op_fn)),
+        ],
+    );
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(collector_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = CollectGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_receiver_tags: Vec::new(),
+        observed_acc_tags: Vec::new(),
+        observed_elem_tags: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_stream_collect(
+        &[
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(collector_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_receiver_tags,
+        vec![OP_TAG; ELEM_TAGS.len()],
+        "reducing operator receiver went stale across a callback's GCs"
+    );
+    assert_eq!(
+        ops.observed_acc_tags,
+        vec![0, 10, 30],
+        "reducing running accumulator went stale across a callback's GCs; the \
+         fold was re-entered with a dangling/reused accumulator reference"
+    );
+    assert_eq!(
+        ops.observed_elem_tags,
+        ELEM_TAGS.to_vec(),
+        "reducing element snapshot went stale across a callback's GCs"
+    );
+
+    assert_eq!(
+        stream_gc_tag(&heap, result.as_ref()),
+        60,
+        "reducing final accumulator went stale across the fold's GCs"
+    );
+}
+
+/// Group B — a real (non-`duke/util/*`) `java.util.stream.Collector`. Drives the
+/// full supplier -> get -> accumulator -> accept* -> finisher -> apply protocol.
+/// The collector receiver (re-passed to supplier/accumulator/finisher) and the
+/// result container (produced by get, fed to every accept and to the final
+/// apply) are held in native Rust locals across the whole chain of callbacks,
+/// each of which forces two relocating GCs. The container accumulates the sum of
+/// element tags; the finisher reads it back.
+#[test]
+fn collect_real_collector_chain_container_survives_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const COLLECTOR_TAG: i32 = 4100;
+    const ELEM_TAGS: [i32; 3] = [10, 20, 30];
+
+    struct CollectGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        container_ref: u64,
+        observed_protocol_receiver_tags: Vec<i32>,
+        observed_accept_elem_tags: Vec<i32>,
+    }
+
+    impl CallbackOps for CollectGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            match method {
+                // supplier()/accumulator()/finisher() return a FRESH function
+                // object allocated at call time (no GC follows before the native
+                // reads its class), so the mock never hands back a stale id. The
+                // receiver each is invoked on is the collector itself (args[0]);
+                // recording its tag verifies the pinned collector slot.
+                "supplier" => {
+                    self.observed_protocol_receiver_tags
+                        .push(stream_gc_tag(heap, args.first()));
+                    Ok(Some(Slot::Reference(Some(
+                        heap.allocate("com/example/Supplier".to_string(), 1),
+                    ))))
+                }
+                "get" => Ok(Some(Slot::Reference(Some(self.container_ref)))),
+                "accumulator" => {
+                    self.observed_protocol_receiver_tags
+                        .push(stream_gc_tag(heap, args.first()));
+                    Ok(Some(Slot::Reference(Some(
+                        heap.allocate("com/example/Accumulator".to_string(), 1),
+                    ))))
+                }
+                "accept" => {
+                    // args[0] = accumulator, args[1] = container, args[2] = elem.
+                    let container = match args.get(1) {
+                        Some(Slot::Reference(Some(r))) => *r,
+                        _ => panic!("accept container was not a live reference"),
+                    };
+                    let elem_tag = stream_gc_tag(heap, args.get(2));
+                    self.observed_accept_elem_tags.push(elem_tag);
+                    let cur = match heap.get(container).unwrap().fields.first() {
+                        Some(Slot::Int(n)) => *n,
+                        _ => 0,
+                    };
+                    heap.get_mut(container).unwrap().fields[0] = Slot::Int(cur + elem_tag);
+                    stream_gc_two_collections(
+                        heap,
+                        &mut self.caller_frame,
+                        &mut self.registry,
+                        &mut self.string_intern,
+                        None,
+                    );
+                    Ok(None)
+                }
+                "finisher" => {
+                    self.observed_protocol_receiver_tags
+                        .push(stream_gc_tag(heap, args.first()));
+                    Ok(Some(Slot::Reference(Some(
+                        heap.allocate("com/example/Finisher".to_string(), 1),
+                    ))))
+                }
+                "apply" => {
+                    // finisher.apply(container): read the accumulated sum back.
+                    let container = match args.get(1) {
+                        Some(Slot::Reference(Some(r))) => *r,
+                        _ => panic!("finisher container was not a live reference"),
+                    };
+                    let sum = match heap.get(container).unwrap().fields.first() {
+                        Some(Slot::Int(n)) => *n,
+                        _ => -1,
+                    };
+                    let res = heap.allocate("duke/test/Result".to_string(), 1);
+                    heap.get_mut(res).unwrap().fields[0] = Slot::Int(sum);
+                    let forwarded = stream_gc_two_collections(
+                        heap,
+                        &mut self.caller_frame,
+                        &mut self.registry,
+                        &mut self.string_intern,
+                        Some(res),
+                    );
+                    Ok(Some(Slot::Reference(forwarded)))
+                }
+                other => panic!("unexpected collector protocol method {other}"),
+            }
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let stream_ref = build_tagged_object_stream(&mut heap, &ELEM_TAGS);
+    let collector_ref = heap.allocate("com/example/SummingCollector".to_string(), 1);
+    heap.get_mut(collector_ref).unwrap().fields[0] = Slot::Int(COLLECTOR_TAG);
+    let container_ref = heap.allocate("com/example/Container".to_string(), 1);
+    heap.get_mut(container_ref).unwrap().fields[0] = Slot::Int(0);
+
+    // Root the stream, collector and container via the caller frame so the
+    // collector's own callbacks relocate them (mirroring live objects) while the
+    // native holds its private, pinned copies.
+    let caller_frame = duke_runtime::Frame::new(
+        16,
+        8,
+        vec![
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(collector_ref)),
+            Slot::Reference(Some(container_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = CollectGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        container_ref,
+        observed_protocol_receiver_tags: Vec::new(),
+        observed_accept_elem_tags: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_stream_collect(
+        &[
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(collector_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_protocol_receiver_tags,
+        vec![COLLECTOR_TAG, COLLECTOR_TAG, COLLECTOR_TAG],
+        "real Collector receiver went stale across the protocol's callbacks; \
+         supplier()/accumulator()/finisher() saw a dangling/reused collector"
+    );
+    assert_eq!(
+        ops.observed_accept_elem_tags,
+        ELEM_TAGS.to_vec(),
+        "real Collector accept element snapshot went stale across the GCs"
+    );
+    assert_eq!(
+        stream_gc_tag(&heap, result.as_ref()),
+        60,
+        "real Collector container went stale across the accept/finisher \
+         callbacks; the finisher read the sum from a dangling/reused container"
+    );
+}
+
+/// Group B — `Collectors.collectingAndThen(downstream, finisher)`. The finisher
+/// lambda is held in a native Rust local across the RECURSIVE downstream
+/// `native_stream_collect` — itself a GC point, because the downstream
+/// (`groupingBy` here) runs its own per-element callbacks that force relocating
+/// collections. Without pinning the finisher slot, the finisher `apply` after
+/// the recursive collect is handed a dangling/reused receiver.
+#[test]
+fn collect_collecting_and_then_finisher_survives_two_gcs_during_recursive_collect() {
+    use std::collections::HashMap;
+
+    const KEY_FN_TAG: i32 = 6001;
+    const FINISHER_TAG: i32 = 6002;
+    const RESULT_TAG: i32 = 12321;
+    const ELEM_TAGS: [i32; 3] = [100, 101, 102];
+
+    struct CollectGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_finisher_receiver_tag: Option<i32>,
+    }
+
+    impl CallbackOps for CollectGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            let recv_tag = stream_gc_tag(heap, args.first());
+            if recv_tag == FINISHER_TAG {
+                // The finisher callback, run AFTER the recursive downstream
+                // collect. Record the receiver tag it was invoked with — a stale
+                // finisher slot shows up here as a reused/wrong tag.
+                self.observed_finisher_receiver_tag = Some(recv_tag);
+                let res = heap.allocate("duke/test/Result".to_string(), 1);
+                heap.get_mut(res).unwrap().fields[0] = Slot::Int(RESULT_TAG);
+                let forwarded = stream_gc_two_collections(
+                    heap,
+                    &mut self.caller_frame,
+                    &mut self.registry,
+                    &mut self.string_intern,
+                    Some(res),
+                );
+                return Ok(Some(Slot::Reference(forwarded)));
+            }
+            // The downstream groupingBy key function: force GCs so the finisher
+            // slot the outer native holds is exercised across a relocating GC.
+            let elem_tag = stream_gc_tag(heap, args.get(1));
+            let key = heap.allocate("duke/test/GroupKey".to_string(), 1);
+            heap.get_mut(key).unwrap().fields[0] = Slot::Int(elem_tag);
+            let forwarded = stream_gc_two_collections(
+                heap,
+                &mut self.caller_frame,
+                &mut self.registry,
+                &mut self.string_intern,
+                Some(key),
+            );
+            Ok(Some(Slot::Reference(forwarded)))
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let stream_ref = build_tagged_object_stream(&mut heap, &ELEM_TAGS);
+    let key_fn = heap.allocate("duke/test/KeyFn".to_string(), 1);
+    heap.get_mut(key_fn).unwrap().fields[0] = Slot::Int(KEY_FN_TAG);
+    let downstream = build_collector(
+        &mut heap,
+        "duke/util/GroupingByCollector",
+        &[Slot::Reference(Some(key_fn))],
+    );
+    let finisher = heap.allocate("duke/test/Finisher".to_string(), 1);
+    heap.get_mut(finisher).unwrap().fields[0] = Slot::Int(FINISHER_TAG);
+    let collector_ref = build_collector(
+        &mut heap,
+        "duke/util/CollectingAndThenCollector",
+        &[
+            Slot::Reference(Some(downstream)),
+            Slot::Reference(Some(finisher)),
+        ],
+    );
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(collector_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = CollectGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_finisher_receiver_tag: None,
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_stream_collect(
+        &[
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(collector_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_finisher_receiver_tag,
+        Some(FINISHER_TAG),
+        "collectingAndThen finisher receiver went stale across the recursive \
+         downstream collect's GCs; the finisher slot was not pinned across the \
+         recursive collect GC point"
+    );
+    assert_eq!(
+        stream_gc_tag(&heap, result.as_ref()),
+        RESULT_TAG,
+        "collectingAndThen finisher result went stale across the GCs"
+    );
+}
+
 /// Family 5a (Class.newInstance). `native_class_new_instance` allocates the
 /// instance, then holds its bare reference across the `<init>` constructor
 /// callback and returns it. A nested constructor can allocate heavily and trigger
