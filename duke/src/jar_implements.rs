@@ -52,6 +52,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
     clippy::use_debug,
     clippy::collapsible_if
 )]
+#[allow(clippy::case_sensitive_file_extension_comparisons)]
 pub fn dump_jar_implements(jar_path: &str, target_class: &str) {
     let loader = match ZipLoader::open(Path::new(jar_path)) {
         Ok(l) => l,
