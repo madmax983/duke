@@ -320,9 +320,10 @@ pub fn run_execution(
                         *pc_to_idx = caller.pc_to_idx;
                         *idx = caller.resume_idx;
                         *current_class = caller.class_name;
-                        *instructions = std::sync::Arc::clone(
-                            &registry.get(&current_class)?.methods[*method_idx].instructions,
-                        );
+                        // Restore the caller's cached bytecode directly, avoiding a
+                        // ClassRegistry lookup + constant-pool re-resolution on every
+                        // return. Mirrors the cached `pc_to_idx` restore above.
+                        *instructions = caller.instructions;
                         #[cfg(feature = "telemetry")]
                         {
                             *current_method = registry
@@ -406,9 +407,9 @@ pub fn run_execution(
                             *method_idx = caller.method_idx;
                             *pc_to_idx = caller.pc_to_idx;
                             *current_class = caller.class_name;
-                            *instructions = std::sync::Arc::clone(
-                                &registry.get(&current_class)?.methods[*method_idx].instructions,
-                            );
+                            // Restore the caller's cached bytecode directly (mirrors
+                            // the do_return! restore).
+                            *instructions = caller.instructions;
                             #[cfg(feature = "telemetry")]
                             {
                                 *current_method = registry
@@ -939,51 +940,51 @@ pub fn run_execution(
             Instruction::Sipush(v) => frame.push(Slot::Int(i32::from(*v)))?,
             Instruction::Ldc(raw_idx) => {
                 let cp_idx = usize::from(*raw_idx);
-                let string_info = {
+                // Classify the constant under a single ClassRegistry borrow instead
+                // of re-fetching the ctx / re-resolving the constant pool up to three
+                // times. String and Class values are cloned out so the borrow is
+                // released before the heap / intern-map mutations below.
+                enum LdcConst {
+                    StringConst(String),
+                    ClassConst(String),
+                    Other,
+                }
+                let kind = {
                     let ctx = registry.get(current_class)?;
-                    if let Some(CpEntry::String { string_index }) =
-                        ctx.constant_pool.get(cp_idx).and_then(|e| e.as_ref())
-                    {
-                        let si = string_index.0 as usize;
-                        let s = match ctx.constant_pool.get(si).and_then(|e| e.as_ref()) {
-                            Some(CpEntry::Utf8(s)) => s.clone(),
-                            _ => return Err(Error::InvalidCpIndex { index: si }),
-                        };
-                        Some(s)
-                    } else {
-                        None
-                    }
-                };
-                if let Some(s) = string_info {
-                    let intern_key = (0, s);
-                    let r = if let Some(&cached) = string_intern.get(&intern_key) {
-                        cached
-                    } else {
-                        let r = heap.allocate_string(intern_key.1.clone());
-                        string_intern.insert(intern_key, r);
-                        r
-                    };
-                    frame.push(Slot::Reference(Some(r)))?;
-                } else {
-                    // Check for Class constant
-                    let class_info = {
-                        let ctx = registry.get(current_class)?;
-                        if let Some(CpEntry::Class { name_index }) =
-                            ctx.constant_pool.get(cp_idx).and_then(|e| e.as_ref())
-                        {
+                    match ctx.constant_pool.get(cp_idx).and_then(|e| e.as_ref()) {
+                        Some(CpEntry::String { string_index }) => {
+                            let si = string_index.0 as usize;
+                            match ctx.constant_pool.get(si).and_then(|e| e.as_ref()) {
+                                Some(CpEntry::Utf8(s)) => LdcConst::StringConst(s.clone()),
+                                _ => return Err(Error::InvalidCpIndex { index: si }),
+                            }
+                        }
+                        Some(CpEntry::Class { name_index }) => {
                             match ctx
                                 .constant_pool
                                 .get(name_index.0 as usize)
                                 .and_then(|e| e.as_ref())
                             {
-                                Some(CpEntry::Utf8(s)) => Some(s.clone()),
-                                _ => None,
+                                Some(CpEntry::Utf8(s)) => LdcConst::ClassConst(s.clone()),
+                                _ => LdcConst::Other,
                             }
-                        } else {
-                            None
                         }
-                    };
-                    if let Some(class_name) = class_info {
+                        _ => LdcConst::Other,
+                    }
+                };
+                match kind {
+                    LdcConst::StringConst(s) => {
+                        let intern_key = (0, s);
+                        let r = if let Some(&cached) = string_intern.get(&intern_key) {
+                            cached
+                        } else {
+                            let r = heap.allocate_string(intern_key.1.clone());
+                            string_intern.insert(intern_key, r);
+                            r
+                        };
+                        frame.push(Slot::Reference(Some(r)))?;
+                    }
+                    LdcConst::ClassConst(class_name) => {
                         let intern_key = (1, class_name);
                         let r = if let Some(&cached) = string_intern.get(&intern_key) {
                             cached
@@ -993,7 +994,8 @@ pub fn run_execution(
                             r
                         };
                         frame.push(Slot::Reference(Some(r)))?;
-                    } else {
+                    }
+                    LdcConst::Other => {
                         let ctx = registry.get(current_class)?;
                         ldc_push(frame, &ctx.constant_pool, cp_idx)?;
                     }

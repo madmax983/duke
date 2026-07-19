@@ -8572,6 +8572,7 @@ fn activate_method_state(
         frame: std::mem::replace(frame, callee_frame),
         method_idx: *method_idx,
         pc_to_idx: std::sync::Arc::clone(pc_to_idx),
+        instructions: std::sync::Arc::clone(instructions),
         resume_idx,
         class_name: current_class.clone(),
     });
@@ -9873,6 +9874,10 @@ struct CallFrame {
     frame: Frame,
     method_idx: usize,
     pc_to_idx: std::sync::Arc<std::collections::HashMap<usize, usize>>,
+    /// Bytecode of the caller method, cached so `do_return!` can restore it with
+    /// a cheap `Arc` move instead of a `ClassRegistry` lookup + constant-pool
+    /// re-resolution on every return. Mirrors the cached `pc_to_idx` above.
+    instructions: std::sync::Arc<[(usize, Instruction)]>,
     resume_idx: usize,
     /// Class that was executing when this frame was pushed.
     class_name: std::sync::Arc<str>,
@@ -12048,19 +12053,21 @@ fn pop_typed_args_into_locals(
     locals: &mut [Slot],
     start_idx: usize,
 ) -> Result<()> {
-    let count = param_types.len();
-    let mut args = vec![Slot::Int(0); count];
-    for i in (0..count).rev() {
-        args[i] = frame.pop()?;
-    }
+    // The operand stack holds the args in forward order (last param on top), so we
+    // pop in reverse. Walk the destination local index backward in lock-step: the
+    // total slot span accounts for wide J/D params occupying two slots, and each
+    // param's slot is derived by subtracting its width before the store. This pops
+    // args directly into the pre-sized `locals` buffer, avoiding the per-call
+    // temporary `Vec` the previous implementation allocated on every invoke.
     let mut local_idx = start_idx;
-    for (slot, &tc) in args.iter().zip(param_types.iter()) {
+    for &tc in param_types {
+        local_idx += if tc == 'J' || tc == 'D' { 2 } else { 1 };
+    }
+    for &tc in param_types.iter().rev() {
+        local_idx -= if tc == 'J' || tc == 'D' { 2 } else { 1 };
+        let value = frame.pop()?;
         if local_idx < locals.len() {
-            locals[local_idx] = *slot;
-        }
-        local_idx += 1;
-        if tc == 'J' || tc == 'D' {
-            local_idx += 1; // wide type: skip the padding slot
+            locals[local_idx] = value;
         }
     }
     Ok(())
