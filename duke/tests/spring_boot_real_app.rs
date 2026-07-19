@@ -306,35 +306,36 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // `Error::AmbiguousClassName` variant itself is still exercised by the
 // duke-runtime unit tests (crates/duke-runtime/src/lib.rs).
 //
-// The remaining post-fix frontier (re-observed 2026-07-19, N=70 launches):
-//   * `class not found: [B` / `class not found: [Lorg/...ConcurrentReferenceHashMap$*;`
-//     — primitive AND object array-class resolution (class-loader lane). DOMINANT
-//     outcome (~65% direct `[B`, plus ~15% object-array `[L...;`). Surfaces as a
-//     fatal `ClassNotFound` directly on the interpreter stack (never wrapped).
-//   * `InvocationTargetException` — ~15-18% of runs. The reflective launcher's
-//     `main.invoke` wraps a Java exception thrown inside the reflectively-invoked
-//     `DukeApplication.main`. UNWRAPPED (throwaway instrumentation at the ITE
-//     wrap-site, since Duke's output layer prints only the wrapper's class name):
-//     the cause is UNIFORMLY `java/lang/NoClassDefFoundError` whose detail message
-//     is UNIFORMLY `java/lang/StackWalker$Option` — i.e. Spring startup reaches an
-//     unmodeled `java.lang.StackWalker` (the StackWalker$Option enum) and the
-//     resulting linkage NoClassDefFoundError is re-wrapped by reflective invoke.
-//     A class-resolution failure like the array-class lane, differing only in that
-//     it lands inside reflective `main.invoke` and is caught as a LinkageError.
+// The former `class not found: [B` / `[Lorg/...;` array-class wall is ALSO cleared
+// now — #1394 (array-class lane, squash-merged to trunk) resolves `[`-prefixed names
+// by synthesizing array `Class` mirrors (JVMS 5.3.3). That marker is RETIRED below;
+// re-observed 2026-07-19 (N=40 launches on the rebased binary) it fired ZERO times.
+//
+// The post-#1394 + post-identity-fix frontier (re-observed 2026-07-19, N=40 launches
+// on the rebased binary):
+//   * `InvocationTargetException` — DOMINANT, 39/40. With the ambiguous-class-name,
+//     self-identity ClassCastException, and array-class walls all down, the app now
+//     climbs DETERMINISTICALLY into `SpringApplication.<init>` and walls in
+//     `SpringApplication.deduceMainApplicationClass@0` on a `getstatic` of
+//     `java/lang/StackWalker$Option.RETAIN_CLASS_REFERENCE` (confirmed by tracing
+//     the rebased binary + `javap` of the fixture's SpringApplication class). The
+//     unmodeled `java.lang.StackWalker`/`StackWalker$Option` yields a linkage
+//     NoClassDefFoundError that the launcher's reflective `main.invoke` re-wraps.
 //     The marker stays `"InvocationTargetException"` because that is the only string
 //     Duke emits for this outcome (the StackWalker cause is not surfaced in output).
-//   * `class not found: $$Lambda$N` — LambdaMetafactory / invokedynamic lane
-//     (~2-3%, rare but observed).
-// The pin below accepts ANY of these de-flaking markers (see `APP_BLOCKERS`).
-const APP_BLOCKERS: [&str; 3] = [
-    // Primitive + object array-class resolution (`[B`, `[Lorg/...;`) — dominant
-    // (~80% of runs across the two array shapes).
-    "class not found: [",
-    // Reflective `main.invoke` wrapping a linkage failure inside DukeApplication.main.
-    // Unwrapped cause is uniformly `NoClassDefFoundError: java/lang/StackWalker$Option`
-    // (unmodeled StackWalker enum), but Duke prints only this wrapper name. ~15-18%.
+//     This is out of scope here (a class-modeling / StackWalker lane).
+//   * `class not found: $$Lambda$N` — LambdaMetafactory / invokedynamic lane. RARE,
+//     1/40 (observed `$$Lambda$6`); races ahead of the StackWalker wall when HashMap
+//     iteration order surfaces a lambda proxy lookup first.
+// Neither `ambiguous class name` (0/40 — THIS lane's fix) nor `class not found: [`
+// (0/40 — #1394) nor any ClassCastException (0/40 — THIS lane's self-identity fix)
+// appears any longer. The pin below accepts EITHER remaining de-flaking marker.
+const APP_BLOCKERS: [&str; 2] = [
+    // Reflective `main.invoke` re-wrapping the unmodeled `java.lang.StackWalker`
+    // (`StackWalker$Option.RETAIN_CLASS_REFERENCE` getstatic) linkage failure inside
+    // `SpringApplication.deduceMainApplicationClass` — DOMINANT, 39/40 (2026-07-19).
     "InvocationTargetException",
-    // LambdaMetafactory / invokedynamic synthetic classes (~2-3%).
+    // LambdaMetafactory / invokedynamic synthetic proxy classes — RARE, 1/40.
     "$$Lambda",
 ];
 // LADDER now boots END-TO-END (2026-07-15, same-class-reflection lane, trunk): main
@@ -386,13 +387,15 @@ fn combined_output(output: &Output) -> String {
             CLEARED 2026-07-19 by the generics-reflection lane: real Signature-attribute parsing, \
             the java.lang.reflect.Type/TypeVariable/ParameterizedType hierarchy, and the \
             getTypeParameters/getGenericSuperclass/getGenericInterfaces/toGenericString natives. \
-            The app now advances PAST the generics wall AND past the former loader class-key dedup \
+            The app now advances PAST the generics wall, PAST the former loader class-key dedup \
             wall (`ambiguous class name` on ApplicationListener — CLEARED 2026-07-19 by the \
-            class-identity fix; 0/70 launches). It now walls, nondeterministically, on the \
-            array-class resolution lane (`class not found: [B` / `[Lorg/...;`, dominant), a \
-            reflective `main.invoke` wrapping `NoClassDefFoundError: java/lang/StackWalker$Option` \
-            (surfaced as `InvocationTargetException`), and the LambdaMetafactory lane (`$$Lambda`) — \
-            all out of the generics lane. Keep ignored until the Spring Boot app boot completes. \
+            class-identity fix; 0/40 launches), and PAST the array-class wall (`class not found: \
+            [B`/`[L…;` — CLEARED by #1394; 0/40). With those down it climbs deterministically into \
+            SpringApplication.deduceMainApplicationClass and walls on the unmodeled \
+            java.lang.StackWalker (`StackWalker$Option.RETAIN_CLASS_REFERENCE` getstatic), surfaced \
+            as `InvocationTargetException` via the reflective main.invoke (dominant, 39/40); a \
+            LambdaMetafactory synthetic (`$$Lambda`, 1/40) races ahead on the rest. Keep ignored \
+            until the Spring Boot app boot completes. \
             See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_app_boots_end_to_end() {
     let output = run_fixture(APP_JAR);
@@ -426,10 +429,10 @@ fn spring_boot_app_surfaces_next_missing_capability_explicitly() {
     assert!(
         APP_BLOCKERS.iter().any(|marker| combined.contains(marker)),
         "expected the app fixture to stay pinned at the current frontier cluster \
-         (any of {APP_BLOCKERS:?} — the generics wall AND the loader class-key dedup \
-         `ambiguous class name` wall are cleared; the app now walls nondeterministically \
-         on the array-class / reflective-StackWalker-linkage / lambda lanes); \
-         if it moved, re-observe and update this pin \
+         (any of {APP_BLOCKERS:?} — the generics, loader class-key dedup \
+         `ambiguous class name`, and array-class walls are ALL cleared; the app now walls \
+         on the unmodeled java.lang.StackWalker linkage via reflective main.invoke \
+         (dominant) or a LambdaMetafactory synthetic); if it moved, re-observe and update this pin \
          (docs/findings/2026-07-10-spring-boot-real-app.md). Output:\n{combined}"
     );
 }
