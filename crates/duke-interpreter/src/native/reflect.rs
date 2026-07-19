@@ -876,6 +876,100 @@ fn materialize_type_argument(
     }
 }
 
+/// The real JLS generic class signature (JVMS §4.7.9.1) for a well-known JDK
+/// generic type that Duke models synthetically (and therefore carries no
+/// classfile `Signature` attribute of its own).
+///
+/// These strings are the *actual* signatures the JDK emits for these classes, so
+/// supplying them keeps `Class.getTypeParameters()` honest: e.g. `java/util/Map`
+/// really declares two type parameters `<K,V>`, and Spring's
+/// `ResolvableType.forClassWithGenerics` asserts that count. Only the type-
+/// parameter prefix is load-bearing here; the superclass/superinterface tail is
+/// approximated as `Ljava/lang/Object;` since `getTypeParameters` ignores it.
+fn builtin_generic_class_signature(internal_name: &str) -> Option<&'static str> {
+    // 1 type parameter, conventionally named E (collections) / T (others).
+    const ONE_E: &str = "<E:Ljava/lang/Object;>Ljava/lang/Object;";
+    const ONE_T: &str = "<T:Ljava/lang/Object;>Ljava/lang/Object;";
+    // 2 type parameters.
+    const TWO_KV: &str = "<K:Ljava/lang/Object;V:Ljava/lang/Object;>Ljava/lang/Object;";
+    const TWO_TR: &str = "<T:Ljava/lang/Object;R:Ljava/lang/Object;>Ljava/lang/Object;";
+    Some(match internal_name {
+        // Collection framework interfaces (single element type E).
+        "java/lang/Iterable"
+        | "java/util/Collection"
+        | "java/util/List"
+        | "java/util/Set"
+        | "java/util/SortedSet"
+        | "java/util/NavigableSet"
+        | "java/util/Queue"
+        | "java/util/Deque"
+        | "java/util/Iterator"
+        | "java/util/ListIterator"
+        | "java/util/Enumeration"
+        // Concrete collection classes.
+        | "java/util/AbstractCollection"
+        | "java/util/AbstractList"
+        | "java/util/AbstractSet"
+        | "java/util/ArrayList"
+        | "java/util/LinkedList"
+        | "java/util/ArrayDeque"
+        | "java/util/HashSet"
+        | "java/util/LinkedHashSet"
+        | "java/util/TreeSet"
+        | "java/util/PriorityQueue"
+        | "java/util/Vector"
+        | "java/util/Stack" => ONE_E,
+        // Map family (key + value).
+        "java/util/Map"
+        | "java/util/SortedMap"
+        | "java/util/NavigableMap"
+        | "java/util/concurrent/ConcurrentMap"
+        | "java/util/concurrent/ConcurrentNavigableMap"
+        | "java/util/Map$Entry"
+        | "java/util/AbstractMap"
+        | "java/util/HashMap"
+        | "java/util/LinkedHashMap"
+        | "java/util/TreeMap"
+        | "java/util/IdentityHashMap"
+        | "java/util/WeakHashMap"
+        | "java/util/Hashtable"
+        | "java/util/concurrent/ConcurrentHashMap" => TWO_KV,
+        // Functional interfaces / other single-parameter generics.
+        "java/util/Optional"
+        | "java/lang/Comparable"
+        | "java/lang/Class"
+        | "java/lang/ThreadLocal"
+        | "java/lang/ref/Reference"
+        | "java/lang/ref/WeakReference"
+        | "java/lang/ref/SoftReference"
+        | "java/lang/ref/PhantomReference"
+        | "java/util/function/Supplier"
+        | "java/util/function/Consumer"
+        | "java/util/function/Predicate"
+        | "java/lang/Iterable$1" => ONE_T,
+        // BiFunction/Function-style two-parameter functional interfaces.
+        "java/util/function/Function" | "java/util/function/BiConsumer" => TWO_TR,
+        _ => return None,
+    })
+}
+
+/// Resolve the effective generic class signature for `internal_name`: the real
+/// classfile `Signature` when present, else the curated JDK signature for a
+/// synthetic generic type. `None` for a non-generic / unknown class.
+fn resolve_class_signature_string(
+    ops: &mut dyn CallbackOps,
+    internal_name: &str,
+) -> Option<String> {
+    if let Some(sig) = ops
+        .inspect_class(internal_name)
+        .ok()
+        .and_then(|info| info.signature)
+    {
+        return Some(sig);
+    }
+    builtin_generic_class_signature(internal_name).map(String::from)
+}
+
 /// Native: `Class.getTypeParameters()[Ljava/lang/reflect/TypeVariable;`.
 ///
 /// Resolves the class's parsed `Signature` (JVMS §4.7.9.1) via
@@ -894,10 +988,7 @@ pub(crate) fn native_class_get_type_parameters(
 ) -> Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let internal_name = class_internal_name_from_ref(heap, class_ref)?;
-    let type_params = ops
-        .inspect_class(&internal_name)
-        .ok()
-        .and_then(|info| info.signature)
+    let type_params = resolve_class_signature_string(ops, &internal_name)
         .and_then(|sig| duke_classfile::parse_class_signature(&sig).ok())
         .map(|class_sig| class_sig.type_params)
         .unwrap_or_default();
@@ -990,6 +1081,97 @@ pub(crate) fn native_class_get_generic_interfaces(
     }
     let array_ref = allocate_reference_array(heap, "[Ljava/lang/reflect/Type;", &refs)?;
     Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+/// Render the JLS class modifiers (`public`/`abstract`/`final`/…) of a class in
+/// canonical `Modifier.toString` order.
+fn class_modifier_string(access_flags: u16) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    if access_flags & 0x0001 != 0 {
+        parts.push("public");
+    }
+    if access_flags & 0x0004 != 0 {
+        parts.push("protected");
+    }
+    if access_flags & 0x0002 != 0 {
+        parts.push("private");
+    }
+    if access_flags & 0x0400 != 0 {
+        parts.push("abstract");
+    }
+    if access_flags & 0x0008 != 0 {
+        parts.push("static");
+    }
+    if access_flags & 0x0010 != 0 {
+        parts.push("final");
+    }
+    if access_flags & 0x0800 != 0 {
+        parts.push("strictfp");
+    }
+    parts.join(" ")
+}
+
+/// Native: `Class.toGenericString()Ljava/lang/String;`.
+///
+/// Mirrors `java.lang.Class.toGenericString` (JLS): modifiers + kind
+/// (`class`/`interface`/`enum`/`@interface`) + binary name + `<T,...>` when the
+/// class declares formal type parameters (read from its `Signature`). Primitives
+/// return their keyword name.
+pub(crate) fn native_class_to_generic_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    // Primitive class mirrors: just the keyword (e.g. `int`).
+    if matches!(
+        internal_name.as_str(),
+        "I" | "J" | "F" | "D" | "Z" | "B" | "C" | "S" | "V"
+    ) {
+        let s = heap.allocate_string(internal_name_to_binary_name(&internal_name));
+        return Ok(Some(Slot::Reference(Some(s))));
+    }
+    let info = ops.inspect_class(&internal_name).ok();
+    let flags = info.as_ref().map_or(0u16, |i| i.access_flags);
+    let mut rendered = String::new();
+    let mods = class_modifier_string(flags);
+    if !mods.is_empty() {
+        rendered.push_str(&mods);
+        rendered.push(' ');
+    }
+    let is_annotation = flags & 0x2000 != 0;
+    let is_interface = flags & 0x0200 != 0;
+    let is_enum = flags & 0x4000 != 0;
+    if is_annotation {
+        rendered.push('@');
+    }
+    if is_interface {
+        rendered.push_str("interface");
+    } else if is_enum {
+        rendered.push_str("enum");
+    } else {
+        rendered.push_str("class");
+    }
+    rendered.push(' ');
+    rendered.push_str(&internal_name_to_binary_name(&internal_name));
+    if let Some(class_sig) = resolve_class_signature_string(ops, &internal_name)
+        .and_then(|sig| duke_classfile::parse_class_signature(&sig).ok())
+        && !class_sig.type_params.is_empty()
+    {
+        rendered.push('<');
+        let names: Vec<String> = class_sig
+            .type_params
+            .iter()
+            .map(|p| p.name.clone())
+            .collect();
+        rendered.push_str(&names.join(","));
+        rendered.push('>');
+    }
+    let s = heap.allocate_string(rendered);
+    Ok(Some(Slot::Reference(Some(s))))
 }
 
 // ---- Type accessor natives (registered on the interface names) --------------

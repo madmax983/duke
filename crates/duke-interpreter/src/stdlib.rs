@@ -6104,6 +6104,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     );
     registry.natives_mut().register(
         "java/lang/Boolean",
+        "getBoolean",
+        "(Ljava/lang/String;)Z",
+        native_boolean_get_boolean,
+    );
+    registry.natives_mut().register(
+        "java/lang/Boolean",
         "valueOf",
         "(Z)Ljava/lang/Boolean;",
         native_boolean_valueof,
@@ -15469,6 +15475,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getGenericInterfaces",
         "()[Ljava/lang/reflect/Type;",
         native_class_get_generic_interfaces,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "toGenericString",
+        "()Ljava/lang/String;",
+        native_class_to_generic_string,
     );
     // Type accessors, registered on the interface names (invokeinterface resolves
     // the native via the callee interface class). Backed by the direct field
