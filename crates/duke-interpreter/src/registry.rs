@@ -1416,6 +1416,90 @@ impl ClassRegistry {
         self.classes.contains_key(name)
     }
 
+    /// The defining code-source origin recorded for class key `key`, if any.
+    ///
+    /// Prefers the code source recorded in the side table (keyed by the full
+    /// provenance-qualified key, exactly as [`Self::ensure_loaded_inner`] inserts it).
+    /// If the key is not registered there, falls back to parsing a `\0code:PATH`
+    /// provenance suffix out of the key itself. Returns `None` when no origin is known.
+    #[must_use]
+    fn code_source_of(&self, key: &str) -> Option<String> {
+        if let Some(path) = self.explicit_code_source_for_class(key) {
+            return Some(path.to_string());
+        }
+        let (_, provenance) = key.split_once('\0')?;
+        provenance.strip_prefix("code:").map(ToString::to_string)
+    }
+
+    /// Returns true iff class keys `a` and `b` denote the SAME runtime class.
+    ///
+    /// Two keys are the same class when they are byte-identical, or when they share
+    /// the same internal name AND at least one is a bare (loader-agnostic) reference,
+    /// or when both are provenance-qualified but resolve to the same defining class-data
+    /// origin (same code source). This unifies spurious duplicate keys created when a
+    /// class loader's heap ref changes across a GC promotion (same jar, two loader refs)
+    /// while preserving JLS multi-loader distinctness: two genuinely different loaders
+    /// loading the same simple name from DIFFERENT code sources stay distinct.
+    #[must_use]
+    pub fn same_runtime_class(&self, a: &str, b: &str) -> bool {
+        if a == b {
+            return true;
+        }
+        let an = class_internal_name_fragment(a);
+        let bn = class_internal_name_fragment(b);
+        if an != bn {
+            return false;
+        }
+        // Same internal name. A bare reference carries no loader provenance; it is the
+        // loader-agnostic form and matches any provenance of that name.
+        if !a.contains('\0') || !b.contains('\0') {
+            return true;
+        }
+        // Both provenance-qualified: same class iff they share a known code-source origin.
+        match (self.code_source_of(a), self.code_source_of(b)) {
+            (Some(sa), Some(sb)) => sa == sb,
+            _ => false,
+        }
+    }
+
+    /// Pick a deterministic, GC-stable representative among class keys that all denote
+    /// the same runtime class: prefer a key that is [`Self::initialized`], else a bare
+    /// (loader-agnostic) key, else the lexicographically-smallest key (a stable arbitrary
+    /// choice among identical definitions). `keys` must be non-empty.
+    #[must_use]
+    fn choose_representative(&self, keys: &[String]) -> String {
+        if let Some(k) = keys.iter().find(|k| self.initialized.contains(k.as_str())) {
+            return k.clone();
+        }
+        if let Some(k) = keys.iter().find(|k| !k.contains('\0')) {
+            return k.clone();
+        }
+        keys.iter()
+            .min()
+            .cloned()
+            .expect("choose_representative requires at least one key")
+    }
+
+    /// The single representative registered key for the runtime class that `name` refers to.
+    ///
+    /// Returns `None` if no registered class matches. When same-definition duplicates
+    /// exist (e.g. a class re-keyed under a GC-promoted loader ref), picks a
+    /// deterministic, GC-stable representative via [`Self::choose_representative`].
+    #[must_use]
+    pub fn canonical_class_key(&self, name: &str) -> Option<String> {
+        let matches: Vec<String> = self
+            .classes
+            .keys()
+            .filter(|class| self.same_runtime_class(class, name))
+            .map(ToString::to_string)
+            .collect();
+        if matches.is_empty() {
+            None
+        } else {
+            Some(self.choose_representative(&matches))
+        }
+    }
+
     /// Resolve `name` to an exact loaded class key.
     ///
     /// Accepts either an exact class key or a plain internal name when exactly one
@@ -1441,10 +1525,35 @@ impl ClassRegistry {
                 name: name.to_string(),
             }),
             [only] => Ok(only.clone()),
-            _ => Err(Error::AmbiguousClassName {
-                name: internal_name.to_string(),
-                matches,
-            }),
+            _ => {
+                // Partition the same-name matches into runtime-class equivalence groups.
+                // Same-definition duplicates (e.g. a class re-keyed under a GC-promoted
+                // loader ref while backed by the same jar) collapse into one group and
+                // resolve unambiguously; genuinely distinct loaders (different code
+                // sources) stay in separate groups and remain ambiguous.
+                let mut groups: Vec<Vec<String>> = Vec::new();
+                for key in &matches {
+                    if let Some(group) = groups
+                        .iter_mut()
+                        .find(|group| self.same_runtime_class(&group[0], key))
+                    {
+                        group.push(key.clone());
+                    } else {
+                        groups.push(vec![key.clone()]);
+                    }
+                }
+                if groups.len() == 1 {
+                    Ok(self.choose_representative(&groups[0]))
+                } else {
+                    Err(Error::AmbiguousClassName {
+                        name: internal_name.to_string(),
+                        matches: groups
+                            .iter()
+                            .map(|group| self.choose_representative(group))
+                            .collect(),
+                    })
+                }
+            }
         }
     }
 
@@ -1905,6 +2014,134 @@ mod tests {
             registry.code_source_for_class(&class_key),
             Some(jar_path.display().to_string().as_str())
         );
+    }
+
+    /// Build a minimal registrable `ClassContext` stub keyed by `key`.
+    fn stub_ctx(key: &str) -> ClassContext {
+        ClassContext {
+            class_name: key.to_string(),
+            super_class: None,
+            interfaces: vec![],
+            constant_pool: vec![],
+            methods: vec![],
+            fields: vec![],
+            static_fields: vec![],
+            instance_field_count: 0,
+            bootstrap_methods: vec![],
+            load_source: ClassLoadSource::Classfile,
+        }
+    }
+
+    /// Register a class stub under `key`, recording `code_source` so the identity
+    /// predicate can consult the same side table `ensure_loaded_inner` populates.
+    fn register_with_code_source(registry: &mut ClassRegistry, key: &str, code_source: &str) {
+        registry.classes.insert(Arc::from(key), stub_ctx(key));
+        registry
+            .class_code_sources
+            .insert(key.to_string(), code_source.to_string());
+    }
+
+    #[test]
+    fn same_runtime_class_identical_keys() {
+        let registry = ClassRegistry::new();
+        let key = "org/example/Foo\0loader:42";
+        assert!(registry.same_runtime_class(key, key));
+    }
+
+    #[test]
+    fn same_runtime_class_bare_matches_qualified_same_name() {
+        let registry = ClassRegistry::new();
+        assert!(registry.same_runtime_class("org/example/Foo", "org/example/Foo\0loader:42"));
+        assert!(registry.same_runtime_class("org/example/Foo\0loader:42", "org/example/Foo"));
+    }
+
+    #[test]
+    fn same_runtime_class_different_internal_names() {
+        let registry = ClassRegistry::new();
+        assert!(!registry.same_runtime_class("org/example/Foo", "org/example/Bar"));
+        assert!(
+            !registry.same_runtime_class("org/example/Foo\0loader:1", "org/example/Bar\0loader:1")
+        );
+    }
+
+    #[test]
+    fn same_runtime_class_two_loader_refs_same_code_source_are_same() {
+        let mut registry = ClassRegistry::new();
+        let jar = "/app/app.jar";
+        // Same class, same jar, two distinct loader refs (young-gen vs promoted old-gen).
+        let key_young = "org/example/Foo\0loader:154";
+        let key_old = format!("org/example/Foo\0loader:{}", (1u64 << 63) + 87);
+        register_with_code_source(&mut registry, key_young, jar);
+        register_with_code_source(&mut registry, &key_old, jar);
+        assert!(registry.same_runtime_class(key_young, &key_old));
+    }
+
+    #[test]
+    fn same_runtime_class_two_loaders_different_code_source_are_distinct() {
+        let mut registry = ClassRegistry::new();
+        let key_one = "org/example/Foo\0loader:1";
+        let key_two = "org/example/Foo\0loader:2";
+        register_with_code_source(&mut registry, key_one, "/app/one.jar");
+        register_with_code_source(&mut registry, key_two, "/app/two.jar");
+        assert!(!registry.same_runtime_class(key_one, key_two));
+    }
+
+    #[test]
+    fn same_runtime_class_code_suffix_parsed_from_unregistered_key() {
+        let registry = ClassRegistry::new();
+        // Neither key is registered; the code-source origin is parsed from the suffix.
+        assert!(registry.same_runtime_class(
+            "org/example/Foo\0code:/app/app.jar",
+            "org/example/Foo\0code:/app/app.jar"
+        ));
+        assert!(!registry.same_runtime_class(
+            "org/example/Foo\0code:/app/one.jar",
+            "org/example/Foo\0code:/app/two.jar"
+        ));
+    }
+
+    #[test]
+    fn resolve_collapses_same_definition_duplicate_loader_keys() {
+        let mut registry = ClassRegistry::new();
+        let jar = "/app/app.jar";
+        let key_young = "org/example/Foo\0loader:154";
+        let key_old = format!("org/example/Foo\0loader:{}", (1u64 << 63) + 87);
+        register_with_code_source(&mut registry, key_young, jar);
+        register_with_code_source(&mut registry, &key_old, jar);
+
+        let resolved = registry
+            .resolve_loaded_class_key("org/example/Foo")
+            .expect("same-definition duplicate keys must resolve unambiguously");
+        // Deterministic representative: no key is initialized and none is bare, so the
+        // lexicographically-smallest key wins (stable across the two loader refs).
+        assert_eq!(resolved, key_young.to_string().min(key_old.clone()));
+        // And it is a stable, GC-independent choice.
+        assert_eq!(
+            registry
+                .resolve_loaded_class_key("org/example/Foo")
+                .expect("stable"),
+            resolved
+        );
+    }
+
+    #[test]
+    fn resolve_rejects_distinct_definitions_with_different_code_sources() {
+        let mut registry = ClassRegistry::new();
+        let key_one = "org/example/Foo\0loader:1";
+        let key_two = "org/example/Foo\0loader:2";
+        register_with_code_source(&mut registry, key_one, "/app/one.jar");
+        register_with_code_source(&mut registry, key_two, "/app/two.jar");
+
+        let err = registry
+            .resolve_loaded_class_key("org/example/Foo")
+            .expect_err("genuinely distinct loaders must stay ambiguous");
+        match err {
+            Error::AmbiguousClassName { name, matches } => {
+                assert_eq!(name, "org/example/Foo");
+                assert_eq!(matches.len(), 2, "one representative per distinct group");
+            }
+            other => panic!("expected AmbiguousClassName, got {other:?}"),
+        }
     }
 }
 

@@ -34297,6 +34297,162 @@ fn is_assignable_from_matches_loader_qualified_interface() {
 }
 
 // ===========================================================================
+// Class-identity (Phase B): the SAME runtime class registered under two
+// provenance keys (a GC-promotion duplicate: same code source, two loader refs)
+// must compare EQUAL to itself across every identity-sensitive site — self /
+// super / interface assignability, catch-type matching, and Class-mirror
+// identity — while same-name classes from DIFFERENT code sources stay distinct.
+// These sites route through Phase A's `same_runtime_class` / `canonical_class_key`.
+// ===========================================================================
+
+/// Register `HelloWorld` from `code_source_dir` under a loader-qualified key
+/// (`HelloWorld\0loader:<ref>`), recording `code_source_dir` as its code source so
+/// `same_runtime_class` consults the same side table the runtime populates.
+fn register_hello_world_provenance(
+    registry: &mut ClassRegistry,
+    code_source_dir: &str,
+    loader_ref: u64,
+) -> String {
+    assert!(
+        registry
+            .ensure_loaded_with_provenance("HelloWorld", code_source_dir, Some(loader_ref))
+            .expect("HelloWorld should load from the fixtures directory"),
+        "HelloWorld should be resolvable from {code_source_dir}"
+    );
+    format!("HelloWorld\0loader:{loader_ref}")
+}
+
+/// A fresh temp directory holding a copy of the `HelloWorld.class` fixture, giving a
+/// second, genuinely-distinct code source (a different path) for the same class.
+fn temp_dir_with_hello_world() -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "duke_class_identity_{}_{nanos}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::copy(
+        fixtures_dir().join("HelloWorld.class"),
+        dir.join("HelloWorld.class"),
+    )
+    .unwrap();
+    dir
+}
+
+/// A class is assignable to ITSELF even when the two ends are named by different
+/// provenance keys of the same runtime class (the GC-promotion duplicate).
+#[test]
+fn is_assignable_from_same_class_two_provenance_keys_is_true() {
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let dir = fixtures_dir().display().to_string();
+    // Same code source, two distinct loader refs (young-gen vs promoted old-gen).
+    let key_young = register_hello_world_provenance(&mut registry, &dir, 154);
+    let key_old = register_hello_world_provenance(&mut registry, &dir, (1u64 << 63) + 87);
+    assert_ne!(
+        key_young, key_old,
+        "the two provenance keys must be distinct"
+    );
+    let loader = make_simple_loader();
+    assert!(
+        is_assignable_from(
+            &mut registry,
+            &loader,
+            &key_young,
+            &key_old,
+            Some(&key_young)
+        ),
+        "a class must be assignable to itself across two provenance keys"
+    );
+    assert!(
+        is_assignable_from(&mut registry, &loader, &key_old, &key_young, Some(&key_old)),
+        "self-identity across two provenance keys must be symmetric"
+    );
+}
+
+/// Two same-name classes loaded from DIFFERENT code sources are genuinely distinct
+/// runtime classes: neither is assignable to the other.
+#[test]
+fn is_assignable_from_distinct_code_sources_stays_false() {
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let dir_one = fixtures_dir().display().to_string();
+    let temp = temp_dir_with_hello_world();
+    let dir_two = temp.display().to_string();
+    let key_one = register_hello_world_provenance(&mut registry, &dir_one, 1);
+    let key_two = register_hello_world_provenance(&mut registry, &dir_two, 2);
+    let loader = make_simple_loader();
+    assert!(
+        !is_assignable_from(&mut registry, &loader, &key_one, &key_two, Some(&key_one)),
+        "same-name classes from DIFFERENT code sources must NOT be assignable"
+    );
+    assert!(
+        !is_assignable_from(&mut registry, &loader, &key_two, &key_one, Some(&key_two)),
+        "genuine multi-loader distinctness must be symmetric"
+    );
+    std::fs::remove_dir_all(&temp).ok();
+}
+
+/// A subclass whose recorded `super_class` is ONE provenance key of its superclass
+/// is assignable to that superclass named by the OTHER provenance key.
+#[test]
+fn is_assignable_from_superclass_across_two_provenance_keys() {
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let dir = fixtures_dir().display().to_string();
+    let super_young = register_hello_world_provenance(&mut registry, &dir, 154);
+    let super_old = register_hello_world_provenance(&mut registry, &dir, (1u64 << 63) + 87);
+    let sub_key = "com/example/Sub\0loader:154";
+    registry.register(ClassContext {
+        class_name: sub_key.to_string(),
+        super_class: Some(super_young),
+        interfaces: Vec::new(),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: Vec::new(),
+        static_fields: Vec::new(),
+        instance_field_count: 0,
+        bootstrap_methods: Vec::new(),
+        load_source: ClassLoadSource::Classfile,
+    });
+    let loader = make_simple_loader();
+    assert!(
+        is_assignable_from(&mut registry, &loader, sub_key, &super_old, Some(sub_key)),
+        "subclass must be assignable to its superclass reached via the OTHER provenance key"
+    );
+}
+
+/// A handler whose catch-type is one provenance key of the thrown exception's class
+/// matches an exception thrown under the OTHER provenance key of that same class.
+#[test]
+fn find_exception_handler_matches_catch_type_across_two_provenance_keys() {
+    let mut registry = ClassRegistry::new();
+    let mut heap = duke_gc::Heap::new();
+    bootstrap_stdlib(&mut registry, &mut heap);
+    let dir = fixtures_dir().display().to_string();
+    let thrown_key = register_hello_world_provenance(&mut registry, &dir, 154);
+    let catch_key = register_hello_world_provenance(&mut registry, &dir, (1u64 << 63) + 87);
+    let table = vec![ExceptionEntry {
+        start_pc: 0,
+        end_pc: 10,
+        handler_pc: 99,
+        catch_type: Some(catch_key),
+    }];
+    let loader = make_simple_loader();
+    assert_eq!(
+        find_exception_handler(&table, 5, &thrown_key, &thrown_key, &mut registry, &loader),
+        Some(99),
+        "a catch-type naming the OTHER provenance key of the thrown class must match"
+    );
+}
+
+// ===========================================================================
 // Static field / class-init superclass-chain resolution (JVMS §5.4.3.2 / §5.5)
 //
 // These mirror the invokestatic super-walk fix: `getstatic`/`putstatic` must

@@ -11535,7 +11535,7 @@ fn is_assignable_from(
     };
     let from_internal = registry.internal_name_for_class(&from_key);
     let to_internal = registry.internal_name_for_class(&to_key);
-    if from_key == to_key || to_internal == "java/lang/Object" {
+    if registry.same_runtime_class(&from_key, &to_key) || to_internal == "java/lang/Object" {
         return true;
     }
     // Lambda proxies implement their SAM interface (and transitively java/lang/Object).
@@ -11566,7 +11566,7 @@ fn is_assignable_from(
             Err(_) => continue,
         };
         if let Some(sc) = super_class {
-            if sc == to_key {
+            if registry.same_runtime_class(&sc, &to_key) {
                 return true;
             }
             queue.push_back(sc);
@@ -11577,13 +11577,12 @@ fn is_assignable_from(
             // which never runs the loader-resolution pass) or as loader-qualified keys
             // (classes resolved through `ensure_loaded_inner`, which rewrites each
             // interface to a `name\0loader:N` key). `to_key` here is loader-qualified.
-            // A direct `iface == to_key` match therefore silently fails for the plain
-            // case — e.g. `x instanceof org/apache/commons/logging/Log` on a
-            // reflectively-built implementor returns a false negative. Interface
-            // assignability in Duke's model is keyed by internal name, so compare on the
-            // plain internal name (stripping any loader qualifier from both sides); this
-            // is loader-agnostic and consistent with how interface entries are recorded.
-            if class_internal_name_from_key(&iface) == to_internal {
+            // Routing through `same_runtime_class` is correct for both: a bare synthetic
+            // interface reference matches the qualified `to_key` via the bare/loader-
+            // agnostic rule (preserving PR #1355's reflective-implementor case), while two
+            // qualified keys are the same interface only when they share a code source
+            // (preserving genuine multi-loader distinctness).
+            if registry.same_runtime_class(&iface, &to_key) {
                 return true;
             }
             queue.push_back(iface);
