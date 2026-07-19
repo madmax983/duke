@@ -1367,13 +1367,62 @@ fn register_concurrent_hashmap_stdlib(registry: &mut ClassRegistry) {
 /// simpler than `HotSpot`'s real byte-addressed memory model but is
 /// self-consistent because Duke's field and array access are both positional.
 fn register_unsafe_stdlib(registry: &mut ClassRegistry) {
+    // Real `jdk/internal/misc/Unsafe` declares, per array element kind, a pair of
+    // `public static final int` constants: `ARRAY_<K>_BASE_OFFSET` and
+    // `ARRAY_<K>_INDEX_SCALE` (nine kinds: BOOLEAN, BYTE, CHAR, SHORT, INT, LONG,
+    // FLOAT, DOUBLE, OBJECT). Real bytecode addresses element `i` of an array as
+    // `BASE_OFFSET + (i << log2(INDEX_SCALE))`, i.e. a byte offset into
+    // HotSpot's byte-addressed heap.
+    //
+    // Duke's heap is positional: `HeapObject::fields` holds ONE `Slot` PER ARRAY
+    // ELEMENT regardless of the element's primitive width (see `duke-gc`). An
+    // Unsafe "offset" in Duke IS the positional slot index. Choosing
+    // BASE_OFFSET == 0 and INDEX_SCALE == 1 collapses the real address formula to
+    // `offset == i` exactly (ASHIFT == log2(1) == 0), which is precisely the
+    // contract Duke's Unsafe array natives already honor: `arrayBaseOffset()`
+    // returns 0 and `arrayIndexScale()` returns 1 (see the natives registered
+    // below and `native/jdk_internal.rs`). Seeding these constants as static
+    // fields lets real `getstatic Unsafe.ARRAY_<K>_BASE_OFFSET` /
+    // `..._INDEX_SCALE` bytecode resolve to the same coherent 0 / 1 values the
+    // method natives return. Duke never performs real pointer arithmetic with
+    // them — offsets are slot indices — so the collapsed formula is exact.
+    const ARRAY_KINDS: [&str; 9] = [
+        "BOOLEAN", "BYTE", "CHAR", "SHORT", "INT", "LONG", "FLOAT", "DOUBLE", "OBJECT",
+    ];
+    let mut unsafe_fields: Vec<FieldEntry> = Vec::with_capacity(ARRAY_KINDS.len() * 2);
+    let mut unsafe_static_values: Vec<Slot> = Vec::with_capacity(ARRAY_KINDS.len() * 2);
+    for kind in ARRAY_KINDS {
+        // BASE_OFFSET == 0: positional heap has no per-array header offset.
+        unsafe_fields.push(FieldEntry {
+            name: format!("ARRAY_{kind}_BASE_OFFSET"),
+            descriptor: "I".to_string(),
+            is_static: true,
+        });
+        unsafe_static_values.push(Slot::Int(0));
+        // INDEX_SCALE == 1: one slot per element, so element index == offset.
+        unsafe_fields.push(FieldEntry {
+            name: format!("ARRAY_{kind}_INDEX_SCALE"),
+            descriptor: "I".to_string(),
+            is_static: true,
+        });
+        unsafe_static_values.push(Slot::Int(1));
+    }
+    // NOTE: real `Unsafe` also declares platform constants `ADDRESS_SIZE` /
+    // `PAGE_SIZE` (materialized by `UnsafeConstants` in the real `<clinit>`, which
+    // Duke never runs). They are intentionally NOT seeded here: the real-JDK
+    // frontier this surface serves does not demand them — the 18 ARRAY_* constants
+    // alone clear the entire Unsafe intrinsics lane, after which the chain advances
+    // into `java/lang/String.<init>(Ljava/lang/StringBuilder;)V` (String work,
+    // owned elsewhere). If a future frontier issues `getstatic Unsafe.ADDRESS_SIZE`
+    // / `PAGE_SIZE`, seed them here with the real 64-bit values (8 / 4096); Duke
+    // does no real pointer/page arithmetic, so those values are guard-plausible.
     registry.register(ClassContext {
         class_name: "jdk/internal/misc/Unsafe".to_string(),
         super_class: Some("java/lang/Object".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: Vec::new(),
-        static_fields: Vec::new(),
+        fields: unsafe_fields,
+        static_fields: unsafe_static_values,
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
