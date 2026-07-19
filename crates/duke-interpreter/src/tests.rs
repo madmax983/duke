@@ -35685,6 +35685,7 @@ fn class_new_instance_survives_gc_during_constructor() {
             info.internal_name = class.to_string();
             info.binary_name = class.replace('/', ".");
             info.methods = vec![ReflectedMethodInfo {
+                signature: Some("()V".to_string()),
                 name: "<init>".to_string(),
                 descriptor: "()V".to_string(),
                 is_public: true,
