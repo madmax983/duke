@@ -35446,8 +35446,7 @@ fn lbq_drain_to_survives_two_gcs_during_callback() {
 
     let mut heap = duke_gc::Heap::new();
     // Queue: fields[0] = size, fields[1..] = elements.
-    let queue_ref =
-        heap.allocate("java/util/concurrent/LinkedBlockingQueue".to_string(), 4);
+    let queue_ref = heap.allocate("java/util/concurrent/LinkedBlockingQueue".to_string(), 4);
     let target_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
     heap.get_mut(target_ref).unwrap().fields[0] = Slot::Int(0);
 
