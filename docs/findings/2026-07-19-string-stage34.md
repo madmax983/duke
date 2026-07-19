@@ -156,3 +156,31 @@ interpreted real JDK bytecode. Default mode is byte-identical (unchanged).
 
 Verdict: **Stage 4 LANDED** as a single, cleanly-isolated commit
 (`feat(string): run real String.<clinit> (drop from KEEP_SYNTHETIC)`).
+
+## Local-vs-CI real-jdk frontier divergence
+
+During the rebase onto freshly-unblocked trunk (`1554b04`, via #1394) a real
+divergence surfaced between the local and CI real-JDK boot state:
+
+- **Locally**, the jimage advanced the `--real-jdk` boot all the way past the
+  `String` constructor wall into `jdk/internal/util/StaticProperty.<clinit>`,
+  which throws `java/lang/InternalError` (the saved-system-properties bootstrap
+  lane). Local real-jdk pins were therefore misleadingly "green" against an
+  `InternalError` frontier.
+- **In CI**, the JDK-21 jimage stops *earlier*, at
+  `String.<init>([BB)V` — the package-private compact-strings constructor
+  `String(byte[] value, byte coder)` — surfacing as a `MethodNotFound`. This
+  rebase implements that constructor (real-layout intrinsic in
+  `native/common.rs`, registered in `stdlib.rs`), clearing the CI blocker.
+
+Lesson: **treat CI as the oracle for real-jdk frontier state.** Local real-jdk
+pins can be misleadingly green because the local jimage differs from the CI
+runner's jimage, and which `String` constructor overload is the *first-missing*
+method in the encode path is JDK-build-specific. Accordingly, #1394 relaxed the
+frontier pins in `duke/tests/spring_boot_real_jdk.rs` and
+`crates/duke-interpreter/tests/classloader_bootstrap_frontier.rs` from an exact
+descriptor to a **name-match** on `java/lang/String.<init>(` — the pin now
+locks the String-constructor wall regardless of which overload
+(`(Ljava/lang/StringBuilder;)V`, `([BB)V`, …) surfaces first on a given JDK
+build. The Stage 3a/4 exact-descriptor / `InternalError` pin edits were dropped
+in favor of trunk's relaxed name-match idiom during this rebase.
