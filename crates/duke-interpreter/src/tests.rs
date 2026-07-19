@@ -7469,7 +7469,6 @@ fn properties_for_each_survives_mid_iteration_gc() {
     );
 }
 
-
 #[test]
 fn url_connection_open_connection_reads_resource() {
     // URL.openConnection().getInputStream() reads the classpath resource
