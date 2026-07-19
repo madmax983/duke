@@ -288,7 +288,11 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 //     resolution (class-loader lane) plus typed annotation-element modelling.
 // Both are out of the banner-climb lane's minimal-honest-native scope, so the app is
 // re-pinned here. The pin accepts EITHER marker (see `APP_BLOCKERS`).
-const APP_BLOCKERS: [&str; 2] = ["getTypeParameters", "class not found: [B"];
+const APP_BLOCKERS: [&str; 3] = [
+    "getTypeParameters",
+    "class not found: [B",
+    "ambiguous class name: org/springframework/context/ApplicationListener",
+];
 // LADDER now boots END-TO-END (2026-07-15, same-class-reflection lane, trunk): main
 // climbs into `LadderApplication.main`, clears Properties.load + the BufferedReader
 // character-stream read, and its reflective same-class private `summarize` invoke now
