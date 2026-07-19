@@ -666,6 +666,31 @@ pub(crate) fn native_string_init_copy(
     }
     Ok(None)
 }
+/// Native: `String.<init>(Ljava/lang/StringBuilder;)V` — copies the builder's
+/// current characters into a fresh real-layout String receiver.
+///
+/// A `StringBuilder`/`StringBuffer` keeps its char buffer on the `string_value`
+/// metadata side-channel (see `native_sb_tostring`), so the source chars are
+/// read from there directly — the builder has no real 4-slot String layout to
+/// decode. The receiver is populated through [`store_string_init_value`], which
+/// mints slot0 (`value:[B`) / slot1 (`coder:B`) via `set_string_layout` and
+/// picks Latin-1 vs. UTF-16LE from the content. A null builder argument throws
+/// `NullPointerException`, matching `new String((StringBuilder) null)`.
+pub(crate) fn native_string_init_from_string_builder(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let builder_ref = match args.get(1) {
+        Some(Slot::Reference(Some(r))) => *r,
+        _ => return Err(Error::NullPointerException),
+    };
+    let chars = heap.get(builder_ref)?.string_value.clone().unwrap_or_default();
+    store_string_init_value(heap, this_ref, chars)?;
+    Ok(None)
+}
 /// Native: `Enum.<init>(Ljava/lang/String;I)V` — stores name + ordinal.
 /// args: `[this_ref, name_ref, ordinal_int]`
 pub(crate) fn native_enum_init(

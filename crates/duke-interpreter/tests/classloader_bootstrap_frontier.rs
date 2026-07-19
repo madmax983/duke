@@ -161,16 +161,25 @@ fn slf4j_real_jdk_shadow_classloader_frontier_pin() {
     // natives. `getstatic Unsafe.ARRAY_*` now resolves, clearing the entire Unsafe
     // intrinsics lane in one move.
     //
-    // The new honest frontier is
-    // `MethodNotFound { name: "java/lang/String.<init>", descriptor: "(Ljava/lang/StringBuilder;)V" }`:
-    // past the Unsafe lane, the chain reaches the `String(StringBuilder)`
-    // constructor, which the synthetic `String` does not provide as a native. That
-    // is String work (String stages 3-4), a distinct lane owned elsewhere, so we
-    // stop and pin here rather than force past it.
+    // The `String(StringBuilder)` / `String(StringBuffer)` constructors are now
+    // provided as real-layout natives (String stage 3a), so the chain no longer
+    // stalls on `MethodNotFound { java/lang/String.<init> (Ljava/lang/StringBuilder;)V }`.
+    // It advances materially further — through the `String(StringBuilder)` mint and
+    // deep into the real JDK's own bootstrap — before hitting the next wall:
+    //
+    //   JavaException { class_name: "java/lang/InternalError" }
+    //
+    // thrown by real-JDK `jdk/internal/util/StaticProperty.<clinit>` →
+    // `getProperty(props, key)` (at `getProperty@36 athrow`): the saved
+    // system-properties map Duke exposes to the real JDK lacks a required key
+    // (e.g. `java.home`), so `getProperty` returns null and the JDK constructs and
+    // throws `InternalError`. That is the VM saved-system-properties bootstrap lane,
+    // a distinct concern owned elsewhere, so we stop and pin here rather than force
+    // past it.
     //
     // When a native pushes the wall past this point, re-run with `-- --nocapture`,
     // read the new verbatim blocker above, and update this substring to lock it in.
-    const EXPECTED_FRONTIER: &str = "MethodNotFound { name: \"java/lang/String.<init>\", descriptor: \"(Ljava/lang/StringBuilder;)V\" }";
+    const EXPECTED_FRONTIER: &str = "JavaException { class_name: \"java/lang/InternalError\" }";
 
     let rendered = match run_slf4j_real_jdk_shadow() {
         Ok(()) => {
