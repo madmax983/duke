@@ -85,3 +85,7 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+**Extract Argument Matching Helpers for Native Primitives**
+**Learning:** `crates/duke-interpreter/src/native/common.rs` had dozens of repetitions of deep matches on `args.first()` and `args.get(1)` specifically to extract `int`, `long`, and `double` primitive types with a default value of `0` for out-of-bounds arguments. This created boilerplate, making primitive math implementations hard to read and cluttered the file.
+**Action:** Extract the primitive extraction and default mapping logic into small, typed helper functions like `extract_int_or_zero`, `extract_long_or_zero`, and `extract_double_or_zero`. Use these across all native math bindings (`Integer.compare`, `Long.max`, etc.) to flatten the code and reduce unnecessary nesting.
