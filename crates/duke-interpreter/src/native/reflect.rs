@@ -1533,13 +1533,18 @@ pub(crate) fn native_reflect_field_get_generic_type(
     let field = reflected_field_handle(heap, field_ref)?;
     let declaring = class_internal_name_from_key(&field.declaring_class_key).to_string();
     // Prefer the field's own generic Signature attribute, if present.
-    if let Some(sig) = ops.inspect_class(&declaring).ok().and_then(|info| {
-        info.fields.into_iter().find_map(|candidate| {
-            let matches = candidate.name == field.field_name
-                && candidate.descriptor == field.descriptor;
-            if matches { candidate.signature } else { None }
-        })
-    }) && let Ok(type_sig) = duke_classfile::parse_field_signature(&sig)
+    let field_signature = ops.inspect_class(&declaring).ok().and_then(|info| {
+        info.fields
+            .into_iter()
+            .find(|candidate| {
+                let name_matches = candidate.name == field.field_name;
+                let descriptor_matches = candidate.descriptor == field.descriptor;
+                name_matches && descriptor_matches
+            })
+            .and_then(|candidate| candidate.signature)
+    });
+    if let Some(sig) = field_signature
+        && let Ok(type_sig) = duke_classfile::parse_field_signature(&sig)
     {
         let type_ref = materialize_type_signature(heap, &type_sig)?;
         return Ok(Some(Slot::Reference(Some(type_ref))));

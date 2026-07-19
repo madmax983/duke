@@ -5730,6 +5730,7 @@ pub(crate) fn native_module_can_use(
 /// `System.setProperty` overrides). A null or absent property yields `false` —
 /// exactly `Boolean.parseBoolean(System.getProperty(name))`. Spring reads a
 /// number of `spring.*` boolean flags this way during bootstrap.
+#[allow(clippy::unnecessary_wraps)] // NativeHandler signature requires Result<Option<Slot>>.
 pub(crate) fn native_boolean_get_boolean(
     args: &[Slot],
     heap: &mut duke_gc::Heap,

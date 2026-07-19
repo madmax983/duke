@@ -275,20 +275,37 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // dispatches through `AnnotationAwareOrderComparator`); `Arrays.hashCode(Object[])`; and
 // `Class.getSuperclass`/`getInterfaces`.
 //
-// The app now walls in Spring's ANNOTATION + GENERICS reflection subsystem
-// (`AnnotationsScanner` / `ResolvableType`). Two blockers surface nondeterministically
-// (HashMap iteration order decides which is hit first), both requiring a deep reflective
-// surface Duke does not yet model:
-//   * `java/lang/Class.getTypeParameters()[Ljava/lang/reflect/TypeVariable;` — reached from
-//     `ResolvableType.forClassWithGenerics`, which then asserts the type-variable count
-//     matches the supplied generics; honest support needs real generic-signature parsing
-//     and the `java.lang.reflect.Type`/`TypeVariable`/`ParameterizedType` hierarchy.
-//   * `class not found: [B` — reached from `AnnotationsScanner.getDeclaredAnnotations`
-//     resolving a `byte[]`-typed annotation element; needs primitive array-class
-//     resolution (class-loader lane) plus typed annotation-element modelling.
-// Both are out of the banner-climb lane's minimal-honest-native scope, so the app is
-// re-pinned here. The pin accepts EITHER marker (see `APP_BLOCKERS`).
-const APP_BLOCKERS: [&str; 2] = ["getTypeParameters", "class not found: [B"];
+// The Spring GENERICS-reflection wall is now CLEARED (2026-07-19,
+// generics-reflection lane): real `Signature`-attribute parsing (JVMS §4.7.9.1),
+// a synthetic `java.lang.reflect.Type`/`TypeVariable`/`ParameterizedType`/
+// `GenericArrayType`/`WildcardType` hierarchy, and honest natives —
+// `Class.getTypeParameters` (TypeVariable[] of the correct arity, so
+// `ResolvableType.forClassWithGenerics`'s type-variable-count assert passes),
+// `getGenericSuperclass`/`getGenericInterfaces` (ParameterizedType when
+// parameterized), `Class.toGenericString`, and `Field.getGenericType`. Curated
+// JDK generic signatures back synthetic generic types (Map = <K,V>, List = <E>,
+// …) that carry no classfile Signature. A tiny `Boolean.getBoolean(String)`
+// bootstrap read was also cleared.
+//
+// The app now advances PAST the generics wall and walls, nondeterministically
+// (HashMap iteration order decides which surfaces first), on a cluster of
+// downstream lanes that are ALL out of the generics-reflection lane:
+//   * `class not found: [B` / `class not found: [Lorg/...ConcurrentReferenceHashMap$*;`
+//     — primitive AND object array-class resolution (class-loader lane), the
+//     dominant frontier.
+//   * `ambiguous class name: org/springframework/context/ApplicationListener
+//     matches [..\0, ..\0]` — a loader-qualified class-key dedup issue
+//     (class-loader lane).
+//   * `class not found: $$Lambda$N` — LambdaMetafactory / invokedynamic lane.
+// The pin below accepts ANY of these de-flaking markers (see `APP_BLOCKERS`).
+const APP_BLOCKERS: [&str; 3] = [
+    // Primitive + object array-class resolution (`[B`, `[Lorg/...;`).
+    "class not found: [",
+    // Loader-qualified class-key dedup (ApplicationListener).
+    "ambiguous class name",
+    // LambdaMetafactory / invokedynamic synthetic classes.
+    "$$Lambda",
+];
 // LADDER now boots END-TO-END (2026-07-15, same-class-reflection lane, trunk): main
 // climbs into `LadderApplication.main`, clears Properties.load + the BufferedReader
 // character-stream read, and its reflective same-class private `summarize` invoke now
@@ -333,12 +350,15 @@ fn combined_output(output: &Output) -> String {
             loader-suffix-safe Class.isAssignableFrom; Method/Constructor.getModifiers; \
             java.lang.reflect.Modifier; AccessibleObject.isAccessible; inherited-method resolution \
             for directed ops.invoke (OrderComparator.compare via AnnotationAwareOrderComparator); \
-            Arrays.hashCode(Object[]); and Class.getSuperclass/getInterfaces. The app now walls in \
-            Spring's annotation/generics reflection (AnnotationsScanner / ResolvableType), \
-            nondeterministically on Class.getTypeParameters (needs real generic-signature parsing + \
-            the java.lang.reflect.Type hierarchy) or `class not found: [B` (needs primitive \
-            array-class resolution, class-loader lane) — a deep reflective subsystem out of the \
-            banner-climb lane. Keep ignored until the Spring Boot app boot completes. \
+            Arrays.hashCode(Object[]); and Class.getSuperclass/getInterfaces. The Spring \
+            annotation/generics reflection wall (AnnotationsScanner / ResolvableType) was then \
+            CLEARED 2026-07-19 by the generics-reflection lane: real Signature-attribute parsing, \
+            the java.lang.reflect.Type/TypeVariable/ParameterizedType hierarchy, and the \
+            getTypeParameters/getGenericSuperclass/getGenericInterfaces/toGenericString natives. \
+            The app now advances PAST the generics wall and walls, nondeterministically, on the \
+            array-class resolution lane (`class not found: [B` / `[Lorg/...;`), a loader class-key \
+            dedup (`ambiguous class name`), and the LambdaMetafactory lane (`$$Lambda`) — all out \
+            of the generics lane. Keep ignored until the Spring Boot app boot completes. \
             See docs/findings/2026-07-10-spring-boot-real-app.md"]
 fn spring_boot_app_boots_end_to_end() {
     let output = run_fixture(APP_JAR);
@@ -371,9 +391,10 @@ fn spring_boot_app_surfaces_next_missing_capability_explicitly() {
     );
     assert!(
         APP_BLOCKERS.iter().any(|marker| combined.contains(marker)),
-        "expected the app fixture to stay pinned at the current first blocker \
-         (one of {APP_BLOCKERS:?} — the annotation/generics reflection frontier is \
-         nondeterministic across runs); if it moved, re-observe and update this pin \
+        "expected the app fixture to stay pinned at the current frontier cluster \
+         (any of {APP_BLOCKERS:?} — the generics wall is cleared; the app now walls \
+         nondeterministically on the array-class / class-loader-dedup / lambda lanes); \
+         if it moved, re-observe and update this pin \
          (docs/findings/2026-07-10-spring-boot-real-app.md). Output:\n{combined}"
     );
 }

@@ -10574,6 +10574,9 @@ fn qualify_reflected_class_info_ancestry(
     info
 }
 
+// Threading `signature: Option<String>` through the class/field/method
+// synthetic-stub literals tipped this data-plumbing fn just over the line limit.
+#[allow(clippy::too_many_lines)]
 fn inspect_reflected_class(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,

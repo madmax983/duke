@@ -1402,3 +1402,69 @@ dependency injection, autoconfiguration) that precedes the `Started … in … s
 
 No edits to the `NativeRootScope` internals, the `native/common.rs` String region,
 `execution.rs`'s dispatch loop, or the audited `java_util.rs` native bodies.
+
+## 2026-07-19 — Generics reflection: the `getTypeParameters` wall is CLEARED (branch `swarm/generics-reflection`)
+
+Honest support for `Class.getTypeParameters` and its downstream generics surface.
+An empty-stub `getTypeParameters` trips Spring's
+`ResolvableType.forClassWithGenerics` type-variable-count assert, so this needed
+REAL `Signature`-attribute parsing plus a synthetic `java.lang.reflect.Type`
+hierarchy — not a fake.
+
+### What landed
+- **Signature attribute + grammar parser (`duke-classfile`)**: new
+  `AttributeData::Signature { signature_index }` + a `"Signature"` decode arm, and
+  a new `signature.rs` module — a JVMS §4.7.9.1 recursive-descent parser producing
+  a typed AST (`ClassSignature`, `TypeParam`, `ClassTypeSignature`, `TypeSignature`,
+  `TypeArgument`, `MethodSignature`). Handles type parameters + bounds,
+  parameterized types, type-variable sigs (`TT;`), arrays, wildcards (`*`/`+`/`-`),
+  method sigs, and throws. Byte-level, never panics, 24 unit tests.
+- **`Reflected*Info.signature: Option<String>`**: threaded through
+  `reflected_class_info_from_loader` for class/field/method (mirrors the
+  `access_flags` precedent); `None` on synthetic-stub paths.
+- **Synthetic Type hierarchy (`stdlib.rs`)**: marker interfaces `TypeVariable`,
+  `ParameterizedType`, `GenericArrayType`, `WildcardType` (all extend `Type`) +
+  `GenericDeclaration`, plus concrete `duke/internal/reflect/*Impl` backing classes
+  (allocated directly, no `<init>` bytecode) carrying the data Spring reads.
+- **Natives (`reflect.rs`)**: `Class.getTypeParameters` (TypeVariable[] of the
+  correct arity), `getGenericSuperclass`/`getGenericInterfaces` (real
+  `ParameterizedType` when parameterized, else erased `Class`),
+  `Class.toGenericString`, `Field.getGenericType` (materializes the field's
+  generic signature), plus a recursive Type materializer and the Type-accessor
+  natives (`getName`/`getBounds`/`getActualTypeArguments`/`getRawType`/…),
+  registered on the interface names (invokeinterface resolves via the callee
+  interface class).
+- **Curated JDK generic signatures**: Duke models `java/util/Map`, `List`,
+  `Collection`, etc. synthetically with NO classfile `Signature`, so
+  `getTypeParameters` returned arity 0 and tripped the count assert. A
+  `builtin_generic_class_signature` table supplies these types' REAL JLS
+  signatures (`Map` = `<K,V>`, `List` = `<E>`, …), consulted via
+  `resolve_class_signature_string`. This is the honest fix, not a stub.
+- **`Boolean.getBoolean(String)`**: a tiny system-property bootstrap read that was
+  the next non-generics blocker exposed once generics cleared.
+
+### Rungs climbed on the app fixture (each observed by re-running `duke -jar`)
+1. `Class.getTypeParameters()[Ljava/lang/reflect/TypeVariable;` — cleared.
+2. `Class.toGenericString()Ljava/lang/String;` — cleared (downstream of #1).
+3. `IllegalArgumentException` (wrapped as ITE from `DukeApplication.main`) —
+   root-caused to `forClassWithGenerics(Map.class, …)` where `getTypeParameters`
+   returned arity 0 for synthetic `java/util/Map`; fixed by the curated-signature
+   table. Cleared.
+4. `Boolean.getBoolean(String)Z` — cleared.
+
+### New frontier (out of the generics lane — PINNED, not fixed)
+The generics markers no longer appear across 80+ runs. The app now walls
+nondeterministically on a cluster of downstream lanes:
+- `class not found: [B` and `class not found: [Lorg/...ConcurrentReferenceHashMap$*;`
+  — primitive + object **array-class resolution** (class-loader lane), dominant.
+- `ambiguous class name: org/springframework/context/ApplicationListener matches
+  [..\0, ..\0]` — a **loader-qualified class-key dedup** issue (class-loader lane).
+- `class not found: $$Lambda$N` — **LambdaMetafactory / invokedynamic** lane.
+`APP_BLOCKERS` in `duke/tests/spring_boot_real_app.rs` is re-pinned to the broad,
+de-flaking set `["class not found: [", "ambiguous class name", "$$Lambda"]`.
+
+### Distance-to-banner
+Still no banner. The app has climbed deeper into context bootstrap — through the
+whole annotation/generics `ResolvableType` machinery — but the array-class /
+class-loader / lambda lanes gate further progress toward `ApplicationContext`
+refresh and the `Started … in … seconds` line.
