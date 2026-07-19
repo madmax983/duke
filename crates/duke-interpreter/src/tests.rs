@@ -36074,6 +36074,405 @@ fn bifunction_and_then_apply_survives_two_gcs_during_callback() {
     );
 }
 
+/// Group C (primitive Int/Long/Double stream loops). These natives loop over a
+/// primitive element snapshot and re-pass the callback RECEIVER (the lambda ref)
+/// into `ops.invoke` on every iteration. The elements are primitives (never at
+/// risk), but the receiver is held in a Rust local — a Copy `Vec<Slot>` the
+/// collector never scans — across each callback. Each callback below forces two
+/// full relocating collections, so an unpinned receiver relocates mid-loop and
+/// the next iteration re-passes a stale/reused reference. With the
+/// `NativeRootScope` pin the receiver is rooted and forwarded across every
+/// collect, so every iteration observes the correct receiver.
+///
+/// IntStream leg — drives `native_int_stream_for_each`.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn int_stream_for_each_receiver_survives_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const RECEIVER_TAG: i32 = 6161;
+    const ELEMS: [i32; 3] = [11, 22, 33];
+
+    struct StreamGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_receiver_tags: Vec<i32>,
+        observed_elems: Vec<i32>,
+    }
+
+    impl CallbackOps for StreamGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            // args[0] = consumer receiver, args[1] = the primitive element.
+            let recv_tag = match args.first() {
+                Some(Slot::Reference(Some(r))) => heap
+                    .get(*r)
+                    .ok()
+                    .and_then(|o| match o.fields.first() {
+                        Some(Slot::Int(n)) => Some(*n),
+                        _ => None,
+                    })
+                    .unwrap_or(i32::MIN),
+                _ => i32::MIN,
+            };
+            self.observed_receiver_tags.push(recv_tag);
+            if let Some(Slot::Int(v)) = args.get(1) {
+                self.observed_elems.push(*v);
+            }
+
+            for _ in 0..2 {
+                for _ in 0..4 {
+                    let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                    if let Ok(o) = heap.get_mut(g) {
+                        o.fields[0] = Slot::Int(-777);
+                    }
+                }
+                let roots =
+                    gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                heap.collect(&roots);
+                patch_forwarded_slots(
+                    &mut self.caller_frame,
+                    &mut [],
+                    &mut self.registry,
+                    heap,
+                    &mut self.string_intern,
+                );
+            }
+            Ok(None)
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let stream_ref = heap.allocate("duke/util/IntStream".to_string(), 1);
+    heap.get_mut(stream_ref).unwrap().fields[0] = Slot::Int(ELEMS.len() as i32);
+    for &v in &ELEMS {
+        heap.get_mut(stream_ref).unwrap().fields.push(Slot::Int(v));
+    }
+    let consumer_ref = heap.allocate("duke/test/Consumer".to_string(), 1);
+    heap.get_mut(consumer_ref).unwrap().fields[0] = Slot::Int(RECEIVER_TAG);
+
+    // Caller frame roots the LIVE receiver (as an interpreter frame would), so it
+    // survives and forwards; only the native's private `consumer_slot` copy is at
+    // risk without the pin.
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = StreamGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_receiver_tags: Vec::new(),
+        observed_elems: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    native_int_stream_for_each(
+        &[
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_receiver_tags,
+        vec![RECEIVER_TAG; ELEMS.len()],
+        "IntStream.forEach consumer receiver went stale across a callback's GCs; \
+         a later `accept` invoke was handed a dangling/reused receiver reference"
+    );
+    assert_eq!(
+        ops.observed_elems,
+        ELEMS.to_vec(),
+        "IntStream.forEach did not process every element exactly once"
+    );
+}
+
+/// Group C — LongStream leg — drives `native_long_stream_for_each`.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn long_stream_for_each_receiver_survives_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const RECEIVER_TAG: i32 = 7272;
+    const ELEMS: [i64; 3] = [1_000_000_001, 1_000_000_002, 1_000_000_003];
+
+    struct StreamGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_receiver_tags: Vec<i32>,
+        observed_elems: Vec<i64>,
+    }
+
+    impl CallbackOps for StreamGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            let recv_tag = match args.first() {
+                Some(Slot::Reference(Some(r))) => heap
+                    .get(*r)
+                    .ok()
+                    .and_then(|o| match o.fields.first() {
+                        Some(Slot::Int(n)) => Some(*n),
+                        _ => None,
+                    })
+                    .unwrap_or(i32::MIN),
+                _ => i32::MIN,
+            };
+            self.observed_receiver_tags.push(recv_tag);
+            if let Some(Slot::Long(v)) = args.get(1) {
+                self.observed_elems.push(*v);
+            }
+
+            for _ in 0..2 {
+                for _ in 0..4 {
+                    let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                    if let Ok(o) = heap.get_mut(g) {
+                        o.fields[0] = Slot::Int(-777);
+                    }
+                }
+                let roots =
+                    gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                heap.collect(&roots);
+                patch_forwarded_slots(
+                    &mut self.caller_frame,
+                    &mut [],
+                    &mut self.registry,
+                    heap,
+                    &mut self.string_intern,
+                );
+            }
+            Ok(None)
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let stream_ref = heap.allocate("duke/util/LongStream".to_string(), 1);
+    heap.get_mut(stream_ref).unwrap().fields[0] = Slot::Int(ELEMS.len() as i32);
+    for &v in &ELEMS {
+        heap.get_mut(stream_ref).unwrap().fields.push(Slot::Long(v));
+    }
+    let consumer_ref = heap.allocate("duke/test/Consumer".to_string(), 1);
+    heap.get_mut(consumer_ref).unwrap().fields[0] = Slot::Int(RECEIVER_TAG);
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = StreamGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_receiver_tags: Vec::new(),
+        observed_elems: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    native_long_stream_for_each(
+        &[
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_receiver_tags,
+        vec![RECEIVER_TAG; ELEMS.len()],
+        "LongStream.forEach consumer receiver went stale across a callback's GCs; \
+         a later `accept` invoke was handed a dangling/reused receiver reference"
+    );
+    assert_eq!(
+        ops.observed_elems,
+        ELEMS.to_vec(),
+        "LongStream.forEach did not process every element exactly once"
+    );
+}
+
+/// Group C — DoubleStream leg — drives `native_double_stream_for_each`.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn double_stream_for_each_receiver_survives_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    const RECEIVER_TAG: i32 = 8383;
+    const ELEMS: [f64; 3] = [1.5, 2.5, 3.5];
+
+    struct StreamGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_receiver_tags: Vec<i32>,
+        observed_elems: Vec<f64>,
+    }
+
+    impl CallbackOps for StreamGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            let recv_tag = match args.first() {
+                Some(Slot::Reference(Some(r))) => heap
+                    .get(*r)
+                    .ok()
+                    .and_then(|o| match o.fields.first() {
+                        Some(Slot::Int(n)) => Some(*n),
+                        _ => None,
+                    })
+                    .unwrap_or(i32::MIN),
+                _ => i32::MIN,
+            };
+            self.observed_receiver_tags.push(recv_tag);
+            if let Some(Slot::Double(v)) = args.get(1) {
+                self.observed_elems.push(*v);
+            }
+
+            for _ in 0..2 {
+                for _ in 0..4 {
+                    let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                    if let Ok(o) = heap.get_mut(g) {
+                        o.fields[0] = Slot::Int(-777);
+                    }
+                }
+                let roots =
+                    gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                heap.collect(&roots);
+                patch_forwarded_slots(
+                    &mut self.caller_frame,
+                    &mut [],
+                    &mut self.registry,
+                    heap,
+                    &mut self.string_intern,
+                );
+            }
+            Ok(None)
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let stream_ref = heap.allocate("duke/util/DoubleStream".to_string(), 1);
+    heap.get_mut(stream_ref).unwrap().fields[0] = Slot::Int(ELEMS.len() as i32);
+    for &v in &ELEMS {
+        heap.get_mut(stream_ref)
+            .unwrap()
+            .fields
+            .push(Slot::Double(v));
+    }
+    let consumer_ref = heap.allocate("duke/test/Consumer".to_string(), 1);
+    heap.get_mut(consumer_ref).unwrap().fields[0] = Slot::Int(RECEIVER_TAG);
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = StreamGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_receiver_tags: Vec::new(),
+        observed_elems: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    native_double_stream_for_each(
+        &[
+            Slot::Reference(Some(stream_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_receiver_tags,
+        vec![RECEIVER_TAG; ELEMS.len()],
+        "DoubleStream.forEach consumer receiver went stale across a callback's \
+         GCs; a later `accept` invoke was handed a dangling/reused receiver \
+         reference"
+    );
+    assert_eq!(
+        ops.observed_elems,
+        ELEMS.to_vec(),
+        "DoubleStream.forEach did not process every element exactly once"
+    );
+}
+
 /// Family 5a (Class.newInstance). `native_class_new_instance` allocates the
 /// instance, then holds its bare reference across the `<init>` constructor
 /// callback and returns it. A nested constructor can allocate heavily and trigger

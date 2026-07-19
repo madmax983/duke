@@ -1931,7 +1931,7 @@ pub(crate) fn native_int_stream_iterate(
         Some(Slot::Int(n)) => n,
         _ => 0,
     };
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_int_stream(
             heap,
@@ -1941,6 +1941,12 @@ pub(crate) fn native_int_stream_iterate(
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut values = Vec::with_capacity(MAX);
     let mut cur = seed;
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for _ in 0..MAX {
         values.push(cur);
         let next = ops
@@ -1958,6 +1964,7 @@ pub(crate) fn native_int_stream_iterate(
             _ => break,
         }
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_int_stream(heap, values)))))
 }
 /// Native: `IntStream.count()J`
@@ -2073,13 +2080,19 @@ pub(crate) fn native_int_stream_filter(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = extract_slot_arg(args, 1);
+    let mut pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
     let elems = int_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     let mut kept = Vec::with_capacity(elems.len());
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut pred_slot);
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -2093,6 +2106,7 @@ pub(crate) fn native_int_stream_filter(
             kept.push(v);
         }
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_int_stream(heap, kept)))))
 }
 /// Native: `IntStream.peek(IntConsumer)IntStream` — calls consumer for each element, returns same stream.
@@ -2104,10 +2118,16 @@ pub(crate) fn native_int_stream_peek(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let elems = int_stream_elems(heap, r);
     if let Slot::Reference(Some(fn_ref)) = fn_slot {
         let fn_class = heap.get(fn_ref)?.class_name.clone();
+        // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+        // iteration, but native args live in a Copy `Vec<Slot>` the collector
+        // never scans, so a relocating GC inside the callback would otherwise
+        // leave this ref stale before the next iteration re-passes it.
+        let mut scope = NativeRootScope::new();
+        scope.pin_slot(&mut fn_slot);
         for &v in &elems {
             ops.invoke(
                 heap,
@@ -2118,6 +2138,7 @@ pub(crate) fn native_int_stream_peek(
                 vec![fn_slot, Slot::Int(v)],
             )?;
         }
+        drop(scope);
     }
     Ok(Some(Slot::Reference(Some(make_int_stream(heap, elems)))))
 }
@@ -2130,13 +2151,19 @@ pub(crate) fn native_int_stream_map(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(None)));
     };
     let elems = int_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut result = Vec::with_capacity(elems.len());
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for v in elems {
         let r = ops.invoke(
             heap,
@@ -2151,6 +2178,7 @@ pub(crate) fn native_int_stream_map(
             _ => 0,
         });
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_int_stream(heap, result)))))
 }
 /// Native: `IntStream.forEach(IntConsumer)V`
@@ -2162,12 +2190,18 @@ pub(crate) fn native_int_stream_for_each(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let consumer_slot = extract_slot_arg(args, 1);
+    let mut consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
         return Ok(None);
     };
     let elems = int_stream_elems(heap, r);
     let consumer_class = heap.get(consumer_ref)?.class_name.clone();
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut consumer_slot);
     for v in elems {
         ops.invoke(
             heap,
@@ -2178,6 +2212,7 @@ pub(crate) fn native_int_stream_for_each(
             vec![consumer_slot, Slot::Int(v)],
         )?;
     }
+    drop(scope);
     Ok(None)
 }
 /// Native: `IntStream.boxed()Stream` — wraps each int into `java/lang/Integer`.
@@ -2609,13 +2644,19 @@ pub(crate) fn native_int_stream_reduce_identity(
         Some(Slot::Int(n)) => *n,
         _ => 0,
     };
-    let fn_slot = extract_slot_arg(args, 2);
+    let mut fn_slot = extract_slot_arg(args, 2);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Int(identity)));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let values = int_stream_elems(heap, stream_ref);
     let mut acc = identity;
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for v in values {
         let result = ops
             .invoke(
@@ -2632,6 +2673,7 @@ pub(crate) fn native_int_stream_reduce_identity(
             _ => 0,
         };
     }
+    drop(scope);
     Ok(Some(Slot::Int(acc)))
 }
 /// Native: `IntStream.reduce(IntBinaryOperator)OptionalInt` — fold without identity.
@@ -2643,7 +2685,7 @@ pub(crate) fn native_int_stream_reduce_optional(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let stream_ref = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         // Return empty OptionalInt
         let r = make_optional_int(heap, None);
@@ -2655,6 +2697,12 @@ pub(crate) fn native_int_stream_reduce_optional(
         return Ok(Some(Slot::Reference(Some(make_optional_int(heap, None)))));
     }
     let mut acc = values[0];
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for &v in &values[1..] {
         let result = ops
             .invoke(
@@ -2671,6 +2719,7 @@ pub(crate) fn native_int_stream_reduce_optional(
             _ => 0,
         };
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_optional_int(
         heap,
         Some(acc),
@@ -3678,13 +3727,19 @@ pub(crate) fn native_long_stream_reduce_identity(
         Some(Slot::Long(n)) => n,
         _ => 0,
     };
-    let fn_slot = extract_slot_arg(args, 2);
+    let mut fn_slot = extract_slot_arg(args, 2);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Long(identity)));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let elems = long_stream_elems(heap, r);
     let mut acc = identity;
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for v in elems {
         let result = ops
             .invoke(
@@ -3702,6 +3757,7 @@ pub(crate) fn native_long_stream_reduce_identity(
             _ => acc,
         };
     }
+    drop(scope);
     Ok(Some(Slot::Long(acc)))
 }
 /// Native: `LongStream.boxed()Stream` — boxes each long into `java/lang/Long`.
@@ -3734,13 +3790,19 @@ pub(crate) fn native_long_stream_filter(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = extract_slot_arg(args, 1);
+    let mut pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
     let elems = long_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     let mut kept = Vec::with_capacity(elems.len());
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut pred_slot);
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -3754,6 +3816,7 @@ pub(crate) fn native_long_stream_filter(
             kept.push(v);
         }
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_long_stream(heap, kept)))))
 }
 /// Native: `LongStream.map(LongUnaryOperator)LongStream`
@@ -3765,13 +3828,19 @@ pub(crate) fn native_long_stream_map(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
     let elems = long_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut result = Vec::with_capacity(elems.len());
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for v in elems {
         let r = ops.invoke(
             heap,
@@ -3787,6 +3856,7 @@ pub(crate) fn native_long_stream_map(
             _ => 0,
         });
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_long_stream(heap, result)))))
 }
 /// Native: `LongStream.forEach(LongConsumer)V`
@@ -3798,12 +3868,18 @@ pub(crate) fn native_long_stream_for_each(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let consumer_slot = extract_slot_arg(args, 1);
+    let mut consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
         return Ok(None);
     };
     let elems = long_stream_elems(heap, r);
     let consumer_class = heap.get(consumer_ref)?.class_name.clone();
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut consumer_slot);
     for v in elems {
         ops.invoke(
             heap,
@@ -3814,6 +3890,7 @@ pub(crate) fn native_long_stream_for_each(
             vec![consumer_slot, Slot::Long(v)],
         )?;
     }
+    drop(scope);
     Ok(None)
 }
 /// Native: `LongStream.mapToInt(LongToIntFunction)IntStream`
@@ -3825,13 +3902,19 @@ pub(crate) fn native_long_stream_map_to_int(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
     };
     let elems = long_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut result = Vec::with_capacity(elems.len());
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for v in elems {
         let r = ops.invoke(
             heap,
@@ -3846,6 +3929,7 @@ pub(crate) fn native_long_stream_map_to_int(
             _ => 0,
         });
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_int_stream(heap, result)))))
 }
 /// Native: `DoubleStream.of(double[])DoubleStream` — from a double[] vararg array.
@@ -3987,7 +4071,7 @@ pub(crate) fn native_double_stream_filter(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = extract_slot_arg(args, 1);
+    let mut pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Reference(Some(make_double_stream(
             heap,
@@ -3997,6 +4081,12 @@ pub(crate) fn native_double_stream_filter(
     let elems = double_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
     let mut kept = Vec::with_capacity(elems.len());
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut pred_slot);
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -4010,6 +4100,7 @@ pub(crate) fn native_double_stream_filter(
             kept.push(v);
         }
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_double_stream(heap, kept)))))
 }
 /// Native: `DoubleStream.map(DoubleUnaryOperator)DoubleStream`
@@ -4021,7 +4112,7 @@ pub(crate) fn native_double_stream_map(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_double_stream(
             heap,
@@ -4031,6 +4122,12 @@ pub(crate) fn native_double_stream_map(
     let elems = double_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut result = Vec::with_capacity(elems.len());
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for v in elems {
         let r = ops.invoke(
             heap,
@@ -4047,6 +4144,7 @@ pub(crate) fn native_double_stream_map(
             _ => 0.0,
         });
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_double_stream(
         heap, result,
     )))))
@@ -4166,12 +4264,18 @@ pub(crate) fn native_int_stream_any_match(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = extract_slot_arg(args, 1);
+    let mut pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(0)));
     };
     let elems = int_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut pred_slot);
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -4185,6 +4289,7 @@ pub(crate) fn native_int_stream_any_match(
             return Ok(Some(Slot::Int(1)));
         }
     }
+    drop(scope);
     Ok(Some(Slot::Int(0)))
 }
 /// Native: `IntStream.allMatch(IntPredicate)Z`
@@ -4196,12 +4301,18 @@ pub(crate) fn native_int_stream_all_match(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = extract_slot_arg(args, 1);
+    let mut pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
     let elems = int_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut pred_slot);
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -4215,6 +4326,7 @@ pub(crate) fn native_int_stream_all_match(
             return Ok(Some(Slot::Int(0)));
         }
     }
+    drop(scope);
     Ok(Some(Slot::Int(1)))
 }
 /// Native: `IntStream.noneMatch(IntPredicate)Z`
@@ -4226,12 +4338,18 @@ pub(crate) fn native_int_stream_none_match(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = extract_slot_arg(args, 1);
+    let mut pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
     let elems = int_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut pred_slot);
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -4245,6 +4363,7 @@ pub(crate) fn native_int_stream_none_match(
             return Ok(Some(Slot::Int(0)));
         }
     }
+    drop(scope);
     Ok(Some(Slot::Int(1)))
 }
 /// Native: `IntStream.mapToLong(IntToLongFunction)LongStream`
@@ -4256,13 +4375,19 @@ pub(crate) fn native_int_stream_map_to_long(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
     let elems = int_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut result = Vec::with_capacity(elems.len());
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for v in elems {
         let r = ops.invoke(
             heap,
@@ -4278,6 +4403,7 @@ pub(crate) fn native_int_stream_map_to_long(
             _ => 0,
         });
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_long_stream(heap, result)))))
 }
 /// Native: `LongStream.findFirst()OptionalLong`
@@ -4302,12 +4428,18 @@ pub(crate) fn native_long_stream_any_match(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = extract_slot_arg(args, 1);
+    let mut pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(0)));
     };
     let elems = long_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut pred_slot);
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -4321,6 +4453,7 @@ pub(crate) fn native_long_stream_any_match(
             return Ok(Some(Slot::Int(1)));
         }
     }
+    drop(scope);
     Ok(Some(Slot::Int(0)))
 }
 /// Native: `LongStream.allMatch(LongPredicate)Z`
@@ -4332,12 +4465,18 @@ pub(crate) fn native_long_stream_all_match(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = extract_slot_arg(args, 1);
+    let mut pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
     let elems = long_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut pred_slot);
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -4351,6 +4490,7 @@ pub(crate) fn native_long_stream_all_match(
             return Ok(Some(Slot::Int(0)));
         }
     }
+    drop(scope);
     Ok(Some(Slot::Int(1)))
 }
 /// Native: `LongStream.noneMatch(LongPredicate)Z`
@@ -4362,12 +4502,18 @@ pub(crate) fn native_long_stream_none_match(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = extract_slot_arg(args, 1);
+    let mut pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
     let elems = long_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut pred_slot);
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -4381,6 +4527,7 @@ pub(crate) fn native_long_stream_none_match(
             return Ok(Some(Slot::Int(0)));
         }
     }
+    drop(scope);
     Ok(Some(Slot::Int(1)))
 }
 /// Native: `ComparingLongComparator.compare(O,O)I` — calls `fn.applyAsLong(o)` for each element.
@@ -4501,13 +4648,19 @@ pub(crate) fn native_int_stream_flat_map(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
     };
     let elems = int_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut result = Vec::with_capacity(elems.len());
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for v in elems {
         let sub = ops.invoke(
             heap,
@@ -4522,6 +4675,7 @@ pub(crate) fn native_int_stream_flat_map(
             result.extend(sub_elems);
         }
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_int_stream(heap, result)))))
 }
 /// Native: `LongStream.limit(long)LongStream` — truncate to at most n elements.
@@ -4567,13 +4721,19 @@ pub(crate) fn native_long_stream_flat_map(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
     let elems = long_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut result = Vec::with_capacity(elems.len());
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for v in elems {
         let sub = ops.invoke(
             heap,
@@ -4588,6 +4748,7 @@ pub(crate) fn native_long_stream_flat_map(
             result.extend(sub_elems);
         }
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_long_stream(heap, result)))))
 }
 /// Native: `DoubleStream.limit(long)DoubleStream`
@@ -4665,12 +4826,18 @@ pub(crate) fn native_double_stream_for_each(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let consumer_slot = extract_slot_arg(args, 1);
+    let mut consumer_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(consumer_ref)) = consumer_slot else {
         return Ok(None);
     };
     let elems = double_stream_elems(heap, r);
     let consumer_class = heap.get(consumer_ref)?.class_name.clone();
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut consumer_slot);
     for v in elems {
         ops.invoke(
             heap,
@@ -4681,6 +4848,7 @@ pub(crate) fn native_double_stream_for_each(
             vec![consumer_slot, Slot::Double(v)],
         )?;
     }
+    drop(scope);
     Ok(None)
 }
 /// Native: `DoubleStream.anyMatch(DoublePredicate)Z`
@@ -4692,12 +4860,18 @@ pub(crate) fn native_double_stream_any_match(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = extract_slot_arg(args, 1);
+    let mut pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(0)));
     };
     let elems = double_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut pred_slot);
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -4711,6 +4885,7 @@ pub(crate) fn native_double_stream_any_match(
             return Ok(Some(Slot::Int(1)));
         }
     }
+    drop(scope);
     Ok(Some(Slot::Int(0)))
 }
 /// Native: `DoubleStream.allMatch(DoublePredicate)Z`
@@ -4722,12 +4897,18 @@ pub(crate) fn native_double_stream_all_match(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = extract_slot_arg(args, 1);
+    let mut pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
     let elems = double_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut pred_slot);
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -4741,6 +4922,7 @@ pub(crate) fn native_double_stream_all_match(
             return Ok(Some(Slot::Int(0)));
         }
     }
+    drop(scope);
     Ok(Some(Slot::Int(1)))
 }
 /// Native: `DoubleStream.noneMatch(DoublePredicate)Z`
@@ -4752,12 +4934,18 @@ pub(crate) fn native_double_stream_none_match(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let pred_slot = extract_slot_arg(args, 1);
+    let mut pred_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(pred_ref)) = pred_slot else {
         return Ok(Some(Slot::Int(1)));
     };
     let elems = double_stream_elems(heap, r);
     let pred_class = heap.get(pred_ref)?.class_name.clone();
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut pred_slot);
     for v in elems {
         let result = ops.invoke(
             heap,
@@ -4771,6 +4959,7 @@ pub(crate) fn native_double_stream_none_match(
             return Ok(Some(Slot::Int(0)));
         }
     }
+    drop(scope);
     Ok(Some(Slot::Int(1)))
 }
 /// Native: `DoubleStream.findFirst()OptionalDouble`
@@ -4798,13 +4987,19 @@ pub(crate) fn native_double_stream_reduce_identity(
         Some(Slot::Double(d)) => d,
         _ => 0.0,
     };
-    let fn_slot = extract_slot_arg(args, 2);
+    let mut fn_slot = extract_slot_arg(args, 2);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Double(identity)));
     };
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let elems = double_stream_elems(heap, r);
     let mut acc = identity;
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for v in elems {
         let result = ops
             .invoke(
@@ -4823,6 +5018,7 @@ pub(crate) fn native_double_stream_reduce_identity(
             _ => acc,
         };
     }
+    drop(scope);
     Ok(Some(Slot::Double(acc)))
 }
 /// Native: `DoubleStream.reduce(DoubleBinaryOperator)OptionalDouble`
@@ -4834,7 +5030,7 @@ pub(crate) fn native_double_stream_reduce_optional(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         let opt_ref = make_optional_double_val(heap, None);
         return Ok(Some(Slot::Reference(Some(opt_ref))));
@@ -4847,6 +5043,12 @@ pub(crate) fn native_double_stream_reduce_optional(
         )))));
     }
     let mut acc = elems[0];
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for &v in &elems[1..] {
         let result = ops
             .invoke(
@@ -4865,6 +5067,7 @@ pub(crate) fn native_double_stream_reduce_optional(
             _ => acc,
         };
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_optional_double_val(
         heap,
         Some(acc),
@@ -4879,7 +5082,7 @@ pub(crate) fn native_double_stream_flat_map(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_double_stream(
             heap,
@@ -4889,6 +5092,12 @@ pub(crate) fn native_double_stream_flat_map(
     let elems = double_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut result = Vec::with_capacity(elems.len());
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for v in elems {
         let sub = ops.invoke(
             heap,
@@ -4902,6 +5111,7 @@ pub(crate) fn native_double_stream_flat_map(
             result.extend(double_stream_elems(heap, sub_ref));
         }
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_double_stream(
         heap, result,
     )))))
@@ -4915,13 +5125,19 @@ pub(crate) fn native_double_stream_map_to_int(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_int_stream(heap, vec![])))));
     };
     let elems = double_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut result = Vec::with_capacity(elems.len());
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for v in elems {
         let r = ops.invoke(
             heap,
@@ -4936,6 +5152,7 @@ pub(crate) fn native_double_stream_map_to_int(
             _ => 0,
         });
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_int_stream(heap, result)))))
 }
 /// Native: `DoubleStream.mapToLong(DoubleToLongFunction)LongStream`
@@ -4947,13 +5164,19 @@ pub(crate) fn native_double_stream_map_to_long(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_long_stream(heap, vec![])))));
     };
     let elems = double_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut result = Vec::with_capacity(elems.len());
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for v in elems {
         let r = ops.invoke(
             heap,
@@ -4969,6 +5192,7 @@ pub(crate) fn native_double_stream_map_to_long(
             _ => 0,
         });
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_long_stream(heap, result)))))
 }
 /// Native: `DoubleStream.distinct()DoubleStream` — removes duplicate values.
@@ -5032,7 +5256,7 @@ pub(crate) fn native_long_stream_reduce_optional(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         let opt_ref = make_optional_long(heap, None);
         return Ok(Some(Slot::Reference(Some(opt_ref))));
@@ -5043,6 +5267,12 @@ pub(crate) fn native_long_stream_reduce_optional(
         return Ok(Some(Slot::Reference(Some(make_optional_long(heap, None)))));
     }
     let mut acc = elems[0];
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for &v in &elems[1..] {
         let result = ops
             .invoke(
@@ -5060,6 +5290,7 @@ pub(crate) fn native_long_stream_reduce_optional(
             _ => acc,
         };
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_optional_long(
         heap,
         Some(acc),
@@ -5074,7 +5305,7 @@ pub(crate) fn native_long_stream_map_to_double(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let r = extract_ref_arg(args, 0)?;
-    let fn_slot = extract_slot_arg(args, 1);
+    let mut fn_slot = extract_slot_arg(args, 1);
     let Slot::Reference(Some(fn_ref)) = fn_slot else {
         return Ok(Some(Slot::Reference(Some(make_double_stream(
             heap,
@@ -5084,6 +5315,12 @@ pub(crate) fn native_long_stream_map_to_double(
     let elems = long_stream_elems(heap, r);
     let fn_class = heap.get(fn_ref)?.class_name.clone();
     let mut result = Vec::with_capacity(elems.len());
+    // Pin the callback receiver: it is re-passed to `ops.invoke` on every
+    // iteration, but native args live in a Copy `Vec<Slot>` the collector
+    // never scans, so a relocating GC inside the callback would otherwise
+    // leave this ref stale before the next iteration re-passes it.
+    let mut scope = NativeRootScope::new();
+    scope.pin_slot(&mut fn_slot);
     for v in elems {
         let r = ops.invoke(
             heap,
@@ -5100,6 +5337,7 @@ pub(crate) fn native_long_stream_map_to_double(
             _ => 0.0,
         });
     }
+    drop(scope);
     Ok(Some(Slot::Reference(Some(make_double_stream(
         heap, result,
     )))))
