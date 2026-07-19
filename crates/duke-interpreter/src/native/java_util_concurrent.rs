@@ -1886,8 +1886,8 @@ pub(crate) fn native_concurrent_hashmap_compute_if_absent(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
-    let key = chm_non_null_arg(args, 1)?;
+    let mut this_ref = extract_ref_arg(args, 0)?;
+    let mut key = chm_non_null_arg(args, 1)?;
     let fn_ref = extract_ref_arg(args, 2)?;
     let fn_slot = Slot::Reference(Some(fn_ref));
     let fn_class = heap.get(fn_ref)?.class_name.clone();
@@ -1900,6 +1900,12 @@ pub(crate) fn native_concurrent_hashmap_compute_if_absent(
         }
     }
 
+    // Pin `this_ref`/`key` across the mapping function: the lock is dropped for
+    // the callback, so both must survive and be forwarded in place on every
+    // collection it triggers before we re-lock and re-read the map below.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut this_ref);
+    scope.pin_slot(&mut key);
     let computed = ops.invoke(
         heap,
         out,
@@ -1908,6 +1914,7 @@ pub(crate) fn native_concurrent_hashmap_compute_if_absent(
         "(Ljava/lang/Object;)Ljava/lang/Object;",
         vec![fn_slot, key],
     )?;
+    drop(scope);
     let Some(value) = computed else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -1935,8 +1942,8 @@ pub(crate) fn native_concurrent_hashmap_compute_if_present(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
-    let key = chm_non_null_arg(args, 1)?;
+    let mut this_ref = extract_ref_arg(args, 0)?;
+    let mut key = chm_non_null_arg(args, 1)?;
     let fn_ref = extract_ref_arg(args, 2)?;
     let fn_slot = Slot::Reference(Some(fn_ref));
     let fn_class = heap.get(fn_ref)?.class_name.clone();
@@ -1950,6 +1957,11 @@ pub(crate) fn native_concurrent_hashmap_compute_if_present(
         }
     };
 
+    // Pin `this_ref`/`key` across the remapping function so both survive and are
+    // forwarded in place on every collection it triggers before we re-lock.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut this_ref);
+    scope.pin_slot(&mut key);
     let new_value = ops.invoke(
         heap,
         out,
@@ -1958,6 +1970,7 @@ pub(crate) fn native_concurrent_hashmap_compute_if_present(
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
         vec![fn_slot, key, old_value],
     )?;
+    drop(scope);
     let _guard = concurrent_hashmap_guard(&lock);
     match new_value {
         Some(value) if !matches!(value, Slot::Reference(None)) => {
@@ -1987,8 +2000,8 @@ pub(crate) fn native_concurrent_hashmap_compute(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
-    let key = chm_non_null_arg(args, 1)?;
+    let mut this_ref = extract_ref_arg(args, 0)?;
+    let mut key = chm_non_null_arg(args, 1)?;
     let fn_ref = extract_ref_arg(args, 2)?;
     let fn_slot = Slot::Reference(Some(fn_ref));
     let fn_class = heap.get(fn_ref)?.class_name.clone();
@@ -2000,6 +2013,11 @@ pub(crate) fn native_concurrent_hashmap_compute(
             .map_or(Slot::Reference(None), |i| fields[i + 1])
     };
 
+    // Pin `this_ref`/`key` across the remapping function so both survive and are
+    // forwarded in place on every collection it triggers before we re-lock.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut this_ref);
+    scope.pin_slot(&mut key);
     let new_value = ops.invoke(
         heap,
         out,
@@ -2008,6 +2026,7 @@ pub(crate) fn native_concurrent_hashmap_compute(
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
         vec![fn_slot, key, old_value],
     )?;
+    drop(scope);
     let _guard = concurrent_hashmap_guard(&lock);
     match new_value {
         Some(value) if !matches!(value, Slot::Reference(None)) => {
@@ -2037,8 +2056,8 @@ pub(crate) fn native_concurrent_hashmap_merge(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
-    let key = chm_non_null_arg(args, 1)?;
+    let mut this_ref = extract_ref_arg(args, 0)?;
+    let mut key = chm_non_null_arg(args, 1)?;
     let value = chm_non_null_arg(args, 2)?;
     let fn_ref = extract_ref_arg(args, 3)?;
     let fn_slot = Slot::Reference(Some(fn_ref));
@@ -2063,6 +2082,12 @@ pub(crate) fn native_concurrent_hashmap_merge(
         return Ok(Some(value));
     };
 
+    // Pin `this_ref`/`key` across the remapping function so the read-modify-write
+    // stays linearizable: both are forwarded in place on every collection the
+    // callback triggers, so the write-back below always lands on the right entry.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut this_ref);
+    scope.pin_slot(&mut key);
     let merged = ops.invoke(
         heap,
         out,
@@ -2071,6 +2096,7 @@ pub(crate) fn native_concurrent_hashmap_merge(
         "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
         vec![fn_slot, old_value, value],
     )?;
+    drop(scope);
     let _guard = concurrent_hashmap_guard(&lock);
     match merged {
         Some(merged_value) if !matches!(merged_value, Slot::Reference(None)) => {
@@ -2102,24 +2128,46 @@ pub(crate) fn native_concurrent_hashmap_for_each(
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let consumer_ref = extract_ref_arg(args, 1)?;
-    let consumer_slot = Slot::Reference(Some(consumer_ref));
+    let mut consumer_ref = extract_ref_arg(args, 1)?;
     let consumer_class = heap.get(consumer_ref)?.class_name.clone();
     let lock = concurrent_hashmap_lock(heap, this_ref)?;
     let entries = {
         let _guard = concurrent_hashmap_guard(&lock);
         chm_entry_snapshot(heap, this_ref)?
     };
+    // Flatten the (key, value) snapshot into a single interleaved
+    // [k0,v0,k1,v1,...] buffer so the whole run of not-yet-visited slots can be
+    // pinned as one GC handle. Empty map -> empty buffer -> pin_slots is a no-op
+    // and the loop runs zero times.
+    let mut entries_flat: Vec<Slot> = Vec::with_capacity(entries.len() * 2);
     for (key, value) in entries {
+        entries_flat.push(key);
+        entries_flat.push(value);
+    }
+    // Pin the consumer and the snapshot buffer across the callback loop: each
+    // collection the consumer triggers keeps them alive (gather_roots) and
+    // forwards them in place (patch_forwarded_slots), so the not-yet-visited
+    // pairs stay valid across ANY number of collections.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut consumer_ref);
+    scope.pin_slots(&mut entries_flat);
+    // Index access (not `.iter()`) is deliberate: iterating by reference would
+    // hold a live `&[Slot]` borrow of the pinned buffer across `ops.invoke`,
+    // which the collector writes through the pin handle.
+    let pair_count = entries_flat.len() / 2;
+    for i in 0..pair_count {
+        let key = entries_flat[i * 2];
+        let value = entries_flat[i * 2 + 1];
         ops.invoke(
             heap,
             out,
             &consumer_class,
             "accept",
             "(Ljava/lang/Object;Ljava/lang/Object;)V",
-            vec![consumer_slot, key, value],
+            vec![Slot::Reference(Some(consumer_ref)), key, value],
         )?;
     }
+    drop(scope);
     Ok(None)
 }
 
@@ -2451,11 +2499,19 @@ fn lbq_drain_into(
     heap: &mut duke_gc::Heap,
     output: &mut dyn Write,
     ops: &mut dyn CallbackOps,
-    this_ref: u64,
-    target_ref: u64,
+    mut this_ref: u64,
+    mut target_ref: u64,
     max: i32,
 ) -> Result<Option<Slot>> {
     let target_class = heap.get(target_ref)?.class_name.clone();
+    // Pin the queue and the target across the whole drain loop. Each `add`
+    // callback may trigger GC, and both refs are re-dereferenced afterwards on
+    // the next iteration (lbq_dequeue reads `this_ref`, and `target_ref` is
+    // re-passed into the callback). The pin forwards them in place on every
+    // collection, so both stay valid across ANY number of GCs.
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut this_ref);
+    scope.pin_ref(&mut target_ref);
     let mut count: i32 = 0;
     while count < max {
         let Some(elem) = lbq_dequeue(heap, this_ref)? else {
@@ -2471,6 +2527,7 @@ fn lbq_drain_into(
         )?;
         count += 1;
     }
+    drop(scope);
     Ok(Some(Slot::Int(count)))
 }
 

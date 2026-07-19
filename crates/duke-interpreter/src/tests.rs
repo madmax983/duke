@@ -35072,3 +35072,796 @@ fn hashmap_for_each_survives_mid_iteration_gc() {
         0
     );
 }
+
+// ---------------------------------------------------------------------------
+// GC-pin regression tests for the java.util.concurrent / java.lang callback
+// natives converted to `NativeRootScope` (see the pin API in common.rs). Each
+// drives a `CallbackOps` double whose `invoke` fires TWO promoting collections
+// (crossing the multi-GC regime that the old one-shot patch corrupts under),
+// then asserts the native's held reference tracked its object correctly. Every
+// test fails if the native holds a BARE reference across `ops.invoke`, and
+// passes with the pin. Modeled on the java_util shapes at
+// `hashmap_compute_if_absent_does_not_corrupt_key_across_two_gcs` /
+// `hashmap_for_each_survives_two_gcs_during_callback`.
+// ---------------------------------------------------------------------------
+
+/// Family 1 (CHM compute group). `ConcurrentHashMap.computeIfAbsent` holds
+/// `key`/`this_ref` across the mapping function. Under two collections with
+/// young-index reuse a one-shot post-invoke patch rewrites the held `key` onto
+/// an unrelated live decoy; with `NativeRootScope` the pin forwards `key` from
+/// its CURRENT value at every collect and the ORIGINAL key is stored. Mirror of
+/// the `HashMap` corruption repro, exercising the converted CHM native (which
+/// re-reads `this_ref`/`key` after re-locking, the same hazard shape).
+#[test]
+#[allow(clippy::too_many_lines)]
+fn concurrent_hashmap_compute_if_absent_does_not_corrupt_key_across_two_gcs() {
+    use std::collections::HashMap;
+
+    const KEY_TAG: i32 = 777;
+    const DECOY_TAG: i32 = 888;
+    const VALUE_TAG: i32 = 555;
+
+    struct ComputeGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        key_idx: u64,
+    }
+
+    impl ComputeGcOps {
+        fn collect_once(&mut self, heap: &mut duke_gc::Heap) {
+            let roots = gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+            heap.collect(&roots);
+            patch_forwarded_slots(
+                &mut self.caller_frame,
+                &mut [],
+                &mut self.registry,
+                heap,
+                &mut self.string_intern,
+            );
+        }
+    }
+
+    impl CallbackOps for ComputeGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            _args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            // GC1: relocates `key` (its native-local copy goes stale).
+            self.collect_once(heap);
+
+            // Place a live, rooted decoy at the key's now-freed original young
+            // index, so that index becomes a live from-key in GC2's rebuilt map.
+            let decoy = loop {
+                let idx = heap.allocate("duke/test/Decoy".to_string(), 1);
+                assert!(
+                    idx <= self.key_idx,
+                    "overshot the freed key index while placing the decoy"
+                );
+                if idx == self.key_idx {
+                    heap.get_mut(idx).unwrap().fields[0] = Slot::Int(DECOY_TAG);
+                    break idx;
+                }
+            };
+            self.caller_frame
+                .store_local(3, Slot::Reference(Some(decoy)))
+                .unwrap();
+
+            // GC2: forwards the decoy from `key_idx`. A one-shot patch would now
+            // rewrite `key` (== key_idx) onto the decoy.
+            self.collect_once(heap);
+
+            let v = heap.allocate("duke/test/Val".to_string(), 1);
+            heap.get_mut(v).unwrap().fields[0] = Slot::Int(VALUE_TAG);
+            Ok(Some(Slot::Reference(Some(v))))
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+
+    // Promote the map to the old gen so `this_ref` is address-stable across the
+    // minor collections, isolating the test on `key` corruption.
+    let mut map_ref = heap.allocate("java/util/concurrent/ConcurrentHashMap".to_string(), 1);
+    heap.get_mut(map_ref).unwrap().fields[0] = Slot::Int(0);
+    for _ in 0..8 {
+        if map_ref & (1u64 << 63) != 0 {
+            break;
+        }
+        heap.collect(&[Slot::Reference(Some(map_ref))]);
+        let mut s = Slot::Reference(Some(map_ref));
+        heap.apply_forward(&mut s);
+        map_ref = s.as_reference().unwrap();
+    }
+    assert!(
+        map_ref & (1u64 << 63) != 0,
+        "map should have been promoted to the old generation"
+    );
+
+    let fn_ref = heap.allocate("duke/test/Fn".to_string(), 0);
+    for _ in 0..8 {
+        let _ = heap.allocate("duke/test/Pad".to_string(), 1);
+    }
+    let key_ref = heap.allocate("duke/test/Val".to_string(), 1);
+    heap.get_mut(key_ref).unwrap().fields[0] = Slot::Int(KEY_TAG);
+    assert_eq!(
+        key_ref & (1u64 << 63),
+        0,
+        "key must be a young reference for the index-reuse scenario"
+    );
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        8,
+        vec![
+            Slot::Reference(Some(map_ref)),
+            Slot::Reference(Some(key_ref)),
+            Slot::Reference(Some(fn_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = ComputeGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        key_idx: key_ref,
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    native_concurrent_hashmap_compute_if_absent(
+        &[
+            Slot::Reference(Some(map_ref)),
+            Slot::Reference(Some(key_ref)),
+            Slot::Reference(Some(fn_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    let stored = heap.get(map_ref).unwrap();
+    assert_eq!(stored.fields[0], Slot::Int(1), "one entry should be stored");
+    let stored_key = match stored.fields[1] {
+        Slot::Reference(Some(r)) => r,
+        other => panic!("stored key is not a reference: {other:?}"),
+    };
+    let stored_key_tag = match heap.get(stored_key).unwrap().fields.first() {
+        Some(Slot::Int(n)) => *n,
+        other => panic!("stored key has no int tag: {other:?}"),
+    };
+    assert_eq!(
+        stored_key_tag, KEY_TAG,
+        "computeIfAbsent stored a CORRUPTED key (decoy) after two GCs; a \
+         bare held key would have been rewritten onto an unrelated object"
+    );
+}
+
+/// Family 2 (CHM forEach). `ConcurrentHashMap.forEach` snapshots (key, value)
+/// pairs and invokes the consumer once per pair. This consumer double forces TWO
+/// full collections per callback. With a bare snapshot the not-yet-visited pairs
+/// go stale and the consumer observes wrong tags / `i32::MIN`; with the pinned
+/// snapshot buffer every value is forwarded in place after each collect and
+/// observed correctly. Mirror of `hashmap_for_each_survives_two_gcs_during_callback`.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn concurrent_hashmap_for_each_survives_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    struct ForEachGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_tags: Vec<i32>,
+    }
+
+    impl CallbackOps for ForEachGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            let tag = match args.get(2) {
+                Some(Slot::Reference(Some(r))) => heap
+                    .get(*r)
+                    .ok()
+                    .and_then(|o| match o.fields.first() {
+                        Some(Slot::Int(n)) => Some(*n),
+                        _ => None,
+                    })
+                    .unwrap_or(i32::MIN),
+                _ => i32::MIN,
+            };
+            self.observed_tags.push(tag);
+
+            for _ in 0..2 {
+                for _ in 0..4 {
+                    let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                    if let Ok(o) = heap.get_mut(g) {
+                        o.fields[0] = Slot::Int(-777);
+                    }
+                }
+                let roots =
+                    gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                heap.collect(&roots);
+                patch_forwarded_slots(
+                    &mut self.caller_frame,
+                    &mut [],
+                    &mut self.registry,
+                    heap,
+                    &mut self.string_intern,
+                );
+            }
+            Ok(None)
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let map_ref = heap.allocate("java/util/concurrent/ConcurrentHashMap".to_string(), 7);
+    let consumer_ref = heap.allocate("duke/test/Consumer".to_string(), 0);
+
+    let mut kv = Vec::new();
+    for i in 0..3i32 {
+        let k = heap.allocate_string(format!("k{i}"));
+        let v = heap.allocate("duke/test/Val".to_string(), 1);
+        heap.get_mut(v).unwrap().fields[0] = Slot::Int(100 + i);
+        kv.push((k, v));
+    }
+    {
+        let m = heap.get_mut(map_ref).unwrap();
+        m.fields[0] = Slot::Int(3);
+        for (i, (k, v)) in kv.iter().enumerate() {
+            m.fields[1 + i * 2] = Slot::Reference(Some(*k));
+            m.fields[2 + i * 2] = Slot::Reference(Some(*v));
+        }
+    }
+
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(map_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = ForEachGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_tags: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    native_concurrent_hashmap_for_each(
+        &[
+            Slot::Reference(Some(map_ref)),
+            Slot::Reference(Some(consumer_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_tags,
+        vec![100, 101, 102],
+        "consumer observed stale/relocated values after multiple GCs \
+         (dangling snapshot references)"
+    );
+}
+
+/// Family 3 (LinkedBlockingQueue.drainTo). `lbq_drain_into` dequeues an element
+/// from the queue, hands it to `target.add(elem)`, and loops — re-dereferencing
+/// the bare `this_ref` (to dequeue the next element) and re-passing `target_ref`
+/// on every iteration. Each `add` callback fires two collections; with bare refs
+/// the queue/target relocate and the next dequeue reads a stale (reused) address,
+/// so the drain stops short or reads garbage. With `NativeRootScope` both refs are
+/// forwarded in place on every collect and the full queue drains in order.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn lbq_drain_to_survives_two_gcs_during_callback() {
+    use std::collections::HashMap;
+
+    struct AddGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        observed_tags: Vec<i32>,
+    }
+
+    impl CallbackOps for AddGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            // args[0] = target, args[1] = the element handed to target.add(...).
+            let tag = match args.get(1) {
+                Some(Slot::Reference(Some(r))) => heap
+                    .get(*r)
+                    .ok()
+                    .and_then(|o| match o.fields.first() {
+                        Some(Slot::Int(n)) => Some(*n),
+                        _ => None,
+                    })
+                    .unwrap_or(i32::MIN),
+                _ => i32::MIN,
+            };
+            self.observed_tags.push(tag);
+
+            for _ in 0..2 {
+                for _ in 0..4 {
+                    let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                    if let Ok(o) = heap.get_mut(g) {
+                        o.fields[0] = Slot::Int(-777);
+                    }
+                }
+                let roots =
+                    gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                heap.collect(&roots);
+                patch_forwarded_slots(
+                    &mut self.caller_frame,
+                    &mut [],
+                    &mut self.registry,
+                    heap,
+                    &mut self.string_intern,
+                );
+            }
+            Ok(Some(Slot::Int(1)))
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    // Queue: fields[0] = size, fields[1..] = elements.
+    let queue_ref = heap.allocate("java/util/concurrent/LinkedBlockingQueue".to_string(), 4);
+    let target_ref = heap.allocate("java/util/ArrayList".to_string(), 1);
+    heap.get_mut(target_ref).unwrap().fields[0] = Slot::Int(0);
+
+    let mut elems = Vec::new();
+    for i in 0..3i32 {
+        let v = heap.allocate("duke/test/Val".to_string(), 1);
+        heap.get_mut(v).unwrap().fields[0] = Slot::Int(100 + i);
+        elems.push(v);
+    }
+    {
+        let q = heap.get_mut(queue_ref).unwrap();
+        q.fields[0] = Slot::Int(3);
+        for (i, v) in elems.iter().enumerate() {
+            q.fields[1 + i] = Slot::Reference(Some(*v));
+        }
+    }
+
+    // Caller frame roots the LIVE queue + target (as an interpreter frame would),
+    // so those survive and are forwarded; only the native's private bare
+    // this_ref/target_ref copies are at risk without the pin.
+    let caller_frame = duke_runtime::Frame::new(
+        8,
+        4,
+        vec![
+            Slot::Reference(Some(queue_ref)),
+            Slot::Reference(Some(target_ref)),
+        ],
+    )
+    .unwrap();
+
+    let mut ops = AddGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        observed_tags: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_lbq_drain_to(
+        &[
+            Slot::Reference(Some(queue_ref)),
+            Slot::Reference(Some(target_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_tags,
+        vec![100, 101, 102],
+        "drainTo handed target.add stale/wrong elements after multiple GCs \
+         (dangling queue reference across the drain loop)"
+    );
+    assert_eq!(
+        result,
+        Some(Slot::Int(3)),
+        "drainTo should have drained all three elements"
+    );
+}
+
+/// Family 4 (System.getProperties). `native_system_get_properties` allocates a
+/// Properties instance and holds it across the `<init>` callback and the whole
+/// setProperty loop (re-passing it each iteration and returning it at the end),
+/// while every iteration both runs a callback and allocates fresh key/value
+/// strings. With a bare ref the instance is unrooted across the callback GCs and
+/// its slot is reused, so the returned handle is corrupt. With `NativeRootScope`
+/// the pin keeps it alive (via `gather_roots`) and forwarded (via
+/// `patch_forwarded_slots`) across every collection, so the original instance is
+/// returned intact.
+#[test]
+fn system_get_properties_survives_gc_during_callbacks() {
+    use std::collections::HashMap;
+
+    const SENTINEL: i32 = 424_242;
+
+    struct PropsGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+    }
+
+    impl CallbackOps for PropsGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            _args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            // Two collections per callback, allocating garbage so a freed slot is
+            // reused (an unpinned Properties handle would then read garbage).
+            for _ in 0..2 {
+                for _ in 0..4 {
+                    let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                    if let Ok(o) = heap.get_mut(g) {
+                        o.fields[0] = Slot::Int(-777);
+                    }
+                }
+                let roots =
+                    gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                heap.collect(&roots);
+                patch_forwarded_slots(
+                    &mut self.caller_frame,
+                    &mut [],
+                    &mut self.registry,
+                    heap,
+                    &mut self.string_intern,
+                );
+            }
+            Ok(None)
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+
+        fn allocate_instance(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            class: &str,
+        ) -> Result<u64> {
+            let r = heap.allocate(class.to_string(), 4);
+            // Tag the instance so we can prove the RETURNED handle still points at
+            // this exact object after the callback collections.
+            heap.get_mut(r)?.fields[0] = Slot::Int(SENTINEL);
+            Ok(r)
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let caller_frame = duke_runtime::Frame::new(4, 1, vec![]).unwrap();
+
+    let mut ops = PropsGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result =
+        native_system_get_properties(&[], &mut heap, &mut out, &mut control, &mut ops).unwrap();
+
+    let props_ref = match result {
+        Some(Slot::Reference(Some(r))) => r,
+        other => panic!("getProperties did not return a reference: {other:?}"),
+    };
+    let tag = match heap.get(props_ref).unwrap().fields.first() {
+        Some(Slot::Int(n)) => *n,
+        other => panic!("returned Properties has no int tag: {other:?}"),
+    };
+    assert_eq!(
+        tag, SENTINEL,
+        "getProperties returned a CORRUPTED handle after callback GCs; a bare \
+         held ref was collected/reused across the <init> + setProperty callbacks"
+    );
+}
+
+/// Family 5a (Class.newInstance). `native_class_new_instance` allocates the
+/// instance, then holds its bare reference across the `<init>` constructor
+/// callback and returns it. A nested constructor can allocate heavily and trigger
+/// GC; with a bare ref the instance is unrooted and its slot reused, so the
+/// returned handle is corrupt. With `NativeRootScope` the pin keeps it alive and
+/// forwarded across every collection and the original instance is returned.
+#[test]
+fn class_new_instance_survives_gc_during_constructor() {
+    use std::collections::HashMap;
+
+    const SENTINEL: i32 = 313_131;
+
+    struct NewInstanceGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+    }
+
+    impl CallbackOps for NewInstanceGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            _args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            for _ in 0..2 {
+                for _ in 0..4 {
+                    let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                    if let Ok(o) = heap.get_mut(g) {
+                        o.fields[0] = Slot::Int(-777);
+                    }
+                }
+                let roots =
+                    gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                heap.collect(&roots);
+                patch_forwarded_slots(
+                    &mut self.caller_frame,
+                    &mut [],
+                    &mut self.registry,
+                    heap,
+                    &mut self.string_intern,
+                );
+            }
+            Ok(None)
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, class: &str) -> Result<ReflectedClassInfo> {
+            let mut info = empty_reflected_class_info();
+            info.internal_name = class.to_string();
+            info.binary_name = class.replace('/', ".");
+            info.methods = vec![ReflectedMethodInfo {
+                name: "<init>".to_string(),
+                descriptor: "()V".to_string(),
+                is_public: true,
+                is_static: false,
+                annotations: Vec::new(),
+                annotation_default: None,
+            }];
+            Ok(info)
+        }
+
+        fn allocate_instance(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            class: &str,
+        ) -> Result<u64> {
+            let r = heap.allocate(class.to_string(), 4);
+            heap.get_mut(r)?.fields[0] = Slot::Int(SENTINEL);
+            Ok(r)
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    // The `Class` object: `class_key_from_ref` reads its string_value as the key.
+    let class_ref = heap.allocate_string("duke/test/Thing".to_string());
+    let caller_frame =
+        duke_runtime::Frame::new(4, 1, vec![Slot::Reference(Some(class_ref))]).unwrap();
+
+    let mut ops = NewInstanceGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    let result = native_class_new_instance(
+        &[Slot::Reference(Some(class_ref))],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    let instance_ref = match result {
+        Some(Slot::Reference(Some(r))) => r,
+        other => panic!("newInstance did not return a reference: {other:?}"),
+    };
+    let tag = match heap.get(instance_ref).unwrap().fields.first() {
+        Some(Slot::Int(n)) => *n,
+        other => panic!("returned instance has no int tag: {other:?}"),
+    };
+    assert_eq!(
+        tag, SENTINEL,
+        "newInstance returned a CORRUPTED handle after the constructor GCs; a \
+         bare held instance ref was collected/reused across the <init> callback"
+    );
+}
+
+/// Family 5b (LogManager.readConfiguration(InputStream)). The JUL read-config
+/// native holds a bare `stream_ref` across a loop of `read()` callbacks,
+/// re-passing it each iteration. Each `read()` fires two collections; with a bare
+/// ref the stream is unrooted and its slot reused, so the next `read()` gets a
+/// corrupt stream handle. With `NativeRootScope` the pin keeps it alive and
+/// forwarded across every collection, so every `read()` sees the intact stream.
+#[test]
+fn jul_read_configuration_stream_survives_gc_during_reads() {
+    use std::collections::HashMap;
+
+    const SENTINEL: i32 = 909_090;
+
+    struct ReadGcOps {
+        caller_frame: duke_runtime::Frame,
+        registry: ClassRegistry,
+        string_intern: HashMap<(u8, String), u64>,
+        calls: i32,
+        observed_tags: Vec<i32>,
+    }
+
+    impl CallbackOps for ReadGcOps {
+        fn invoke(
+            &mut self,
+            heap: &mut duke_gc::Heap,
+            _output: &mut dyn Write,
+            _class: &str,
+            _method: &str,
+            _descriptor: &str,
+            args: Vec<Slot>,
+        ) -> Result<Option<Slot>> {
+            // args[0] is the stream handle the native re-passes each iteration.
+            let tag = match args.first() {
+                Some(Slot::Reference(Some(r))) => heap
+                    .get(*r)
+                    .ok()
+                    .and_then(|o| match o.fields.first() {
+                        Some(Slot::Int(n)) => Some(*n),
+                        _ => None,
+                    })
+                    .unwrap_or(i32::MIN),
+                _ => i32::MIN,
+            };
+            self.observed_tags.push(tag);
+
+            for _ in 0..2 {
+                for _ in 0..4 {
+                    let g = heap.allocate("duke/test/Garbage".to_string(), 1);
+                    if let Ok(o) = heap.get_mut(g) {
+                        o.fields[0] = Slot::Int(-777);
+                    }
+                }
+                let roots =
+                    gather_roots(&self.caller_frame, &[], &self.registry, &self.string_intern);
+                heap.collect(&roots);
+                patch_forwarded_slots(
+                    &mut self.caller_frame,
+                    &mut [],
+                    &mut self.registry,
+                    heap,
+                    &mut self.string_intern,
+                );
+            }
+
+            self.calls += 1;
+            // Continue for the first three reads, then signal EOF (-1) to stop.
+            if self.calls >= 3 {
+                Ok(Some(Slot::Int(-1)))
+            } else {
+                Ok(Some(Slot::Int(1)))
+            }
+        }
+
+        fn ensure_loaded(&mut self, _class: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn inspect_class(&mut self, _class: &str) -> Result<ReflectedClassInfo> {
+            Ok(empty_reflected_class_info())
+        }
+    }
+
+    let mut heap = duke_gc::Heap::new();
+    let manager_ref = heap.allocate("java/util/logging/LogManager".to_string(), 1);
+    let stream_ref = heap.allocate("duke/io/ResourceInputStream".to_string(), 1);
+    heap.get_mut(stream_ref).unwrap().fields[0] = Slot::Int(SENTINEL);
+
+    // Deliberately do NOT root the stream in the caller frame: only the native's
+    // pin should keep it alive across the read callbacks.
+    let caller_frame =
+        duke_runtime::Frame::new(4, 1, vec![Slot::Reference(Some(manager_ref))]).unwrap();
+
+    let mut ops = ReadGcOps {
+        caller_frame,
+        registry: ClassRegistry::new(),
+        string_intern: HashMap::new(),
+        calls: 0,
+        observed_tags: Vec::new(),
+    };
+    let mut out: Vec<u8> = Vec::new();
+    let mut control = NativeControl::default();
+
+    native_jul_log_manager_read_configuration_stream(
+        &[
+            Slot::Reference(Some(manager_ref)),
+            Slot::Reference(Some(stream_ref)),
+        ],
+        &mut heap,
+        &mut out,
+        &mut control,
+        &mut ops,
+    )
+    .unwrap();
+
+    assert_eq!(
+        ops.observed_tags,
+        vec![SENTINEL, SENTINEL, SENTINEL],
+        "readConfiguration re-passed a stale/corrupt stream handle after \
+         callback GCs (dangling stream reference across the read loop)"
+    );
+}
