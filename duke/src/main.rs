@@ -9,6 +9,8 @@ mod analyze;
 #[cfg(feature = "nova")]
 mod audit;
 #[cfg(feature = "nova")]
+mod clone_detect;
+#[cfg(feature = "nova")]
 mod cycle_detect;
 #[cfg(feature = "nova")]
 mod dead_code;
@@ -394,6 +396,8 @@ fn main() {
         eprintln!("       duke run <classfile.class> [string-arg...]");
         eprintln!("       duke stub <classfile.class>");
         #[cfg(feature = "nova")]
+        eprintln!("       duke clone-detect <file.jar> [threshold]");
+        #[cfg(feature = "nova")]
         eprintln!("       duke dead-code <classfile.class>");
         #[cfg(feature = "nova")]
         eprintln!("       duke jar-dead-code <file.jar>");
@@ -440,6 +444,24 @@ fn main() {
         #[cfg(not(feature = "nova"))]
         eprintln!("duke: 'jar-diff' command requires the 'nova' feature flag.");
         return;
+    }
+
+    // Dispatch `clone-detect`
+    if args.len() >= 3 && args[1] == "clone-detect" {
+        #[cfg(feature = "nova")]
+        {
+            let threshold = args
+                .get(3)
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.9);
+            clone_detect::dump_clone_detect(&args[2], threshold);
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: 'clone-detect' command requires the 'nova' feature flag.");
+            return;
+        }
     }
 
     // Dispatch `jar-search`
