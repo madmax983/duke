@@ -1575,8 +1575,6 @@ impl Heap {
     ///
     /// `identity_hash` and `atomic_payload` ride along with each moved object,
     /// preserving the [`HeapObject`] invariant across relocation.
-    ///
-    /// `mark_old`: Self::mark_old
     pub fn compact_old(&mut self, roots: &[Slot]) {
         // Snapshot executor shared state up front: their task queues hold bare
         // OLD refs the mutator never sees, so we both (a) treat them as extra
