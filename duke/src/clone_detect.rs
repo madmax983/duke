@@ -2,9 +2,7 @@
 #[cfg(feature = "nova")]
 use duke_bytecode::{Instruction, calculate_similarity, decode};
 #[cfg(feature = "nova")]
-use duke_classfile::{
-    parse, AttributeData, CpEntry, CpIndex,
-};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::path::Path;
