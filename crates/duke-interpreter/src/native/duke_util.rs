@@ -2839,12 +2839,10 @@ pub(crate) fn native_condition_signal(
     let condition = condition_state(heap, this_ref)?;
     let thread_id = current_host_thread_id();
     let mut condition_guard = condition
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     let lock_state = std::sync::Arc::clone(&condition_guard.lock);
     let lock_guard = lock_state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     if !reentrant_lock_is_held_by(&lock_guard, thread_id) {
         return Err(illegal_monitor_state_error());
     }
@@ -2870,12 +2868,10 @@ pub(crate) fn native_condition_signal_all(
     let condition = condition_state(heap, this_ref)?;
     let thread_id = current_host_thread_id();
     let mut condition_guard = condition
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     let lock_state = std::sync::Arc::clone(&condition_guard.lock);
     let lock_guard = lock_state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     if !reentrant_lock_is_held_by(&lock_guard, thread_id) {
         return Err(illegal_monitor_state_error());
     }

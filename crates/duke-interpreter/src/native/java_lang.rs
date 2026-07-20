@@ -1640,8 +1640,7 @@ pub(crate) fn native_system_set_property(
     let value = string_value_from_ref(heap, value_ref)?;
     let previous = {
         let mut overrides = system_property_overrides()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         let prev = overrides.get(&key).cloned().or_else(|| system_property_value_fallback(&key));
         overrides.insert(key, value);
         prev
@@ -1686,8 +1685,7 @@ fn system_properties_snapshot() -> Vec<(String, String)> {
     let mut props = Vec::new();
     {
         let overrides = system_property_overrides()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         for (key, value) in overrides.iter() {
             if seen.insert(key.clone()) {
                 props.push((key.clone(), value.clone()));
@@ -2031,8 +2029,7 @@ pub(crate) fn native_thread_is_interrupted(
     let host_interrupted = host_thread_for_java_thread(host_key)
         .is_some_and(|host_thread_id| {
             interrupted_host_threads()
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .read_poison_free()
                 .contains(&host_thread_id)
         });
     Ok(Some(Slot::Int(i32::from(
