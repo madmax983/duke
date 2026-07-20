@@ -830,6 +830,7 @@ fn register_string_byte_conversion_natives(registry: &mut ClassRegistry) {
 
     for (descriptor, handler) in [
         ("([B)V", native_string_init_bytes_default as NativeHandler),
+        ("([BB)V", native_string_init_bytes_coder),
         ("([BII)V", native_string_init_bytes_default_range),
         ("([BLjava/lang/String;)V", native_string_init_bytes_named),
         (
@@ -9238,6 +9239,21 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "<init>",
         "(Ljava/lang/String;)V",
         native_string_init_copy,
+    );
+    // String.<init>(StringBuilder)V and String.<init>(StringBuffer)V — copy the
+    // builder/buffer's current chars into a real-layout String. Both back their
+    // char storage on the `string_value` side-channel, so one handler serves both.
+    registry.natives_mut().register(
+        "java/lang/String",
+        "<init>",
+        "(Ljava/lang/StringBuilder;)V",
+        native_string_init_from_string_builder,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "<init>",
+        "(Ljava/lang/StringBuffer;)V",
+        native_string_init_from_string_builder,
     );
     // String.<init>(char[]) and String.valueOf(char[])
     registry.natives_mut().register(

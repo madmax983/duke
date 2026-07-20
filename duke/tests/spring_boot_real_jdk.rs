@@ -79,21 +79,26 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // (== 1) for each element kind — so `getstatic Unsafe.ARRAY_*` resolves and the entire Unsafe
 // intrinsics lane clears (see `register_unsafe_stdlib` in `crates/duke-interpreter/src/stdlib.rs`).
 //
-// The new `--real-jdk` frontier is the CLI runtime error
-// `method not found: java/lang/String.<init>(...)`: past the Unsafe lane, the chain reaches a
-// `String` constructor overload which the synthetic `String` does not provide as a native. This
-// is the SAME frontier pinned by
-// `crates/duke-interpreter/tests/classloader_bootstrap_frontier.rs` (rendered there as
-// `MethodNotFound { name: "java/lang/String.<init>", descriptor: ... }`), a distinct downstream
-// lane (String stages 3-4). Out of scope here. If either boot advances past this, re-observe and
-// update.
+// The `String(StringBuilder)` / `String(StringBuffer)` constructors are now provided as
+// real-layout natives (String stage 3a), so the former
+// `method not found: java/lang/String.<init>(Ljava/lang/StringBuilder;)V` wall is cleared and
+// both boots advance materially further — through the `String(StringBuilder)` mint and deep into
+// the real JDK's own bootstrap.
 //
-// We prefix-match on `java/lang/String.<init>(` and deliberately do NOT pin the exact descriptor:
-// both `(Ljava/lang/StringBuilder;)V` and `([BB)V` are valid JDK-21 `String` constructor
-// overloads, and which one is the *first-missing* method in the encode path is JDK-build-specific
-// (differs between local and CI runner JDKs). The frontier is the String-constructor wall
-// regardless of which overload surfaces first.
-const REAL_JDK_FRONTIER: &str = "method not found: java/lang/String.<init>(";
+// The new `--real-jdk` frontier is the CLI runtime error
+// `java exception: java/lang/InternalError`: real-JDK `jdk/internal/util/StaticProperty.<clinit>`
+// calls `getProperty(props, key)`, which returns null because the saved system-properties map Duke
+// exposes lacks a required key (e.g. `java.home`), so the JDK constructs and throws `InternalError`.
+// This is the SAME underlying blocker pinned by
+// `crates/duke-interpreter/tests/classloader_bootstrap_frontier.rs` (rendered there as
+// `JavaException { class_name: "java/lang/InternalError" }`), a distinct VM saved-system-properties
+// bootstrap lane. Out of scope here. If either boot advances past this, re-observe and update.
+//
+// Honest-pin: this migration clears the full String-constructor wall (StringBuilder/StringBuffer/
+// `[BB)V` real-layout intrinsics), so the real-JDK boot advances PAST trunk's name-match
+// `java/lang/String.<init>(` idiom to this next frontier. This InternalError pin intentionally
+// supersedes trunk's name-match idiom for these String rungs.
+const REAL_JDK_FRONTIER: &str = "java exception: java/lang/InternalError";
 
 // Markers of the OLD raw panic that this fix eliminates. None of these must appear.
 const RAW_PANIC_MARKERS: &[&str] = &["index out of bounds", "execution.rs", "panicked at"];

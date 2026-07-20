@@ -516,7 +516,7 @@ pub(crate) fn native_atomic_reference_to_string(
     let value = load_atomic_reference(heap, this_ref)?;
     let text = match value {
         Slot::Reference(None) => "null".to_string(),
-        Slot::Reference(Some(reference)) => heap_object_to_string(heap.get(reference)?, reference),
+        Slot::Reference(Some(reference)) => heap_object_to_string_ref(heap, reference)?,
         Slot::Int(value) => value.to_string(),
         Slot::Long(value) => value.to_string(),
         Slot::Float(value) => value.to_string(),

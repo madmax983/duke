@@ -313,6 +313,40 @@ fn read_string_bytes(heap: &duke_gc::Heap, string_ref: u64) -> Result<String> {
     Ok(decoded)
 }
 
+/// Reads the character content of a `CharSequence`-polymorphic heap reference
+/// whose object may be either a real-layout `java/lang/String` or a non-String
+/// character backing (`StringBuilder`/`StringBuffer` and similar).
+///
+/// A real-layout `java/lang/String` is decoded from slot 0 (`value:[B`) via
+/// [`read_string_bytes`] — never from the `string_value` side-channel — so that
+/// production `String` objects need not carry the redundant cache. Any other
+/// object falls back to its own `string_value` char buffer. Returns `None` when
+/// the object carries no readable characters (a non-String with no
+/// `string_value`), letting callers apply their own `"null"`/default fallback.
+fn charsequence_chars(heap: &duke_gc::Heap, string_ref: u64) -> Result<Option<String>> {
+    let obj = heap.get(string_ref)?;
+    if obj.class_name == "java/lang/String"
+        && let Ok(decoded) = read_string_bytes(heap, string_ref)
+    {
+        return Ok(Some(decoded));
+    }
+    Ok(obj.string_value.clone())
+}
+
+/// `Object`/`CharSequence`-polymorphic `toString` that reads a real-layout
+/// `java/lang/String` from slot 0 (via [`read_string_bytes`]) rather than the
+/// `string_value` side-channel, delegating every other object (`StringBuilder`,
+/// boxed primitives, opaque refs) to [`heap_object_to_string`]. This keeps
+/// `String.valueOf(Object)`, `Object.toString`, `println(Object)`, `%s`
+/// formatting, etc. off a `String` object's `string_value`.
+fn heap_object_to_string_ref(heap: &duke_gc::Heap, obj_ref: u64) -> Result<String> {
+    let obj = heap.get(obj_ref)?;
+    if obj.class_name == "java/lang/String" {
+        return Ok(read_string_bytes(heap, obj_ref).unwrap_or_default());
+    }
+    Ok(heap_object_to_string(obj, obj_ref))
+}
+
 const JUL_LEVEL_VALUE_FIELD: usize = 0;
 
 const JUL_LOGGER_NAME_FIELD: usize = 0;
@@ -679,7 +713,7 @@ fn jul_logger_is_loggable(heap: &duke_gc::Heap, logger_ref: u64, level_slot: Slo
 
 fn jul_slot_to_text(heap: &duke_gc::Heap, slot: Slot) -> Result<String> {
     match slot {
-        Slot::Reference(Some(obj_ref)) => Ok(heap_object_to_string(heap.get(obj_ref)?, obj_ref)),
+        Slot::Reference(Some(obj_ref)) => heap_object_to_string_ref(heap, obj_ref),
         Slot::Reference(None) => Ok("null".to_string()),
         Slot::Int(value) => Ok(value.to_string()),
         Slot::Long(value) => Ok(value.to_string()),
@@ -1510,6 +1544,40 @@ pub(crate) fn native_string_init_bytes_default_range(
     let length = extract_int_arg(args, 3)?;
     let bytes = byte_array_window(heap, bytes_ref, offset, length)?;
     init_string_from_bytes(args, heap, &bytes, StandardCharset::Utf8)
+}
+
+/// Native: `String.<init>([BB)V` — the package-private compact-strings
+/// constructor `String(byte[] value, byte coder)`. The real JDK ctor performs no
+/// copy or validation: `this.value = value; this.coder = coder;`. The incoming
+/// `value` bytes are already in the JDK compact-strings encoding, which is the
+/// same convention Duke's 4-slot layout uses (see
+/// [`duke_gc::Heap::set_string_layout`]): Latin-1 when `coder == 0`,
+/// little-endian UTF-16 when `coder == 1`. We decode `(value, coder)` into a Rust
+/// `String` — inverting that encoding exactly as [`read_string_bytes`] does — and
+/// mint the receiver through [`store_string_init_value`], which re-establishes
+/// slot 0 (`value:[B`), slot 1 (`coder:B`), and the `string_value` cache
+/// coherently. Because JDK's compact-strings encoding matches ours, the decode →
+/// re-encode round-trips: `value`/`coder` are preserved.
+///
+/// Real-JDK boot (JDK 21 jimage) reaches this ctor in the `String` encode path;
+/// without it the chain fails as `MethodNotFound java/lang/String.<init>([BB)V`.
+pub(crate) fn native_string_init_bytes_coder(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let bytes_ref = extract_ref_arg(args, 1)?;
+    let coder = extract_int_arg(args, 2)?;
+    let bytes = full_byte_array(heap, bytes_ref)?;
+    let decoded: String = if coder == 1 {
+        decode_utf16_bytes(&bytes, Utf16Endian::Little)
+    } else {
+        bytes.iter().map(|&b| char::from(b)).collect()
+    };
+    store_string_init_value(heap, this_ref, decoded)?;
+    Ok(None)
 }
 
 /// Native: `String.<init>([III)V` — construct a `String` from a range of a
@@ -2490,8 +2558,8 @@ fn compare_treemap_keys(a: Slot, b: Slot, heap: &duke_gc::Heap) -> std::cmp::Ord
         if let Slot::Reference(Some(r)) = s
             && let Ok(obj) = heap.get(r)
         {
-            if let Some(sv) = &obj.string_value {
-                return Some(KeyOrd::Str(sv.clone()));
+            if let Some(sv) = charsequence_chars(heap, r).ok().flatten() {
+                return Some(KeyOrd::Str(sv));
             }
             match obj.class_name.as_str() {
                 "java/lang/Integer" | "java/lang/Short" | "java/lang/Byte" => {
@@ -2581,7 +2649,7 @@ fn treeset_slot_sort_key(slot: Slot, heap: &duke_gc::Heap) -> Option<TreeSortKey
                     Some(Slot::Float(f)) => Some(TreeSortKey::Num(f64::from(*f))),
                     _ => None,
                 },
-                _ => obj.string_value.clone().map(TreeSortKey::Str),
+                _ => charsequence_chars(heap, r).ok().flatten().map(TreeSortKey::Str),
             }
         }
         _ => None,
@@ -5904,7 +5972,7 @@ fn format_arg(
         Slot::Reference(Some(r)) => {
             let obj = heap.get(*r)?;
             match spec {
-                's' => heap_object_to_string(obj, *r),
+                's' => heap_object_to_string_ref(heap, *r)?,
                 'b' => {
                     // true if non-null Boolean true, else depends
                     if obj.class_name == "java/lang/Boolean" {
@@ -6445,7 +6513,7 @@ fn stringify_slot(
         Slot::Double(v) => out.push_str(&format_java_double(*v)),
         Slot::Reference(None) => out.push_str("null"),
         Slot::Reference(Some(r)) => {
-            out.push_str(&heap_object_to_string(heap.get(*r)?, *r));
+            out.push_str(&heap_object_to_string_ref(heap, *r)?);
         }
         Slot::ReturnAddress(v) => out.push_str(&v.to_string()),
     }
@@ -14341,11 +14409,7 @@ fn pattern_split_impl(args: &[Slot], heap: &mut duke_gc::Heap, limit: i32) -> Re
     let pat_ref = extract_ref_arg(args, 0)?;
     let input_ref = extract_ref_arg(args, 1)?;
     let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
-    let input = heap
-        .get(input_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
+    let input = charsequence_chars(heap, input_ref)?.unwrap_or_default();
     let re = compile_java_regex_with_flags(&pattern_str, flags)?;
     let parts = regex_split_parts(&re, &input, limit);
     let arr_ref = alloc_string_array_from_parts(heap, &parts)?;
@@ -14373,11 +14437,7 @@ fn matcher_pattern_input_text(
         return Ok(None);
     };
     let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
-    let input = heap
-        .get(input_ref)?
-        .string_value
-        .clone()
-        .unwrap_or_default();
+    let input = charsequence_chars(heap, input_ref)?.unwrap_or_default();
     Ok(Some((pattern_str, flags, input)))
 }
 
@@ -14642,13 +14702,13 @@ fn hashmap_find_key(fields: &[Slot], key: Slot, heap: &duke_gc::Heap) -> Option<
 
 
 /// Helper: read a string from a slot (returns "" for null).
+///
+/// `CharSequence`-polymorphic: a real-layout `java/lang/String` is decoded from
+/// slot 0 via [`charsequence_chars`]; other char backings use their
+/// `string_value` buffer.
 fn slot_to_string(slot: Slot, heap: &duke_gc::Heap) -> String {
     match slot {
-        Slot::Reference(Some(r)) => heap
-            .get(r)
-            .ok()
-            .and_then(|o| o.string_value.clone())
-            .unwrap_or_default(),
+        Slot::Reference(Some(r)) => charsequence_chars(heap, r).ok().flatten().unwrap_or_default(),
         _ => String::new(),
     }
 }
@@ -14688,7 +14748,12 @@ fn slots_equal(a: &Slot, b: &Slot, heap: &duke_gc::Heap) -> bool {
                 return false;
             }
             match oa.class_name.as_str() {
-                "java/lang/String" | "java/lang/Class" => oa.string_value == ob.string_value,
+                // Real-layout String content lives in slot 0, so compare the
+                // decoded chars rather than the `string_value` side-channel.
+                "java/lang/String" => {
+                    read_string_bytes(heap, *ra).ok() == read_string_bytes(heap, *rb).ok()
+                }
+                "java/lang/Class" => oa.string_value == ob.string_value,
                 "java/util/UUID" => uuid_bits_from_object(oa) == uuid_bits_from_object(ob),
                 class_name if uses_first_field_value_equality(class_name) => {
                     oa.fields.first() == ob.fields.first()
@@ -14783,7 +14848,10 @@ fn slot_is_java_string(heap: &duke_gc::Heap, slot: Slot) -> bool {
         return false;
     };
     heap.get(string_ref).is_ok_and(|obj| {
-        obj.class_name == "java/lang/String" && obj.string_value.is_some()
+        // A real-layout String carries its content in slot 0 (`value:[B`);
+        // detect it there instead of via the `string_value` side-channel.
+        obj.class_name == "java/lang/String"
+            && matches!(obj.fields.first(), Some(Slot::Reference(Some(_))))
     })
 }
 
@@ -14791,9 +14859,7 @@ fn string_from_slot(heap: &duke_gc::Heap, slot: Slot) -> Option<String> {
     let Slot::Reference(Some(string_ref)) = slot else {
         return None;
     };
-    heap.get(string_ref)
-        .ok()
-        .and_then(|obj| obj.string_value.clone())
+    charsequence_chars(heap, string_ref).ok().flatten()
 }
 
 fn properties_local_entries(heap: &duke_gc::Heap, props_ref: u64) -> Result<Vec<(Slot, Slot)>> {
@@ -18204,6 +18270,64 @@ mod read_string_bytes_tests {
         }
         let moved = root.as_reference().expect("String survives the collections");
         assert_eq!(read_string_bytes(&heap, moved).unwrap(), value);
+    }
+
+    /// Drive the compact-strings ctor `String.<init>([BB)V`
+    /// ([`native_string_init_bytes_coder`]) exactly as the JDK boot does: take an
+    /// already-encoded `(value:[B, coder)` pair off a source String and assign it
+    /// to a fresh receiver. The receiver must decode back to the source value for
+    /// both the Latin-1 (`coder == 0`) and UTF-16 (`coder == 1`) paths.
+    fn assert_compact_ctor_round_trips(value: &str, expected_coder: i32) {
+        let mut heap = Heap::new();
+        // Source String supplies a well-formed (value:[B, coder) pair.
+        let src = heap.allocate_string(value.to_string());
+        let bytes_ref = match heap.get(src).unwrap().fields[0] {
+            Slot::Reference(Some(r)) => r,
+            other => panic!("source value:[B slot must be a live ref, got {other:?}"),
+        };
+        let coder = match heap.get(src).unwrap().fields[1] {
+            Slot::Int(c) => c,
+            other => panic!("source coder slot must be Int, got {other:?}"),
+        };
+        assert_eq!(coder, expected_coder, "coder for {value:?}");
+
+        // Fresh, empty 4-slot receiver — the `new java/lang/String` shape before
+        // `<init>` runs.
+        let this = heap.allocate("java/lang/String".to_string(), 4);
+        let args = [
+            Slot::Reference(Some(this)),
+            Slot::Reference(Some(bytes_ref)),
+            Slot::Int(coder),
+        ];
+        let ret = native_string_init_bytes_coder(
+            &args,
+            &mut heap,
+            &mut Vec::new(),
+            &mut NativeControl::default(),
+        )
+        .expect("compact-strings ctor must succeed");
+        assert!(ret.is_none(), "a void <init> returns no value");
+
+        assert_eq!(
+            heap.get(this).unwrap().fields[1],
+            Slot::Int(coder),
+            "receiver coder must match the supplied coder"
+        );
+        assert_eq!(
+            read_string_bytes(&heap, this).unwrap(),
+            value,
+            "receiver must decode back to the source value"
+        );
+    }
+
+    #[test]
+    fn compact_ctor_round_trips_latin1() {
+        assert_compact_ctor_round_trips("café", 0);
+    }
+
+    #[test]
+    fn compact_ctor_round_trips_utf16() {
+        assert_compact_ctor_round_trips("中文🚀ok", 1);
     }
 }
 

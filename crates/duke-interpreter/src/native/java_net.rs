@@ -267,11 +267,7 @@ pub(crate) fn native_url_decoder_decode_charset(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let encoded_ref = extract_ref_arg(args, 0)?;
-    let encoded = heap
-        .get(encoded_ref)?
-        .string_value
-        .clone()
-        .ok_or(Error::NullPointerException)?;
+    let encoded = string_value_from_ref(heap, encoded_ref)?;
     let decoded = www_form_url_decode(&encoded)?;
     Ok(Some(Slot::Reference(Some(heap.allocate_string(decoded)))))
 }

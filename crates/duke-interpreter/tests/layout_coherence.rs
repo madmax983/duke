@@ -102,7 +102,7 @@ fn predicate_flags_shadow_regime_mismatch() {
         .expect("expected at least one shadowed class under real-jdk shadow mode");
     assert!(registry.is_shadowed(&shadowed));
     // A KEEP_SYNTHETIC root is never shadowed (synthetic layout).
-    let synthetic = "java/lang/String";
+    let synthetic = "java/lang/System";
     assert!(!registry.is_shadowed(synthetic));
 
     // In bounds (large slot budget) but the resolving class is real while the object is

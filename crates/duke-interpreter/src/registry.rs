@@ -20,7 +20,6 @@ use crate::context::{ClassContext, ClassLoadSource};
 /// a specific field/heap layout (special `HeapObject` slots, dense hand-registered natives),
 /// so loading their real JDK bytecode would break those natives.
 const KEEP_SYNTHETIC: &[&str] = &[
-    "java/lang/String",
     "java/lang/Class",
     "java/lang/Thread",
     "java/lang/ThreadGroup",

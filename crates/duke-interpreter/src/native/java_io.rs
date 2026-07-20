@@ -519,7 +519,7 @@ pub(crate) fn native_buffered_reader_init(
                 let stream = reader.fields.get(INPUT_STREAM_READER_STREAM_FIELD).copied();
                 let charset = match reader.fields.get(INPUT_STREAM_READER_CHARSET_FIELD) {
                     Some(Slot::Reference(Some(name_ref))) => {
-                        heap.get(*name_ref).ok().and_then(|o| o.string_value.clone())
+                        charsequence_chars(heap, *name_ref).ok().flatten()
                     }
                     _ => None,
                 };
@@ -724,7 +724,7 @@ pub(crate) fn native_println_object(
 ) -> Result<Option<Slot>> {
     match args.get(1) {
         Some(Slot::Reference(Some(r))) => {
-            let s = heap_object_to_string(heap.get(*r)?, *r);
+            let s = heap_object_to_string_ref(heap, *r)?;
             writeln!(out, "{s}").ok();
         }
         Some(Slot::Reference(None)) => {
@@ -795,7 +795,7 @@ pub(crate) fn native_print_object(
 ) -> Result<Option<Slot>> {
     match args.get(1) {
         Some(Slot::Reference(Some(r))) => {
-            let s = heap_object_to_string(heap.get(*r)?, *r);
+            let s = heap_object_to_string_ref(heap, *r)?;
             write!(out, "{s}").ok();
         }
         Some(Slot::Reference(None)) => {

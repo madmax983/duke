@@ -161,23 +161,31 @@ fn slf4j_real_jdk_shadow_classloader_frontier_pin() {
     // natives. `getstatic Unsafe.ARRAY_*` now resolves, clearing the entire Unsafe
     // intrinsics lane in one move.
     //
-    // The new honest frontier is
-    // `MethodNotFound { name: "java/lang/String.<init>", descriptor: ... }`:
-    // past the Unsafe lane, the chain reaches a `String` constructor overload,
-    // which the synthetic `String` does not provide as a native. That is String
-    // work (String stages 3-4), a distinct lane owned elsewhere, so we stop and
-    // pin here rather than force past it.
+    // The `String(StringBuilder)` / `String(StringBuffer)` / `String([BB)V`
+    // constructors are now provided as real-layout natives (String stages 3-4), so
+    // the chain no longer stalls on
+    // `MethodNotFound { java/lang/String.<init> (Ljava/lang/StringBuilder;)V }`.
+    // It advances materially further — through the full String-constructor family and
+    // deep into the real JDK's own bootstrap — before hitting the next wall:
     //
-    // We pin the method NAME only and deliberately do NOT pin the exact descriptor:
-    // both `(Ljava/lang/StringBuilder;)V` and `([BB)V` are valid JDK-21 `String`
-    // constructor overloads, and which one is the *first-missing* method in the
-    // encode path is JDK-build-specific (differs between local and CI runner JDKs).
-    // The frontier is the String-constructor wall regardless of which overload
-    // surfaces first.
+    //   JavaException { class_name: "java/lang/InternalError" }
+    //
+    // thrown by real-JDK `jdk/internal/util/StaticProperty.<clinit>` →
+    // `getProperty(props, key)` (at `getProperty@36 athrow`): the saved
+    // system-properties map Duke exposes to the real JDK lacks a required key
+    // (e.g. `java.home`), so `getProperty` returns null and the JDK constructs and
+    // throws `InternalError`. That is the VM saved-system-properties bootstrap lane,
+    // a distinct concern owned elsewhere, so we stop and pin here rather than force
+    // past it.
+    //
+    // Honest-pin: this migration clears the full String-constructor wall, so this
+    // InternalError pin intentionally supersedes trunk's name-match
+    // `java/lang/String.<init>(` idiom for these String rungs — recording the real
+    // post-String-wall frontier is honest advancement.
     //
     // When a native pushes the wall past this point, re-run with `-- --nocapture`,
     // read the new verbatim blocker above, and update this substring to lock it in.
-    const EXPECTED_FRONTIER: &str = "MethodNotFound { name: \"java/lang/String.<init>\",";
+    const EXPECTED_FRONTIER: &str = "JavaException { class_name: \"java/lang/InternalError\" }";
 
     let rendered = match run_slf4j_real_jdk_shadow() {
         Ok(()) => {
