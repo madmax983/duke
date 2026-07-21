@@ -6025,3 +6025,52 @@ pub(crate) fn native_enumset_iter_next(
     heap.get_mut(this_ref)?.fields[1] = Slot::Int(cursor + 1);
     Ok(Some(element))
 }
+#[cfg(test)]
+mod tests_zip_entry {
+    use super::*;
+    use super::NativeControl;
+
+    use duke_gc::Heap;
+
+    #[test]
+    fn test_native_zip_entry_getters() -> Result<()> {
+        let mut heap = Heap::new();
+        // Allocate string for name
+        let name_str = heap.allocate("java/lang/String".to_string(), 0);
+
+        let zip_entry_ref = heap.allocate("java/util/zip/ZipEntry".to_string(), 6);
+        let obj = heap.get_mut(zip_entry_ref)?;
+
+        // Setup fields according to how zip entry accesses them
+        // 0: name (Reference)
+        // 1: csize lo
+        // 2: csize hi
+        // 3: size lo
+        // 4: size hi
+        // 5: method
+        obj.fields[0] = Slot::Reference(Some(name_str));
+        obj.fields[1] = Slot::Int(0x5678_9ABC);
+        obj.fields[2] = Slot::Int(0x1234);
+        obj.fields[3] = Slot::Int(-0x210F_EDCC);
+        obj.fields[4] = Slot::Int(0x5678);
+        obj.fields[5] = Slot::Int(8); // DEFLATED
+
+        let args = vec![Slot::Reference(Some(zip_entry_ref))];
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+
+        let name_res = native_zip_entry_get_name(&args, &mut heap, &mut out, &mut control)?;
+        assert_eq!(name_res, Some(Slot::Reference(Some(name_str))));
+
+        let csize_res = native_zip_entry_get_compressed_size(&args, &mut heap, &mut out, &mut control)?;
+        assert_eq!(csize_res, Some(Slot::Long((0x1234i64 << 32) | 0x5678_9ABCi64)));
+
+        let size_res = native_zip_entry_get_size(&args, &mut heap, &mut out, &mut control)?;
+        assert_eq!(size_res, Some(Slot::Long((0x5678i64 << 32) | 0xDEF0_1234i64)));
+
+        let method_res = native_zip_entry_get_method(&args, &mut heap, &mut out, &mut control)?;
+        assert_eq!(method_res, Some(Slot::Int(8)));
+
+        Ok(())
+    }
+}
