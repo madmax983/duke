@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-18 - Fixing Broken Intra-Doc Links
+**Confusion:** Intra-doc links to private items or array brackets in comments (e.g. `[0]`) trigger warnings.
+**Clarification:** Downgrade links to private items like `[mark_old]` to inline code formatting (`` `mark_old` ``), and wrap brackets in inline code backticks (`` `[0]` ``) to prevent them from being interpreted as broken intra-doc links. Fully qualify cross-crate links.
