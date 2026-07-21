@@ -3,6 +3,33 @@
 //! Provides the execution environment with access to classes, handles class loading and
 //! initialization on demand, and maintains the mapping between `native` methods
 //! and their Rust implementations.
+//!
+//! # Class Registry
+//! The [`ClassRegistry`] is the central authority for class metadata, initialization state,
+//! and lambda proxies. It ensures that classes are loaded exactly once per provenance and
+//! orchestrates the `<clinit>` lifecycle.
+//!
+//! # Native Registry
+//! The [`NativeRegistry`] bridges the gap between Java `native` declarations and their
+//! backing Rust functions, allowing the interpreter to resolve and invoke them seamlessly.
+//!
+//! # Examples
+//!
+//! Managing class initialization state:
+//!
+//! ```
+//! use duke_interpreter::ClassRegistry;
+//!
+//! let mut registry = ClassRegistry::new();
+//!
+//! // Mark a class as fully initialized
+//! registry.mark_initialized("java/lang/String");
+//! assert!(registry.is_initialized("java/lang/String"));
+//! ```
+//!
+//! ## Panics
+//! Lookups like `ensure_loaded` may panic if the `ClassLoader` is disconnected, though
+//! typical usage returns a `Result::Err` containing a `NoClassDefFoundError`.
 
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
@@ -458,7 +485,7 @@ pub struct ClassRegistry {
     /// Best-known runtime `java/lang/ClassLoader` object for each loaded class.
     class_runtime_loaders: HashMap<String, u64>,
     /// Opt-in flag: when true, synthetic stdlib classes that are NOT on the
-    /// [`KEEP_SYNTHETIC`] allowlist and whose real classfile is resolvable via
+    /// `KEEP_SYNTHETIC` allowlist and whose real classfile is resolvable via
     /// [`Self::shadow_loader`] are NOT pre-registered synthetically, so a later
     /// `ensure_loaded` loads their real JDK bytecode instead. Default `false`.
     real_jdk_shadow: bool,
@@ -838,7 +865,7 @@ impl ClassRegistry {
     }
 
     /// Enable "real JDK shadow" mode: synthetic stdlib classes that are not on the
-    /// [`KEEP_SYNTHETIC`] allowlist and whose real classfile is resolvable via `loader`
+    /// `KEEP_SYNTHETIC` allowlist and whose real classfile is resolvable via `loader`
     /// will be skipped by [`Self::register`], letting a later `ensure_loaded` load the
     /// real JDK bytecode. Must be called *before* `bootstrap_stdlib` runs to take effect.
     pub fn enable_real_jdk_shadow(&mut self, loader: Arc<dyn ClassLoader + Send + Sync>) {

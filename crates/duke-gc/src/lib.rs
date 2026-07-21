@@ -12,6 +12,27 @@
 //!
 //! [`Heap::get`] and [`Heap::get_mut`] are generation-agnostic; callers never
 //! need to know which gen an object lives in.
+//!
+//! # Examples
+//!
+//! Basic allocation and collection cycle:
+//!
+//! ```
+//! use duke_gc::Heap;
+//!
+//! let mut heap = Heap::new();
+//!
+//! // Allocate a new object (young generation by default)
+//! let instance_ref = heap.allocate("java/lang/Object".to_string(), 0);
+//!
+//! // Trigger a minor GC with no roots, dropping the young object
+//! heap.minor_collect_prepare(&[]);
+//! heap.minor_collect_finish();
+//! ```
+//!
+//! ## Panics
+//! The GC might panic internally if `AtomicPayload` invariants are breached by native code,
+//! but general allocations and collections return `Result::Err` if out of memory.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, Ordering};
@@ -1559,7 +1580,7 @@ impl Heap {
 
     /// Lisp-2 sliding mark-compact of the old generation.
     ///
-    /// 1. **Mark** live old objects reachable from `roots` (reuses [`mark_old`]).
+    /// 1. **Mark** live old objects reachable from `roots` (reuses `` `mark_old` ``).
     /// 2. **Forward** — assign each live object a new, densely-packed old index
     ///    in ascending (stable, sliding) order; record old→new in an
     ///    `old_forward` map (only for objects that actually move).
@@ -1575,8 +1596,6 @@ impl Heap {
     ///
     /// `identity_hash` and `atomic_payload` ride along with each moved object,
     /// preserving the [`HeapObject`] invariant across relocation.
-    ///
-    /// [`mark_old`]: Self::mark_old
     pub fn compact_old(&mut self, roots: &[Slot]) {
         // Snapshot executor shared state up front: their task queues hold bare
         // OLD refs the mutator never sees, so we both (a) treat them as extra
