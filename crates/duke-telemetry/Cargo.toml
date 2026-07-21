@@ -7,6 +7,7 @@ description = "Duke JVM - VM telemetry channels"
 [features]
 default = []
 telemetry = ["dep:serde", "dep:serde_json"]
+nova = []
 
 [dependencies]
 serde     = { version = "1", features = ["derive"], optional = true }
