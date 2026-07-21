@@ -37,6 +37,11 @@
 
 pub(crate) mod helpers;
 
+#[cfg(feature = "nova")]
+pub(crate) mod csv_exporter;
+#[cfg(feature = "nova")]
+pub use csv_exporter::*;
+
 pub(crate) mod bytecode_cost;
 pub use bytecode_cost::*;
 pub(crate) mod object_lineage;
