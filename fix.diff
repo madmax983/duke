@@ -1,0 +1,11 @@
+<<<<<<< SEARCH
+#[cfg(feature = "nova")]
+
+/// An identified opportunity for peephole optimization.
+#[cfg(feature = "nova")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+=======
+/// An identified opportunity for peephole optimization.
+#[cfg(feature = "nova")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+>>>>>>> REPLACE
