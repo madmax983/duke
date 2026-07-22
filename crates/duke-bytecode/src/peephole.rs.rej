@@ -1,0 +1,10 @@
+--- peephole.rs
++++ peephole.rs
+@@ -10,8 +10,6 @@
+ use crate::pattern::{Pattern, find_pattern_matches};
+
+-
+-
+ /// An identified opportunity for peephole optimization.
+ #[cfg(feature = "nova")]
+ #[derive(Debug, Clone, PartialEq, Eq)]

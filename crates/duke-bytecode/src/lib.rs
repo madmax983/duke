@@ -767,3 +767,5 @@ mod tests {
 }
 #[cfg(test)]
 mod fuzz;
+pub mod pattern;
+pub mod peephole;
