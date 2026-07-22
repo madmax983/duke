@@ -838,9 +838,22 @@ impl ClassRegistry {
     }
 
     /// Enable "real JDK shadow" mode: synthetic stdlib classes that are not on the
-    /// [`KEEP_SYNTHETIC`] allowlist and whose real classfile is resolvable via `loader`
+    /// `KEEP_SYNTHETIC` allowlist and whose real classfile is resolvable via `loader`
     /// will be skipped by [`Self::register`], letting a later `ensure_loaded` load the
     /// real JDK bytecode. Must be called *before* `bootstrap_stdlib` runs to take effect.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use duke_interpreter::ClassRegistry;
+    /// use duke_loader::DirectoryLoader;
+    ///
+    /// let mut registry = ClassRegistry::new();
+    /// let loader = Arc::new(DirectoryLoader::new("."));
+    /// registry.enable_real_jdk_shadow(loader);
+    /// assert!(registry.real_jdk_shadow_enabled());
+    /// ```
     pub fn enable_real_jdk_shadow(&mut self, loader: Arc<dyn ClassLoader + Send + Sync>) {
         self.real_jdk_shadow = true;
         self.shadow_loader = Some(loader);

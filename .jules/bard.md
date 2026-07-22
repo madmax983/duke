@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-25 - [Private Intra-Doc Links]
+**Confusion:** Public APIs linking to private items (e.g., `KEEP_SYNTHETIC`, `Self::mark_old`) triggered `rustdoc::private_intra_doc_links` warnings because `rustdoc` defaults to not documenting private items, leading to broken links.
+**Clarification:** Downgraded the links to standard inline code formatting (backticks) and removed extraneous link definitions (e.g., `/// [\`mark_old\`]: Self::mark_old`) to eliminate the warnings while preserving readability.
