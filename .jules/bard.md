@@ -36,3 +36,9 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-25 - [Run Execution Large Stack Frames]
+**Confusion:** The `run_execution` function in `crates/duke-interpreter/src/execution.rs` triggers `clippy::large_stack_frames` due to massive stack requirements (~529KB) stemming from large local structures (like `registry::LambdaInfo`). Attempts to box elements blindly often cause overhead or incorrect allocations when `cloned()` is involved.
+**Clarification:** Added `#[allow(clippy::large_stack_frames)]` to `run_execution` as the function itself is inherently massive by design. This is necessary because `clippy::large-stack-frames` is implied by `-D warnings`.
+## 2024-05-25 - [Broken Intra-Doc Links Fixes]
+**Confusion:** `cargo doc` reported `rustdoc::private_intra_doc_links` warnings for `compact_old` linking to the private `mark_old` in `duke-gc`, and `enable_real_jdk_shadow` linking to the private `KEEP_SYNTHETIC` in `duke-interpreter`. This is due to public API doc comments linking to private items, which causes warnings with `-D warnings`.
+**Clarification:** Downgraded these intra-doc links to standard inline code formatting (e.g.,  `KEEP_SYNTHETIC`  and  `mark_old` ) as per strict Rust documentation guidelines, preventing the warnings.
