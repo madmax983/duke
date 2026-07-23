@@ -569,7 +569,10 @@ mod tests {
             );
         }
 
-        let mut w = LimitWriter { limit: exact_len, written: 0 };
+        let mut w = LimitWriter {
+            limit: exact_len,
+            written: 0,
+        };
         assert!(store.print_report(&mut w).is_ok());
     }
 
