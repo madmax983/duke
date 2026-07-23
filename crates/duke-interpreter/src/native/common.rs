@@ -19,12 +19,12 @@ fn zip_open(path: &std::path::Path) -> Result<i32> {
         },
     })?;
     let id = NEXT_ZIP_ID.fetch_add(1, Ordering::Relaxed);
-    zip_files().write().unwrap_or_else(std::sync::PoisonError::into_inner).insert(id, reader);
+    zip_files().write_poison_free().insert(id, reader);
     Ok(id)
 }
 
 fn zip_entry_count(id: i32) -> Result<usize> {
-    let map = zip_files().read().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let map = zip_files().read_poison_free();
     map.get(&id).map_or_else(
         || Err(Error::JavaException { class_name: "java/io/IOException".into() }),
         |reader| Ok(reader.entry_count())
@@ -32,7 +32,7 @@ fn zip_entry_count(id: i32) -> Result<usize> {
 }
 
 fn zip_get_entry_info(id: i32, name: &str) -> Result<Option<duke_loader::ZipEntryInfo>> {
-    let map = zip_files().read().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let map = zip_files().read_poison_free();
     map.get(&id).map_or_else(
         || Err(Error::JavaException { class_name: "java/io/IOException".into() }),
         |reader| Ok(reader.get_entry(name).cloned())
@@ -40,7 +40,7 @@ fn zip_get_entry_info(id: i32, name: &str) -> Result<Option<duke_loader::ZipEntr
 }
 
 fn zip_read_entry(id: i32, name: &str) -> Result<Vec<u8>> {
-    let map = zip_files().read().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let map = zip_files().read_poison_free();
     map.get(&id).map_or_else(
         || Err(Error::JavaException { class_name: "java/io/IOException".into() }),
         |reader| reader.read_entry(name).map_err(|_| Error::JavaException { class_name: "java/util/zip/ZipException".into() })
@@ -48,7 +48,7 @@ fn zip_read_entry(id: i32, name: &str) -> Result<Vec<u8>> {
 }
 
 fn zip_close(id: i32) {
-    zip_files().write().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&id);
+    zip_files().write_poison_free().remove(&id);
 }
 
 fn extract_slot_arg(args: &[Slot], idx: usize) -> Slot {
@@ -106,8 +106,7 @@ fn with_atomic_reference<T>(
 fn load_atomic_reference(heap: &duke_gc::Heap, this_ref: u64) -> Result<Slot> {
     with_atomic_reference(heap, this_ref, |cell| {
         Ok(*cell
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner))
+            .lock_poison_free())
     })
 }
 
@@ -4416,8 +4415,7 @@ fn system_property_value_fallback(key: &str) -> Option<String> {
 
 fn system_property_value(key: &str) -> Option<String> {
     let override_value = system_property_overrides()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .lock_poison_free()
         .get(key)
         .cloned();
     if let Some(value) = override_value {
@@ -4498,28 +4496,24 @@ fn interrupted_host_threads() -> &'static RwLock<HashSet<std::thread::ThreadId>>
 
 fn register_java_host_thread(host_key: i32, host_thread_id: std::thread::ThreadId) {
     java_thread_hosts()
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .write_poison_free()
         .insert(host_key, host_thread_id);
 }
 
 fn unregister_java_host_thread(host_key: i32) {
     let removed_host_thread = java_thread_hosts()
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .write_poison_free()
         .remove(&host_key);
     if let Some(host_thread_id) = removed_host_thread {
         interrupted_host_threads()
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .write_poison_free()
             .remove(&host_thread_id);
     }
 }
 
 fn host_thread_for_java_thread(host_key: i32) -> Option<std::thread::ThreadId> {
     java_thread_hosts()
-        .read()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .read_poison_free()
         .get(&host_key)
         .copied()
 }
@@ -4527,30 +4521,26 @@ fn host_thread_for_java_thread(host_key: i32) -> Option<std::thread::ThreadId> {
 fn java_host_key_for_current_host() -> Option<i32> {
     let host_thread_id = current_host_thread_id();
     java_thread_hosts()
-        .read()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .read_poison_free()
         .iter()
         .find_map(|(host_key, mapped_host)| (*mapped_host == host_thread_id).then_some(*host_key))
 }
 
 fn interrupt_host_thread(host_thread_id: std::thread::ThreadId) {
     interrupted_host_threads()
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .write_poison_free()
         .insert(host_thread_id);
 }
 
 fn current_host_thread_is_interrupted() -> bool {
     interrupted_host_threads()
-        .read()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .read_poison_free()
         .contains(&current_host_thread_id())
 }
 
 fn take_current_host_thread_interrupted() -> bool {
     interrupted_host_threads()
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .write_poison_free()
         .remove(&current_host_thread_id())
 }
 
@@ -4634,8 +4624,7 @@ fn executor_submit_common(
     let is_shutdown = {
         let guard = executor
             .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         guard.shutdown
     };
     if is_shutdown {
@@ -4738,8 +4727,7 @@ pub(crate) fn native_executor_shutdown(
     {
         let mut guard = executor
             .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         guard.shutdown = true;
         guard.refresh_terminated();
     }
@@ -4752,8 +4740,7 @@ fn executor_is_shutdown(heap: &duke_gc::Heap, executor_ref: u64) -> Result<bool>
     let executor = executor_shared(heap, executor_ref)?;
     let guard = executor
         .state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     Ok(guard.shutdown)
 }
 
@@ -4774,8 +4761,7 @@ fn executor_is_terminated(heap: &duke_gc::Heap, executor_ref: u64) -> Result<boo
     let executor = executor_shared(heap, executor_ref)?;
     let mut guard = executor
         .state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     guard.refresh_terminated();
     Ok(guard.terminated)
 }
@@ -5229,12 +5215,10 @@ fn condition_await_common(
     let thread_id = current_host_thread_id();
     let now = std::time::Instant::now();
     let mut condition_guard = condition
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     let lock_state = std::sync::Arc::clone(&condition_guard.lock);
     let mut lock_guard = lock_state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
 
     if let Some(waiter_idx) = condition_guard
         .waiters
@@ -5332,8 +5316,7 @@ fn count_down_latch_await_common(
     let now = std::time::Instant::now();
     let interrupted = take_current_host_thread_interrupted();
     let mut guard = latch
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
 
     if interrupted {
         guard.waiters.retain(|waiter| waiter.thread_id != thread_id);
@@ -5452,8 +5435,7 @@ fn semaphore_acquire_common(
     let now = std::time::Instant::now();
     let interrupted = interruptible && take_current_host_thread_interrupted();
     let mut guard = semaphore
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
 
     if interrupted {
         semaphore_remove_waiter(&mut guard.waiters, thread_id);
@@ -5506,8 +5488,7 @@ fn semaphore_try_acquire_common(
     let thread_id = current_host_thread_id();
     let acquired = semaphore_try_acquire_immediate(
         &mut semaphore
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner),
+            .lock_poison_free(),
         thread_id,
         permits,
         false,
@@ -5523,8 +5504,7 @@ fn semaphore_release_common(args: &[Slot], heap: &duke_gc::Heap, permits: i32) -
     let this_ref = extract_ref_arg(args, 0)?;
     let semaphore = semaphore_state(heap, this_ref)?;
     let mut guard = semaphore
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     guard.permits = guard.permits.saturating_add(permits);
     drop(guard);
     Ok(())
@@ -5544,8 +5524,7 @@ fn cyclic_barrier_break_current(
     barrier: &std::sync::Arc<std::sync::Mutex<duke_gc::CyclicBarrierState>>,
 ) {
     barrier
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .lock_poison_free()
         .break_generation();
 }
 
@@ -5566,8 +5545,7 @@ fn cyclic_barrier_await_common(
     let interrupted = take_current_host_thread_interrupted();
     let run_action = {
         let mut guard = barrier
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         if let Some(waiter_idx) = guard
             .waiters
             .iter()
@@ -5647,8 +5625,7 @@ fn cyclic_barrier_await_common(
         }
     }
     barrier
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .lock_poison_free()
         .trip_generation();
     Ok(Some(Slot::Int(0)))
 }
@@ -9108,7 +9085,7 @@ fn join_java_thread(
 ) -> Result<()> {
     loop {
         let handle = {
-            let mut runtime = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut runtime = runtime.lock_poison_free();
             let is_finished = runtime
                 .threads
                 .records()
@@ -9150,7 +9127,7 @@ fn wait_for_all_java_threads(
     let mut first_error = None;
     loop {
         let handles = {
-            let mut runtime = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut runtime = runtime.lock_poison_free();
             if runtime.handles.is_empty() && runtime.executor_handles.is_empty() {
                 return first_error.unwrap_or(Ok(()));
             }
@@ -9342,7 +9319,7 @@ fn run_executor_state_to_completion(
     loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
 ) -> Result<Option<Slot>> {
     loop {
-        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut shared_guard = shared.lock_poison_free();
         let CompletionVm {
             registry,
             heap,
@@ -9427,7 +9404,7 @@ fn run_executor_task(
     loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
 ) -> Result<()> {
     {
-        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut shared_guard = shared.lock_poison_free();
         if future_state(&shared_guard.heap, task.future_ref)? == FUTURE_CANCELLED {
             return Ok(());
         }
@@ -9437,7 +9414,7 @@ fn run_executor_task(
     }
 
     let invocation = {
-        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut shared_guard = shared.lock_poison_free();
         let CompletionVm {
             registry,
             heap,
@@ -9452,7 +9429,7 @@ fn run_executor_task(
     let invocation = match invocation {
         Ok(invocation) => invocation,
         Err(Error::JavaException { class_name }) => {
-            let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut shared_guard = shared.lock_poison_free();
             let CompletionVm { registry, heap, .. } = &mut *shared_guard;
             let result =
                 store_future_failure(registry, loader.as_ref(), heap, task.future_ref, &class_name);
@@ -9467,7 +9444,7 @@ fn run_executor_task(
     let sam_desc = invocation.sam_desc.clone();
     match run_executor_state_to_completion(invocation.state, shared, runtime, loader) {
         Ok(result) => {
-            let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut shared_guard = shared.lock_poison_free();
             let result = store_future_success(
                 &mut shared_guard.heap,
                 task,
@@ -9479,7 +9456,7 @@ fn run_executor_task(
             result
         }
         Err(Error::JavaException { class_name }) => {
-            let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut shared_guard = shared.lock_poison_free();
             let CompletionVm { registry, heap, .. } = &mut *shared_guard;
             let result =
                 store_future_failure(registry, loader.as_ref(), heap, task.future_ref, &class_name);
@@ -9501,8 +9478,7 @@ fn run_executor_worker(
         let task = {
             let mut guard = executor
                 .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                .lock_poison_free();
             loop {
                 if let Some(task) = guard.queue.pop_front() {
                     guard.active = guard.active.saturating_add(1);
@@ -9526,8 +9502,7 @@ fn run_executor_worker(
         {
             let mut guard = executor
                 .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                .lock_poison_free();
             guard.active = guard.active.saturating_sub(1);
             guard.refresh_terminated();
             drop(guard);
@@ -9550,15 +9525,13 @@ fn spawn_executor_worker(
         let result = run_executor_worker(&executor, &shared_clone, &runtime_clone, &loader_clone);
         {
             let mut shared = shared_clone
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                .lock_poison_free();
             shared.live_workers = shared.live_workers.saturating_sub(1);
         }
         result
     });
     let mut runtime_guard = runtime
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     let worker_id = runtime_guard.next_executor_worker_id;
     runtime_guard.next_executor_worker_id = runtime_guard.next_executor_worker_id.wrapping_add(1);
     runtime_guard.executor_handles.insert(worker_id, handle);
@@ -9574,15 +9547,14 @@ fn enqueue_executor_task(
     kind: duke_gc::ExecutorTaskKind,
 ) -> Result<()> {
     let executor = {
-        let shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let shared_guard = shared.lock_poison_free();
         executor_shared(&shared_guard.heap, executor_ref)?
     };
     let mut workers_to_spawn = 0usize;
     {
         let mut guard = executor
             .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         if guard.shutdown {
             return Ok(());
         }
@@ -9601,7 +9573,7 @@ fn enqueue_executor_task(
     }
     for _ in 0..workers_to_spawn {
         {
-            let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut shared_guard = shared.lock_poison_free();
             shared_guard.live_workers = shared_guard.live_workers.saturating_add(1);
         }
         spawn_executor_worker(std::sync::Arc::clone(&executor), shared, runtime, loader);
@@ -9645,7 +9617,7 @@ fn run_thread_to_completion(
     loader: &std::sync::Arc<dyn ClassLoader + Send + Sync>,
 ) -> Result<()> {
     loop {
-        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut shared_guard = shared.lock_poison_free();
         let CompletionVm {
             registry,
             heap,
@@ -9686,7 +9658,7 @@ fn spawn_java_thread(
     thread_ref: u64,
 ) -> Result<()> {
     {
-        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut shared_guard = shared.lock_poison_free();
         let thread = shared_guard.heap.get_mut(thread_ref)?;
         let already_started = matches!(
             thread.fields.get(THREAD_ID_SLOT),
@@ -9700,7 +9672,7 @@ fn spawn_java_thread(
 
     let host_key = next_thread_host_key();
     let thread_id = {
-        let mut runtime = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut runtime = runtime.lock_poison_free();
         let thread_id = runtime.threads.allocate_thread_id();
         runtime
             .threads
@@ -9709,7 +9681,7 @@ fn spawn_java_thread(
     };
 
     let entry = {
-        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut shared_guard = shared.lock_poison_free();
         {
             let thread = shared_guard.heap.get_mut(thread_ref)?;
             thread.fields[THREAD_ID_SLOT] = Slot::Int(thread_id);
@@ -9729,12 +9701,12 @@ fn spawn_java_thread(
         entry
     };
     let Some((dispatch_class, method_idx, args)) = entry else {
-        let _ = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner).threads.mark_finished(thread_id);
+        let _ = runtime.lock_poison_free().threads.mark_finished(thread_id);
         return Ok(());
     };
 
     let state = {
-        let shared = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let shared = shared.lock_poison_free();
         ExecutionState::new(&shared.registry, &dispatch_class, "run", method_idx, &args)?
     };
 
@@ -9746,8 +9718,7 @@ fn spawn_java_thread(
         register_java_host_thread(host_key, host_thread_id);
         let interrupted_before_start = {
             let shared = shared_clone
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                .lock_poison_free();
             matches!(
                 shared
                     .heap
@@ -9763,7 +9734,7 @@ fn spawn_java_thread(
         }
         let result = run_thread_to_completion(state, &shared_clone, &runtime_clone, &loader_clone);
         {
-            let mut shared = shared_clone.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut shared = shared_clone.lock_poison_free();
             shared.live_workers = shared.live_workers.saturating_sub(1);
         }
         let _ = runtime_clone
@@ -9774,7 +9745,7 @@ fn spawn_java_thread(
         unregister_java_host_thread(host_key);
         result
     });
-    runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner).handles.insert(thread_id, handle);
+    runtime.lock_poison_free().handles.insert(thread_id, handle);
     Ok(())
 }
 
@@ -9877,7 +9848,7 @@ where
     let runtime = std::sync::Arc::new(std::sync::Mutex::new(CompletionRuntime::default()));
 
     let run_result: Result<Option<Slot>> = loop {
-        let mut shared_guard = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut shared_guard = shared.lock_poison_free();
         let CompletionVm {
             registry,
             heap,
@@ -12375,8 +12346,7 @@ fn pending_java_exception_messages() -> &'static PendingExceptionMessages {
 
 fn push_pending_java_exception_message(class_name: &str, message: String) {
     let mut messages = pending_java_exception_messages()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     messages
         .entry((std::thread::current().id(), class_name.to_string()))
         .or_default()
@@ -12385,8 +12355,7 @@ fn push_pending_java_exception_message(class_name: &str, message: String) {
 
 fn pop_pending_java_exception_message(class_name: &str) -> Option<String> {
     let mut messages = pending_java_exception_messages()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     let key = (std::thread::current().id(), class_name.to_string());
     let queue = messages.get_mut(&key)?;
     let message = queue.pop_front();
@@ -12403,8 +12372,7 @@ fn pending_java_exception_causes() -> &'static PendingExceptionCauses {
 
 fn push_pending_java_exception_cause(class_name: &str, cause: Slot) {
     let mut causes = pending_java_exception_causes()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     causes
         .entry((std::thread::current().id(), class_name.to_string()))
         .or_default()
@@ -12413,8 +12381,7 @@ fn push_pending_java_exception_cause(class_name: &str, cause: Slot) {
 
 fn pop_pending_java_exception_cause(class_name: &str) -> Option<Slot> {
     let mut causes = pending_java_exception_causes()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     let key = (std::thread::current().id(), class_name.to_string());
     let queue = causes.get_mut(&key)?;
     let cause = queue.pop_front();
@@ -12431,8 +12398,7 @@ fn uncaught_java_exception_refs() -> &'static UncaughtExceptionRefs {
 
 pub(crate) fn record_uncaught_java_exception_ref(class_name: &str, exception_ref: u64) {
     let mut refs = uncaught_java_exception_refs()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     refs.entry(std::thread::current().id())
         .or_default()
         .push_back((class_name.to_string(), exception_ref));
@@ -12440,8 +12406,7 @@ pub(crate) fn record_uncaught_java_exception_ref(class_name: &str, exception_ref
 
 fn take_uncaught_java_exception_ref(class_name: &str) -> Option<u64> {
     let mut refs = uncaught_java_exception_refs()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     let thread_id = std::thread::current().id();
     let queue = refs.get_mut(&thread_id)?;
     let position = queue
@@ -15341,8 +15306,7 @@ fn concurrent_hashmap_lock(
 fn concurrent_hashmap_guard(
     lock: &std::sync::Arc<std::sync::Mutex<()>>,
 ) -> std::sync::MutexGuard<'_, ()> {
-    lock.lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    lock.lock_poison_free()
 }
 
 const fn require_chm_non_null(slot: Slot) -> Result<Slot> {
@@ -17876,7 +17840,7 @@ mod havoc_thread_join_itself {
         });
 
         {
-            let mut rt = runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut rt = runtime.lock_poison_free();
             rt.handles.insert(0, handle);
             let mut record = crate::threading::ThreadRecord::new(123, 0);
             record.finished = false;
