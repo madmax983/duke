@@ -1,8 +1,8 @@
 #![allow(clippy::items_after_statements)]
 #[cfg(feature = "nova")]
-use duke_bytecode::{decode, calculate_similarity, Instruction};
+use duke_bytecode::{Instruction, calculate_similarity, decode};
 #[cfg(feature = "nova")]
-use duke_classfile::{parse, AttributeData, CpEntry, CpIndex};
+use duke_classfile::{AttributeData, CpEntry, CpIndex, parse};
 #[cfg(feature = "nova")]
 use duke_loader::{ClassLoader, ZipLoader};
 use std::path::Path;
@@ -45,7 +45,12 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
 }
 
 #[cfg(feature = "nova")]
-#[allow(clippy::print_stdout, clippy::collapsible_if, clippy::use_debug, clippy::cast_precision_loss)]
+#[allow(
+    clippy::print_stdout,
+    clippy::collapsible_if,
+    clippy::use_debug,
+    clippy::cast_precision_loss
+)]
 pub fn dump_jar_clones(jar_path: &str, threshold: f64) {
     let loader = ZipLoader::open(Path::new(jar_path)).unwrap_or_else(|e| {
         eprintln!("duke: failed to open JAR '{jar_path}': {e}");
@@ -79,7 +84,8 @@ pub fn dump_jar_clones(jar_path: &str, threshold: f64) {
                         if let AttributeData::Code(code) = &attr.data {
                             if let Ok(instructions) = decode(&code.code) {
                                 // Strip out offsets for similarity comparison
-                                let just_instrs: Vec<Instruction> = instructions.into_iter().map(|(_, inst)| inst).collect();
+                                let just_instrs: Vec<Instruction> =
+                                    instructions.into_iter().map(|(_, inst)| inst).collect();
 
                                 // Only consider methods with enough instructions (e.g. > 10) to avoid trivial matches
                                 if just_instrs.len() > 10 {
