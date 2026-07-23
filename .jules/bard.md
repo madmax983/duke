@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-25 - [Fix broken rustdoc links]
+**Confusion:** Using `[`private_item`]` for private intra-doc links in public API docs triggers `rustdoc::private_intra_doc_links`. Similarly, missing cross-crate path prefixes (e.g., `[`Heap::set_string_layout`]` instead of `[`duke_gc::Heap::set_string_layout`]`) or unescaped array brackets (`[0]`) trigger `rustdoc::broken_intra_doc_links`.
+**Clarification:** Downgraded private intra-doc links and unescaped brackets to inline code backticks (e.g., `` `private_item` `` and `` `[0]` ``). Fully qualified cross-crate paths.
