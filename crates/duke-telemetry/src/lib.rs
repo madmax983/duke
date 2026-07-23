@@ -519,11 +519,20 @@ mod tests {
 
     #[test]
     #[cfg(feature = "telemetry")]
-    fn test_print_report_io_error() {
-        struct FailingWriter;
-        impl std::io::Write for FailingWriter {
-            fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
-                Err(std::io::Error::other("disk full"))
+    fn test_print_report_io_error_all_limits() {
+        struct LimitWriter {
+            limit: usize,
+            written: usize,
+        }
+        impl std::io::Write for LimitWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                let available = self.limit.saturating_sub(self.written);
+                if available == 0 {
+                    return Err(std::io::Error::other("disk full"));
+                }
+                let to_write = std::cmp::min(available, buf.len());
+                self.written += to_write;
+                Ok(to_write)
             }
             fn flush(&mut self) -> std::io::Result<()> {
                 Ok(())
@@ -548,9 +557,20 @@ mod tests {
             .native_boundary
             .record_call("java/lang/String", "intern", 100, true);
 
-        let mut w = FailingWriter;
-        let res = store.print_report(&mut w);
-        assert!(res.is_err());
+        let mut buf = Vec::new();
+        store.print_report(&mut buf).unwrap();
+        let exact_len = buf.len();
+
+        for limit in 0..exact_len {
+            let mut w = LimitWriter { limit, written: 0 };
+            assert!(
+                store.print_report(&mut w).is_err(),
+                "Should fail when limit {limit} < exact_len {exact_len}"
+            );
+        }
+
+        let mut w = LimitWriter { limit: exact_len, written: 0 };
+        assert!(store.print_report(&mut w).is_ok());
     }
 
     #[test]
