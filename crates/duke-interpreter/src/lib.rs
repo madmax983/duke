@@ -28,10 +28,10 @@ pub(crate) mod stdlib;
 pub(crate) mod threading;
 
 pub use context::*;
+use duke_runtime::{LockExt, RwLockExt};
 pub use registry::*;
 pub use stdlib::bootstrap_stdlib;
 pub use threading::{SharedOutput, ThreadPause, ThreadRecord, ThreadRuntime};
-use duke_runtime::{LockExt, RwLockExt};
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;

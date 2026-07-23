@@ -13,8 +13,8 @@
 //! [`Heap::get`] and [`Heap::get_mut`] are generation-agnostic; callers never
 //! need to know which gen an object lives in.
 
-use std::collections::{HashMap, HashSet, VecDeque};
 use duke_runtime::LockExt;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -366,8 +366,7 @@ impl Clone for AtomicPayload {
             Self::Long(cell) => Self::Long(Arc::new(AtomicI64::new(cell.load(Ordering::SeqCst)))),
             Self::Bool(cell) => Self::Bool(Arc::new(AtomicBool::new(cell.load(Ordering::SeqCst)))),
             Self::Reference(cell) => {
-                let slot = *cell
-                    .lock_poison_free();
+                let slot = *cell.lock_poison_free();
                 Self::Reference(Arc::new(Mutex::new(slot)))
             }
             Self::ConcurrentMapLock(lock) => Self::ConcurrentMapLock(Arc::clone(lock)),
@@ -470,10 +469,7 @@ impl AtomicPayload {
 
     fn reference_slot(&self) -> Option<Slot> {
         match self {
-            Self::Reference(cell) => Some(
-                *cell
-                    .lock_poison_free(),
-            ),
+            Self::Reference(cell) => Some(*cell.lock_poison_free()),
             Self::Int(_)
             | Self::Long(_)
             | Self::Bool(_)
@@ -506,8 +502,7 @@ impl AtomicPayload {
         let Self::Reference(cell) = self else {
             return false;
         };
-        let mut slot = cell
-            .lock_poison_free();
+        let mut slot = cell.lock_poison_free();
         patch_forwarded_slot(&mut slot, forward_map);
         slot.as_reference().is_some_and(|r| r & OLD_BIT == 0)
     }
@@ -519,8 +514,7 @@ impl AtomicPayload {
         let Self::Reference(cell) = self else {
             return;
         };
-        let mut slot = cell
-            .lock_poison_free();
+        let mut slot = cell.lock_poison_free();
         patch_old_forwarded_slot(&mut slot, old_forward);
     }
 }
@@ -1147,9 +1141,7 @@ impl Heap {
     /// Seed `worklist` with the young-gen refs held in each executor's task queue.
     fn seed_executor_queue_roots(executors: &[Arc<ExecutorShared>], worklist: &mut Vec<usize>) {
         for shared in executors {
-            let guard = shared
-                .state
-                .lock_poison_free();
+            let guard = shared.state.lock_poison_free();
             for task in &guard.queue {
                 for r in [task.future_ref, task.task_ref] {
                     if r & OLD_BIT == 0 {
@@ -1168,9 +1160,7 @@ impl Heap {
             return;
         }
         for shared in executors {
-            let mut guard = shared
-                .state
-                .lock_poison_free();
+            let mut guard = shared.state.lock_poison_free();
             for task in &mut guard.queue {
                 if let Some(&nr) = self.forward_map.get(&task.future_ref) {
                     task.future_ref = nr;
@@ -1583,9 +1573,7 @@ impl Heap {
         // ── 1. Mark live old objects (roots + executor-queue OLD refs). ──────
         let mut mark_roots: Vec<Slot> = roots.to_vec();
         for shared in &executors {
-            let guard = shared
-                .state
-                .lock_poison_free();
+            let guard = shared.state.lock_poison_free();
             for task in &guard.queue {
                 for r in [task.future_ref, task.task_ref] {
                     if r & OLD_BIT != 0 {
@@ -1645,9 +1633,7 @@ impl Heap {
             .collect();
         // (d) executor task-queue snapshot (bare u64 refs the mutator never sees).
         for shared in &executors {
-            let mut guard = shared
-                .state
-                .lock_poison_free();
+            let mut guard = shared.state.lock_poison_free();
             for task in &mut guard.queue {
                 if let Some(&nr) = old_forward.get(&task.future_ref) {
                     task.future_ref = nr;
