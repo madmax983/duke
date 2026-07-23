@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2025-02-27 - Exhaustive I/O Error Testing with LimitWriter
+**Learning:** Testing error propagation (`?`) across multiple sequential `writeln!` or `write!` calls requires more than a simple mock writer that fails on the first attempt.
+**Action:** Implement a `LimitWriter` that accepts a `limit` parameter and fails exactly when `written_bytes > limit`. Write a test that calculates the total length of the successful output, then loops from `0..total_length`, asserting an `Err` is returned at every byte boundary, ensuring 100% coverage of early return paths.
