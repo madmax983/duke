@@ -454,8 +454,7 @@ pub(crate) fn native_atomic_reference_set(
     let value = extract_slot_arg(args, 1);
     with_atomic_reference(heap, this_ref, |cell| {
         *cell
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = value;
+            .lock_poison_free() = value;
         Ok(())
     })?;
     heap.remember_reference_write(this_ref, value);
@@ -471,8 +470,7 @@ pub(crate) fn native_atomic_reference_get_and_set(
     let value = extract_slot_arg(args, 1);
     let previous = with_atomic_reference(heap, this_ref, |cell| {
         let mut guard = cell
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         let previous = *guard;
         *guard = value;
         drop(guard);
@@ -492,8 +490,7 @@ pub(crate) fn native_atomic_reference_compare_and_set(
     let update = extract_slot_arg(args, 2);
     let exchanged = with_atomic_reference(heap, this_ref, |cell| {
         let mut guard = cell
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         let exchanged = *guard == expected;
         if exchanged {
             *guard = update;
@@ -636,8 +633,7 @@ pub(crate) fn native_reentrant_lock_lock(
     let thread_id = current_host_thread_id();
     with_reentrant_lock_state(heap, this_ref, |state| {
         let mut guard = state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         if !reentrant_lock_try_acquire(&mut guard, thread_id) {
             request_native_retry(control);
         }
@@ -654,8 +650,7 @@ pub(crate) fn native_reentrant_lock_try_lock(
     let thread_id = current_host_thread_id();
     with_reentrant_lock_state(heap, this_ref, |state| {
         let mut guard = state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         Ok(Some(Slot::Int(i32::from(reentrant_lock_try_acquire(
             &mut guard, thread_id,
         )))))
@@ -671,8 +666,7 @@ pub(crate) fn native_reentrant_lock_unlock(
     let thread_id = current_host_thread_id();
     with_reentrant_lock_state(heap, this_ref, |state| {
         let mut guard = state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         reentrant_lock_release(&mut guard, thread_id)?;
         Ok(None)
     })
@@ -701,8 +695,7 @@ pub(crate) fn native_reentrant_lock_get_hold_count(
     let thread_id = current_host_thread_id();
     with_reentrant_lock_state(heap, this_ref, |state| {
         let guard = state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         let hold_count = if guard.owner == Some(thread_id) {
             guard.hold_count
         } else {
@@ -721,8 +714,7 @@ pub(crate) fn native_reentrant_lock_is_held_by_current_thread(
     let thread_id = current_host_thread_id();
     with_reentrant_lock_state(heap, this_ref, |state| {
         let guard = state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         Ok(Some(Slot::Int(i32::from(reentrant_lock_is_held_by(
             &guard, thread_id,
         )))))
@@ -737,8 +729,7 @@ pub(crate) fn native_reentrant_lock_is_locked(
     let this_ref = extract_ref_arg(args, 0)?;
     with_reentrant_lock_state(heap, this_ref, |state| {
         let guard = state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         Ok(Some(Slot::Int(i32::from(
             guard.owner.is_some() && guard.hold_count > 0,
         ))))
@@ -753,8 +744,7 @@ pub(crate) fn native_reentrant_lock_is_fair(
     let this_ref = extract_ref_arg(args, 0)?;
     with_reentrant_lock_state(heap, this_ref, |state| {
         let guard = state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         Ok(Some(Slot::Int(i32::from(guard.fair))))
     })
 }
@@ -801,8 +791,7 @@ pub(crate) fn native_count_down_latch_count_down(
     let this_ref = extract_ref_arg(args, 0)?;
     let latch = count_down_latch_state(heap, this_ref)?;
     let mut guard = latch
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     if guard.count > 0 {
         guard.count -= 1;
         if guard.count == 0 {
@@ -821,8 +810,7 @@ pub(crate) fn native_count_down_latch_get_count(
     let this_ref = extract_ref_arg(args, 0)?;
     let latch = count_down_latch_state(heap, this_ref)?;
     let count = latch
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .lock_poison_free()
         .count;
     Ok(Some(Slot::Long(i64::from(count.max(0)))))
 }
@@ -835,8 +823,7 @@ pub(crate) fn native_count_down_latch_to_string(
     let this_ref = extract_ref_arg(args, 0)?;
     let latch = count_down_latch_state(heap, this_ref)?;
     let count = latch
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .lock_poison_free()
         .count
         .max(0);
     let string_ref = heap.allocate_string(format!(
@@ -959,8 +946,7 @@ pub(crate) fn native_semaphore_available_permits(
     let this_ref = extract_ref_arg(args, 0)?;
     let semaphore = semaphore_state(heap, this_ref)?;
     let permits = semaphore
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .lock_poison_free()
         .permits;
     Ok(Some(Slot::Int(permits)))
 }
@@ -973,8 +959,7 @@ pub(crate) fn native_semaphore_drain_permits(
     let this_ref = extract_ref_arg(args, 0)?;
     let semaphore = semaphore_state(heap, this_ref)?;
     let mut guard = semaphore
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     let drained = guard.permits;
     guard.permits = 0;
     drop(guard);
@@ -989,8 +974,7 @@ pub(crate) fn native_semaphore_has_queued_threads(
     let this_ref = extract_ref_arg(args, 0)?;
     let semaphore = semaphore_state(heap, this_ref)?;
     let has_waiters = !semaphore
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .lock_poison_free()
         .waiters
         .is_empty();
     Ok(Some(Slot::Int(i32::from(has_waiters))))
@@ -1004,8 +988,7 @@ pub(crate) fn native_semaphore_get_queue_length(
     let this_ref = extract_ref_arg(args, 0)?;
     let semaphore = semaphore_state(heap, this_ref)?;
     let len = semaphore
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .lock_poison_free()
         .waiters
         .len();
     Ok(Some(Slot::Int(i32::try_from(len).unwrap_or(i32::MAX))))
@@ -1019,8 +1002,7 @@ pub(crate) fn native_semaphore_is_fair(
     let this_ref = extract_ref_arg(args, 0)?;
     let semaphore = semaphore_state(heap, this_ref)?;
     let fair = semaphore
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .lock_poison_free()
         .fair;
     Ok(Some(Slot::Int(i32::from(fair))))
 }
@@ -1033,8 +1015,7 @@ pub(crate) fn native_semaphore_to_string(
     let this_ref = extract_ref_arg(args, 0)?;
     let semaphore = semaphore_state(heap, this_ref)?;
     let permits = semaphore
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .lock_poison_free()
         .permits;
     let string_ref =
         heap.allocate_string(format!("java.util.concurrent.Semaphore[Permits = {permits}]"));
@@ -1103,8 +1084,7 @@ pub(crate) fn native_cyclic_barrier_get_parties(
     let this_ref = extract_ref_arg(args, 0)?;
     let barrier = cyclic_barrier_state(heap, this_ref)?;
     let parties = barrier
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .lock_poison_free()
         .parties;
     Ok(Some(Slot::Int(parties)))
 }
@@ -1118,8 +1098,7 @@ pub(crate) fn native_cyclic_barrier_get_number_waiting(
     let barrier = cyclic_barrier_state(heap, this_ref)?;
     let waiting = {
         let guard = barrier
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         guard
             .waiters
             .iter()
@@ -1137,8 +1116,7 @@ pub(crate) fn native_cyclic_barrier_is_broken(
     let this_ref = extract_ref_arg(args, 0)?;
     let barrier = cyclic_barrier_state(heap, this_ref)?;
     let broken = barrier
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .lock_poison_free()
         .broken;
     Ok(Some(Slot::Int(i32::from(broken))))
 }
@@ -1151,8 +1129,7 @@ pub(crate) fn native_cyclic_barrier_reset(
     let this_ref = extract_ref_arg(args, 0)?;
     let barrier = cyclic_barrier_state(heap, this_ref)?;
     barrier
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .lock_poison_free()
         .reset();
     Ok(None)
 }
@@ -1166,8 +1143,7 @@ pub(crate) fn native_cyclic_barrier_to_string(
     let barrier = cyclic_barrier_state(heap, this_ref)?;
     let (parties, count) = {
         let guard = barrier
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         (guard.parties, guard.count)
     };
     let string_ref = heap.allocate_string(format!(
@@ -1294,8 +1270,7 @@ pub(crate) fn native_read_lock_lock(
     let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Read)?;
     let thread_id = current_host_thread_id();
     let mut guard = state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     if !read_lock_try_acquire(&mut guard, thread_id) {
         request_native_retry(control);
     }
@@ -1311,8 +1286,7 @@ pub(crate) fn native_read_lock_try_lock(
     let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Read)?;
     let thread_id = current_host_thread_id();
     let mut guard = state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     Ok(Some(Slot::Int(i32::from(read_lock_try_acquire(
         &mut guard, thread_id,
     )))))
@@ -1327,8 +1301,7 @@ pub(crate) fn native_read_lock_unlock(
     let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Read)?;
     let thread_id = current_host_thread_id();
     let mut guard = state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     let Some(count) = guard.readers.get_mut(&thread_id) else {
         return Err(illegal_monitor_state_error());
     };
@@ -1357,8 +1330,7 @@ pub(crate) fn native_write_lock_lock(
     let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Write)?;
     let thread_id = current_host_thread_id();
     let mut guard = state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     if !write_lock_try_acquire(&mut guard, thread_id) {
         request_native_retry(control);
     }
@@ -1374,8 +1346,7 @@ pub(crate) fn native_write_lock_try_lock(
     let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Write)?;
     let thread_id = current_host_thread_id();
     let mut guard = state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     Ok(Some(Slot::Int(i32::from(write_lock_try_acquire(
         &mut guard, thread_id,
     )))))
@@ -1390,8 +1361,7 @@ pub(crate) fn native_write_lock_unlock(
     let state = read_write_view_state(heap, this_ref, duke_gc::ReadWriteLockViewKind::Write)?;
     let thread_id = current_host_thread_id();
     let mut guard = state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     if guard.writer != Some(thread_id) || guard.write_hold_count <= 0 {
         return Err(illegal_monitor_state_error());
     }
@@ -1419,8 +1389,7 @@ pub(crate) fn native_reentrant_read_write_lock_is_write_locked(
     let this_ref = extract_ref_arg(args, 0)?;
     let state = read_write_lock_state(heap, this_ref)?;
     let guard = state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     Ok(Some(Slot::Int(i32::from(guard.writer.is_some()))))
 }
 pub(crate) fn native_reentrant_read_write_lock_is_write_locked_by_current_thread(
@@ -1433,8 +1402,7 @@ pub(crate) fn native_reentrant_read_write_lock_is_write_locked_by_current_thread
     let state = read_write_lock_state(heap, this_ref)?;
     let thread_id = current_host_thread_id();
     let guard = state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     Ok(Some(Slot::Int(i32::from(guard.writer == Some(thread_id)))))
 }
 pub(crate) fn native_reentrant_read_write_lock_get_write_hold_count(
@@ -1447,8 +1415,7 @@ pub(crate) fn native_reentrant_read_write_lock_get_write_hold_count(
     let state = read_write_lock_state(heap, this_ref)?;
     let thread_id = current_host_thread_id();
     let guard = state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     let count = if guard.writer == Some(thread_id) {
         guard.write_hold_count
     } else {
@@ -1466,8 +1433,7 @@ pub(crate) fn native_reentrant_read_write_lock_get_read_hold_count(
     let state = read_write_lock_state(heap, this_ref)?;
     let thread_id = current_host_thread_id();
     let guard = state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        .lock_poison_free();
     Ok(Some(Slot::Int(
         guard.readers.get(&thread_id).copied().unwrap_or_default(),
     )))
@@ -1481,8 +1447,7 @@ pub(crate) fn native_reentrant_read_write_lock_get_read_lock_count(
     let this_ref = extract_ref_arg(args, 0)?;
     let state = read_write_lock_state(heap, this_ref)?;
     let count = state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .lock_poison_free()
         .readers
         .values()
         .copied()

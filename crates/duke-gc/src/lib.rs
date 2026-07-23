@@ -14,6 +14,7 @@
 //! need to know which gen an object lives in.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use duke_runtime::LockExt;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -366,8 +367,7 @@ impl Clone for AtomicPayload {
             Self::Bool(cell) => Self::Bool(Arc::new(AtomicBool::new(cell.load(Ordering::SeqCst)))),
             Self::Reference(cell) => {
                 let slot = *cell
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    .lock_poison_free();
                 Self::Reference(Arc::new(Mutex::new(slot)))
             }
             Self::ConcurrentMapLock(lock) => Self::ConcurrentMapLock(Arc::clone(lock)),
@@ -472,8 +472,7 @@ impl AtomicPayload {
         match self {
             Self::Reference(cell) => Some(
                 *cell
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+                    .lock_poison_free(),
             ),
             Self::Int(_)
             | Self::Long(_)
@@ -508,8 +507,7 @@ impl AtomicPayload {
             return false;
         };
         let mut slot = cell
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         patch_forwarded_slot(&mut slot, forward_map);
         slot.as_reference().is_some_and(|r| r & OLD_BIT == 0)
     }
@@ -522,8 +520,7 @@ impl AtomicPayload {
             return;
         };
         let mut slot = cell
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+            .lock_poison_free();
         patch_old_forwarded_slot(&mut slot, old_forward);
     }
 }
@@ -1152,8 +1149,7 @@ impl Heap {
         for shared in executors {
             let guard = shared
                 .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                .lock_poison_free();
             for task in &guard.queue {
                 for r in [task.future_ref, task.task_ref] {
                     if r & OLD_BIT == 0 {
@@ -1174,8 +1170,7 @@ impl Heap {
         for shared in executors {
             let mut guard = shared
                 .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                .lock_poison_free();
             for task in &mut guard.queue {
                 if let Some(&nr) = self.forward_map.get(&task.future_ref) {
                     task.future_ref = nr;
@@ -1590,8 +1585,7 @@ impl Heap {
         for shared in &executors {
             let guard = shared
                 .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                .lock_poison_free();
             for task in &guard.queue {
                 for r in [task.future_ref, task.task_ref] {
                     if r & OLD_BIT != 0 {
@@ -1653,8 +1647,7 @@ impl Heap {
         for shared in &executors {
             let mut guard = shared
                 .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                .lock_poison_free();
             for task in &mut guard.queue {
                 if let Some(&nr) = old_forward.get(&task.future_ref) {
                     task.future_ref = nr;

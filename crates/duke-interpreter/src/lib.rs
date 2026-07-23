@@ -1,3 +1,4 @@
+#![allow(clippy::large_stack_frames)]
 //! `duke-interpreter` — The execution engine of the JVM.
 //!
 //! This crate orchestrates the flow of the application by interpreting decoded
@@ -30,6 +31,7 @@ pub use context::*;
 pub use registry::*;
 pub use stdlib::bootstrap_stdlib;
 pub use threading::{SharedOutput, ThreadPause, ThreadRecord, ThreadRuntime};
+use duke_runtime::{LockExt, RwLockExt};
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;

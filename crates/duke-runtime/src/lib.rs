@@ -276,3 +276,28 @@ mod tests {
 }
 #[cfg(test)]
 mod fuzz;
+
+pub trait LockExt<T> {
+    fn lock_poison_free(&self) -> std::sync::MutexGuard<'_, T>;
+}
+
+impl<T> LockExt<T> for std::sync::Mutex<T> {
+    fn lock_poison_free(&self) -> std::sync::MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+pub trait RwLockExt<T> {
+    fn read_poison_free(&self) -> std::sync::RwLockReadGuard<'_, T>;
+    fn write_poison_free(&self) -> std::sync::RwLockWriteGuard<'_, T>;
+}
+
+impl<T> RwLockExt<T> for std::sync::RwLock<T> {
+    fn read_poison_free(&self) -> std::sync::RwLockReadGuard<'_, T> {
+        self.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn write_poison_free(&self) -> std::sync::RwLockWriteGuard<'_, T> {
+        self.write().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}

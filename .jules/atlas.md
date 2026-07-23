@@ -1,9 +1,6 @@
-**Standardize Workspace Error Types**
-**Tangle:** Each module defined its own duplicate aliases like `VmResult`, `LoadResult`, and `ParseError`, breaking standardized `Result<T, crate::Error>` rules.
-**Blueprint:** Removed domain-specific error aliases in favor of standard `Result` and `Error` types across all crates.
-**[Encapsulate Module Facades]
-**Tangle:** The `pub mod` declarations for internal sub-modules like `reachability` and `ser_helpers` were publicly exposed, violating encapsulation boundaries.
-**Blueprint:** Changed the visibilities to `pub(crate) mod` to encapsulate the modules, while re-exporting only the specific items like `find_shortest_path` where needed.
-**[Encapsulate `duke_classfile` Facade]**
-**Tangle:** The `duke_classfile` API exported an intermediate `types` module (`pub mod types`) merely to re-export its inner types, and `duke-telemetry` exposed internal serialization helpers via `pub mod ser_helpers`. This creates confusing, leaky abstractions and redundant paths.
-**Blueprint:** Encapsulated both modules. In `duke_classfile`, replaced `pub mod types` with direct `pub use` statements at the crate root, eliminating the `types` namespace from the public API entirely. In `duke_telemetry`, reduced `ser_helpers` visibility to `pub(crate)`.
+**[Title: Centralized LockExt and RwLockExt]
+**Tangle:** The codebase had ~80 instances of `.lock().unwrap_or_else(std::sync::PoisonError::into_inner)` and its `.read()` / `.write()` equivalents scattered across multiple modules and crates, creating boilerplate and leaking implementation details about lock poisoning handling throughout the system.
+**Blueprint:** Abstracted lock poisoning handling into `LockExt` and `RwLockExt` extension traits in `duke-runtime`, providing `.lock_poison_free()`, `.read_poison_free()`, and `.write_poison_free()` methods. Centralized the implementation and applied it globally via simple imports.
+**[Title: Centralized LockExt and RwLockExt]
+**Tangle:** The codebase had ~80 instances of `.lock().unwrap_or_else(std::sync::PoisonError::into_inner)` and its `.read()` / `.write()` equivalents scattered across multiple modules and crates, creating boilerplate and leaking implementation details about lock poisoning handling throughout the system.
+**Blueprint:** Abstracted lock poisoning handling into `LockExt` and `RwLockExt` extension traits in `duke-runtime`, providing `.lock_poison_free()`, `.read_poison_free()`, and `.write_poison_free()` methods. Centralized the implementation and applied it globally via simple imports.
