@@ -439,9 +439,9 @@ fn main() {
             eprintln!("Usage: duke jar-clones <file.jar> [threshold]");
             std::process::exit(1);
         }
-        let threshold = args.get(3).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.85);
         #[cfg(feature = "nova")]
         {
+            let threshold = args.get(3).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.85);
             jar_clones::dump_jar_clones(&args[2], threshold);
             return;
         }
