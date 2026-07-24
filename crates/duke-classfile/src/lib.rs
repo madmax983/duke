@@ -21,7 +21,7 @@ pub(crate) mod class;
 pub(crate) mod constant_pool;
 pub(crate) mod error;
 pub(crate) mod parser;
-pub mod signature;
+pub(crate) mod signature;
 
 pub use crate::attributes::*;
 pub use crate::class::*;
