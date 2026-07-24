@@ -225,6 +225,7 @@ fn layout_coherence_check(
     clippy::items_after_statements,
     clippy::used_underscore_binding
 )]
+#[allow(clippy::large_stack_frames)]
 pub fn run_execution(
     state: &mut ExecutionState,
     registry: &mut ClassRegistry,
@@ -1002,52 +1003,48 @@ pub fn run_execution(
                 }
             }
             Instruction::LdcW(cp_idx) | Instruction::Ldc2W(cp_idx) => {
-                let idx_val = usize::from(cp_idx.0);
-                let string_info = {
+                let cp_idx = usize::from(cp_idx.0);
+                enum LdcConst {
+                    StringConst(String),
+                    ClassConst(String),
+                    Other,
+                }
+                let kind = {
                     let ctx = registry.get(current_class)?;
-                    if let Some(CpEntry::String { string_index }) =
-                        ctx.constant_pool.get(idx_val).and_then(|e| e.as_ref())
-                    {
-                        let si = string_index.0 as usize;
-                        let s = match ctx.constant_pool.get(si).and_then(|e| e.as_ref()) {
-                            Some(CpEntry::Utf8(s)) => s.clone(),
-                            _ => return Err(Error::InvalidCpIndex { index: si }),
-                        };
-                        Some(s)
-                    } else {
-                        None
-                    }
-                };
-                if let Some(s) = string_info {
-                    let intern_key = (0, s);
-                    let r = if let Some(&cached) = string_intern.get(&intern_key) {
-                        cached
-                    } else {
-                        let r = heap.allocate_string(intern_key.1.clone());
-                        string_intern.insert(intern_key, r);
-                        r
-                    };
-                    frame.push(Slot::Reference(Some(r)))?;
-                } else {
-                    // Check for Class constant
-                    let class_info = {
-                        let ctx = registry.get(current_class)?;
-                        if let Some(CpEntry::Class { name_index }) =
-                            ctx.constant_pool.get(idx_val).and_then(|e| e.as_ref())
-                        {
+                    match ctx.constant_pool.get(cp_idx).and_then(|e| e.as_ref()) {
+                        Some(CpEntry::String { string_index }) => {
+                            let si = string_index.0 as usize;
+                            match ctx.constant_pool.get(si).and_then(|e| e.as_ref()) {
+                                Some(CpEntry::Utf8(s)) => LdcConst::StringConst(s.clone()),
+                                _ => return Err(Error::InvalidCpIndex { index: si }),
+                            }
+                        }
+                        Some(CpEntry::Class { name_index }) => {
                             match ctx
                                 .constant_pool
                                 .get(name_index.0 as usize)
                                 .and_then(|e| e.as_ref())
                             {
-                                Some(CpEntry::Utf8(s)) => Some(s.clone()),
-                                _ => None,
+                                Some(CpEntry::Utf8(s)) => LdcConst::ClassConst(s.clone()),
+                                _ => LdcConst::Other,
                             }
-                        } else {
-                            None
                         }
-                    };
-                    if let Some(class_name) = class_info {
+                        _ => LdcConst::Other,
+                    }
+                };
+                match kind {
+                    LdcConst::StringConst(s) => {
+                        let intern_key = (0, s);
+                        let r = if let Some(&cached) = string_intern.get(&intern_key) {
+                            cached
+                        } else {
+                            let r = heap.allocate_string(intern_key.1.clone());
+                            string_intern.insert(intern_key, r);
+                            r
+                        };
+                        frame.push(Slot::Reference(Some(r)))?;
+                    }
+                    LdcConst::ClassConst(class_name) => {
                         let intern_key = (1, class_name);
                         let r = if let Some(&cached) = string_intern.get(&intern_key) {
                             cached
@@ -1057,9 +1054,10 @@ pub fn run_execution(
                             r
                         };
                         frame.push(Slot::Reference(Some(r)))?;
-                    } else {
+                    }
+                    LdcConst::Other => {
                         let ctx = registry.get(current_class)?;
-                        ldc_push(frame, &ctx.constant_pool, idx_val)?;
+                        ldc_push(frame, &ctx.constant_pool, cp_idx)?;
                     }
                 }
             }
