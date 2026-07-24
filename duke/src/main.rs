@@ -9,6 +9,8 @@ mod analyze;
 #[cfg(feature = "nova")]
 mod audit;
 #[cfg(feature = "nova")]
+mod clone_detect;
+#[cfg(feature = "nova")]
 mod cycle_detect;
 #[cfg(feature = "nova")]
 mod dead_code;
@@ -394,6 +396,8 @@ fn main() {
         eprintln!("       duke run <classfile.class> [string-arg...]");
         eprintln!("       duke stub <classfile.class>");
         #[cfg(feature = "nova")]
+        eprintln!("       duke clone-detect <classfile.class> [threshold]");
+        #[cfg(feature = "nova")]
         eprintln!("       duke dead-code <classfile.class>");
         #[cfg(feature = "nova")]
         eprintln!("       duke jar-dead-code <file.jar>");
@@ -655,6 +659,15 @@ fn main() {
     match subcommand {
         "dump" => dump_class_file(&class_file),
         "stub" => generate_stubs(&class_file),
+        #[cfg(feature = "nova")]
+        "clone-detect" => {
+            let threshold = if args.len() >= 4 {
+                Some(args[3].as_str())
+            } else {
+                None
+            };
+            clone_detect::dump_clone_detect(&class_file, threshold);
+        }
         #[cfg(feature = "nova")]
         "dead-code" => dead_code::dump_dead_code(&class_file),
         other => {
