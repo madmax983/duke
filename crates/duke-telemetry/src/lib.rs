@@ -680,7 +680,11 @@ mod tests {
 
         for limit in 0..total_size {
             let mut w = LimitWriter { written: 0, limit };
-            assert!(store.print_report(&mut w).is_err(), "Failed at limit {}", limit);
+            assert!(
+                store.print_report(&mut w).is_err(),
+                "Failed at limit {}",
+                limit
+            );
         }
     }
 }
