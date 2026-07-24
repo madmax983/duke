@@ -598,4 +598,93 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    fn test_print_empty_reports() {
+        let store = crate::TelemetryStore::default();
+
+        let mut buf = Vec::new();
+        store.print_class_init_dag(&mut buf).unwrap();
+        let s = String::from_utf8(buf.clone()).unwrap();
+        assert!(s.contains("No class initialization events recorded."));
+
+        buf.clear();
+        store.print_exception_flow(&mut buf).unwrap();
+        let s = String::from_utf8(buf.clone()).unwrap();
+        assert!(s.contains("No exception flow events recorded."));
+
+        buf.clear();
+        store.print_bytecode_cost(&mut buf).unwrap();
+
+        buf.clear();
+        store.print_object_lineage(&mut buf).unwrap();
+
+        buf.clear();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+
+        buf.clear();
+        store.print_native_boundary(&mut buf).unwrap();
+    }
+
+    #[test]
+    fn test_markdown_empty_reports() {
+        let store = crate::TelemetryStore::default();
+        let md = store.to_markdown_report();
+        assert!(md.contains("No class initialization events recorded."));
+        assert!(md.contains("No exception flow events recorded."));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_report_io_error_all_paths() {
+        struct LimitWriter {
+            written: usize,
+            limit: usize,
+        }
+        impl std::io::Write for LimitWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                if self.written + buf.len() > self.limit {
+                    Err(std::io::Error::other("limit reached"))
+                } else {
+                    self.written += buf.len();
+                    Ok(buf.len())
+                }
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut store = crate::TelemetryStore::default();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+
+        // Find the full size of a successful write
+        let mut full_buf = Vec::new();
+        store.print_report(&mut full_buf).unwrap();
+        let total_size = full_buf.len();
+
+        for limit in 0..total_size {
+            let mut w = LimitWriter { written: 0, limit };
+            assert!(
+                store.print_report(&mut w).is_err(),
+                "Failed at limit {}",
+                limit
+            );
+        }
+    }
 }
