@@ -380,6 +380,33 @@ mod complexity_tests {
     clippy::cast_sign_loss,
     clippy::cast_possible_truncation
 )]
+/// Generates a Mermaid control flow graph (CFG) from a list of basic blocks.
+///
+/// This provides a higher-level visualization than [`generate_mermaid_cfg`] by grouping
+/// sequential instructions into basic blocks. Nodes represent entire blocks, and edges
+/// represent the control flow between them.
+///
+/// # Examples
+///
+/// ```
+/// use duke_bytecode::{Instruction, build_basic_blocks, generate_basic_block_cfg};
+///
+/// let instructions = vec![
+///     (0, Instruction::Iconst0),
+///     (1, Instruction::Ifeq(5)), // jump to PC=6
+///     (4, Instruction::Iconst1),
+///     (5, Instruction::Ireturn),
+///     (6, Instruction::Iconst2),
+///     (7, Instruction::Ireturn),
+/// ];
+/// let blocks = build_basic_blocks(&instructions);
+/// let cfg = generate_basic_block_cfg(&blocks);
+///
+/// assert!(cfg.contains("graph TD"));
+/// assert!(cfg.contains("block0[\"Block 0"));
+/// assert!(cfg.contains("block0 -->|true| block6"));
+/// assert!(cfg.contains("block0 -->|false| block4"));
+/// ```
 #[must_use]
 pub fn generate_basic_block_cfg(blocks: &[crate::basic_block::BasicBlock]) -> String {
     use std::fmt::Write;

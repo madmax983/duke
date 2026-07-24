@@ -458,7 +458,7 @@ pub struct ClassRegistry {
     /// Best-known runtime `java/lang/ClassLoader` object for each loaded class.
     class_runtime_loaders: HashMap<String, u64>,
     /// Opt-in flag: when true, synthetic stdlib classes that are NOT on the
-    /// [`KEEP_SYNTHETIC`] allowlist and whose real classfile is resolvable via
+    /// `` `KEEP_SYNTHETIC` `` allowlist and whose real classfile is resolvable via
     /// [`Self::shadow_loader`] are NOT pre-registered synthetically, so a later
     /// `ensure_loaded` loads their real JDK bytecode instead. Default `false`.
     real_jdk_shadow: bool,
@@ -838,7 +838,7 @@ impl ClassRegistry {
     }
 
     /// Enable "real JDK shadow" mode: synthetic stdlib classes that are not on the
-    /// [`KEEP_SYNTHETIC`] allowlist and whose real classfile is resolvable via `loader`
+    /// `` `KEEP_SYNTHETIC` `` allowlist and whose real classfile is resolvable via `loader`
     /// will be skipped by [`Self::register`], letting a later `ensure_loaded` load the
     /// real JDK bytecode. Must be called *before* `bootstrap_stdlib` runs to take effect.
     pub fn enable_real_jdk_shadow(&mut self, loader: Arc<dyn ClassLoader + Send + Sync>) {
@@ -958,7 +958,7 @@ impl ClassRegistry {
     }
 
     /// The zero-layout-risk migration candidates identified by the layout audit: the
-    /// `KEEP_SYNTHETIC` classes whose synthetic per-class instance-field count already
+    /// `` `KEEP_SYNTHETIC` `` classes whose synthetic per-class instance-field count already
     /// matches the real jimage layout (or whose real layout has zero instance fields), so
     /// they could safely leave the allowlist. Empty when real-JDK shadow mode is off (no
     /// real layout to compare against). Shares its rule with [`Self::run_layout_audit`].
@@ -978,12 +978,12 @@ impl ClassRegistry {
     }
 
     /// Static layout audit (gated by `DUKE_LAYOUT_AUDIT=1` at the call site): for each
-    /// `KEEP_SYNTHETIC` class and a sample of shadowed classes, compare the hand-written
+    /// `` `KEEP_SYNTHETIC` `` class and a sample of shadowed classes, compare the hand-written
     /// synthetic per-class instance-field count against the real jimage classfile's
     /// per-class instance-field count. Prints a table and a count of zero-layout-risk
     /// migration candidates — classes whose synthetic layout already matches the real
     /// layout (or which have zero instance fields), so they could safely leave the
-    /// `KEEP_SYNTHETIC` allowlist. This is a diagnostic tool, never on any hot path.
+    /// `` `KEEP_SYNTHETIC` `` allowlist. This is a diagnostic tool, never on any hot path.
     ///
     /// A hard no-op unless real-JDK shadow mode is enabled (no shadow loader → nothing to
     /// compare against).
@@ -1099,7 +1099,7 @@ impl ClassRegistry {
     /// method_idx))` for the first concrete (non-abstract, non-`native`) bytecode
     /// method whose owning class [`Self::is_shadowed`]. Returns `None` when shadow mode
     /// is off, when the resolved body is classfile-`native`/abstract-only, or when the
-    /// owning class is not shadowed (e.g. a `KEEP_SYNTHETIC` root) — in every such case
+    /// owning class is not shadowed (e.g. a `` `KEEP_SYNTHETIC` `` root) — in every such case
     /// the caller keeps the synthetic native. This is a hard no-op when the flag is off.
     pub fn shadowed_bytecode_override(
         &mut self,
