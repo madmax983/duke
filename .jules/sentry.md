@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2026-05-18 - Testing Report Print Bounds with LimitWriter
+**Learning:** Testing functions that execute multiple sequential `write!` or `writeln!` calls inside loops (like generating markdown or reports) cannot be effectively tested for all I/O error (`?`) propagation paths using a simple Failing Writer that always fails on the first call.
+**Action:** Implement a custom `LimitWriter` that implements `Write` and counts bytes, returning `std::io::Error` only after a specific configurable `limit` is reached. Iterate over multiple bounds limits (e.g., `0..1000`) within a unit test loop until the report succeeds to successfully assert that partial writes correctly propagate errors instead of panicking.

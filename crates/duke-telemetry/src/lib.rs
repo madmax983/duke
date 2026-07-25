@@ -598,4 +598,48 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    fn test_print_report_with_limit_writer() {
+        struct LimitWriter {
+            limit: usize,
+            written: usize,
+        }
+        impl std::io::Write for LimitWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                if self.written + buf.len() > self.limit {
+                    return Err(std::io::Error::other("limit reached"));
+                }
+                self.written += buf.len();
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut store = crate::TelemetryStore::default();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+
+        for limit in 0..1000 {
+            let mut w = LimitWriter { limit, written: 0 };
+            if store.print_report(&mut w).is_ok() {
+                break;
+            }
+        }
+    }
 }

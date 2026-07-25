@@ -171,6 +171,14 @@ mod tests {
     }
 
     #[test]
+    fn test_site2_u16_empty() {
+        let map = HashMap::new();
+        let w = Site2Wrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"map":{}}"#);
+    }
+
+    #[test]
     fn test_site2_u16() {
         let mut map = HashMap::new();
         map.insert(("java/lang/String".to_string(), 42), Dummy { val: 1 });
@@ -178,6 +186,14 @@ mod tests {
         let w = Site2Wrapper { map };
         let json = serde_json::to_string(&w).unwrap();
         assert_eq!(json, r#"{"map":{"java/lang/String@42":{"val":1}}}"#);
+    }
+
+    #[test]
+    fn test_pair_str_empty() {
+        let map = HashMap::new();
+        let w = PairWrapper { map };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"map":{}}"#);
     }
 
     #[test]
