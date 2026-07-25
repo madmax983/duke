@@ -36,3 +36,11 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+
+## 2024-05-24 - [Intra-doc Link Corrections]
+**Confusion:** Resolving intra-doc links to private items or across crates causes rustdoc errors that fail CI.
+**Clarification:** Downgraded private links to backticks, fully qualified cross-crate paths (`duke_gc::Heap`), and wrapped array indices like `[0]` in backticks.
+
+## 2024-05-24 - [Clippy Large Stack Frames]
+**Confusion:** Clippy complains about large stack frames in functions with large internal allocations that we cannot box safely or easily.
+**Clarification:** Added `#[allow(clippy::large_stack_frames)]` when it's safe to bypass without refactoring large VM loops.
