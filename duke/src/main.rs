@@ -439,9 +439,9 @@ fn main() {
             eprintln!("Usage: duke clone-hunt <file.jar> [threshold]");
             std::process::exit(1);
         }
-        let threshold: f64 = args.get(3).and_then(|t| t.parse().ok()).unwrap_or(0.95);
         #[cfg(feature = "nova")]
         {
+            let threshold: f64 = args.get(3).and_then(|t| t.parse().ok()).unwrap_or(0.95);
             clone_hunt::dump_clone_hunt(&args[2], threshold);
             return;
         }
