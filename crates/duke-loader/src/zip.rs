@@ -214,6 +214,7 @@ impl ZipReader {
     /// Returns [`Error::ZipFormat`] on decompression or format errors,
     /// or [`Error::ZipCrc32`] on checksum mismatch.
     #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::too_many_lines)]
     pub fn read_entry_info(&self, info: &ZipEntryInfo) -> Result<Vec<u8>> {
         let offset = usize::try_from(info.local_header_offset).unwrap_or(usize::MAX);
 
@@ -266,7 +267,20 @@ impl ZipReader {
         let compressed = &self.data[data_start..data_start + compressed_size];
 
         let decompressed = match info.compression_method {
-            METHOD_STORED => compressed.to_vec(),
+            METHOD_STORED => {
+                let max_size = 1024 * 1024 * 256; // 256 MB max size to prevent OOM
+                if compressed.len() > max_size {
+                    return Err(Error::ZipFormat {
+                        msg: format!(
+                            "entry '{}' uncompressed size {} exceeds limit {}",
+                            info.name,
+                            compressed.len(),
+                            max_size
+                        ),
+                    });
+                }
+                compressed.to_vec()
+            }
             METHOD_DEFLATED => {
                 let decoder = flate2::read::DeflateDecoder::new(compressed);
                 let cap = usize::try_from(info.uncompressed_size).unwrap_or(usize::MAX);
