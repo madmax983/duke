@@ -1,20 +1,21 @@
-1. **Optimize String concatenation in `native_string_concat`**
-   - The function currently uses `format!("{s1}{s2}")` to concatenate two strings, which allocates a new string buffer inside `format!`, formats the arguments, and returns it.
-   - We can optimize this by pre-allocating a `String` with the exact required capacity and appending the strings:
-     ```rust
-     let mut combined = String::with_capacity(s1.len() + s2.len());
-     combined.push_str(&s1);
-     combined.push_str(&s2);
-     let r = heap.allocate_string(combined);
-     ```
-   - This eliminates the intermediate allocation and parsing overhead of `format!`, which is a common hotspot in interpreters.
-   - Add `// ⚡ Bolt: Eliminate intermediate format! allocation` comment.
-   - Ensure the tests pass.
-1. Refactor `print_report` methods in `duke-telemetry/src/lib.rs` to handle empty states gracefully (Reduces noise from empty reports).
-   - Before: Outputs headers and empty tables for empty components.
-   - After: Outputs a concise message stating no events were recorded.
-2. Complete pre commit steps to make sure proper testing, verifications, reviews and reflections are done.
-3. Submit the change using a descriptive title.
-1. **Optimize Vector Allocations in Execution (Vec::with_capacity)**: Pre-allocate vectors in `crates/duke-interpreter/src/execution.rs` for `Multianewarray` `dims` array and lambda args `impl_args` to avoid unnecessary dynamic heap reallocations.
-2. Complete pre commit steps to ensure proper testing, verification, review, and reflection are done.
-3. **Submit the PR**: Present PR titled '⚡ Bolt: Optimize Vector Allocations in Execution & Native' detailing 💡 What, 🎯 Why, 📊 Impact, and 🔭 Measurement. I will use `run_in_bash_session` to execute `git commit` with the requested PR details.
+1. **Explore & Ideate (The Spark)**
+   - We have `duke-bytecode` which provides structural analysis and instruction decoding.
+   - We have `similarity.rs` in `duke-bytecode` which implements `calculate_similarity` to compute bytecode sequence similarity using Levenshtein distance on instruction variants (ignoring constants/locals).
+   - Currently, there's no CLI tool that utilizes this to find *clones* (copy-pasted or highly similar code) across an entire `.jar`.
+   - **Idea: The Plagiarism Detector / Clone Hunter**. Add a new command `duke clone-hunt <file.jar> [similarity_threshold]`. It will analyze all methods in a JAR, compare them against each other using `calculate_similarity`, and report methods that are highly similar (e.g., similarity > 0.95).
+
+2. **Prototype (The Scaffold)**
+   - Create `duke/src/clone_hunt.rs` behind `#[cfg(feature = "nova")]`.
+   - Iterate all classes and methods in the JAR.
+   - Extract their bytecode and decode it to `Vec<Instruction>`.
+   - Store them as `(class_name, method_name, Vec<Instruction>)`.
+   - Compare every pair of methods (nested loop or itertools combinations) where the instruction sequence length > some minimum (e.g., > 10 instructions to ignore trivial getters/setters).
+   - If `calculate_similarity` > threshold (default 0.95), print the match.
+
+3. **Unslop (The Sanity Check)**
+   - Add it to `duke/src/main.rs` as a new command.
+   - Add a test in `clone_hunt.rs` to ensure it compiles and has basic test coverage.
+   - Run `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`, `cargo fmt --all`.
+
+4. **Review & Pre-Commit**
+   - Review plan, execute, and verify against boundaries.
