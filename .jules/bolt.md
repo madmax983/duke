@@ -37,3 +37,6 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+**Remove `.clone()` from Matcher logic by borrowing from fields**
+**Learning:** `let fields = heap.get(m_ref)?.fields.clone();` allocated a `Vec<Slot>` every time `Matcher.find()`, `Matcher.matches()`, `Matcher.replaceFirst()` and `Matcher.replaceAll()` were called, even if the subsequent code just read two or three elements from the vector and then did native matching.
+**Action:** Replaced `.clone()` on `heap.get(m_ref)?.fields` with a block scope that safely borrows the fields and uses `.copied()` to extract the specific values needed before closing the scope and freeing up the immutable borrow to the heap.
