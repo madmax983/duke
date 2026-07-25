@@ -31,6 +31,22 @@
 //! **String table:** null-terminated UTF-8 strings; index 0 = empty string.
 //!
 //! **Compression:** data may be raw deflate (no zlib header); COMPRESSED > 0 when active.
+//!
+//! # Examples
+//!
+//! ```no_run
+//! use duke_loader::JImageReader;
+//! use duke_loader::ClassLoader;
+//! use std::path::Path;
+//!
+//! let path = Path::new("/path/to/jdk/lib/modules");
+//! if let Ok(reader) = JImageReader::open(path) {
+//!     // Check if java.lang.Object is in the index and load it
+//!     if let Ok(bytes) = reader.find_class("java/lang/Object") {
+//!         println!("Loaded java/lang/Object, size: {}", bytes.len());
+//!     }
+//! }
+//! ```
 
 use std::{collections::HashMap, io::Read, path::Path};
 
