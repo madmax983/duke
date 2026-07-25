@@ -1,4 +1,6 @@
 #![allow(missing_docs)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::uninlined_format_args)]
 use duke_loader::ZipReader;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -82,6 +84,14 @@ fn test_havoc_zip_stored_oom_simulation() {
     let res = reader.read_entry("huge.txt");
     let allocated = ALLOCATED.load(Ordering::SeqCst);
 
-    assert!(res.is_err(), "Expected an error (limit exceeded), but it allocated {} bytes", allocated);
-    assert!(allocated < 1024 * 1024 * 256, "Allocated {} bytes, bypassing OOM limit!", allocated);
+    assert!(
+        res.is_err(),
+        "Expected an error (limit exceeded), but it allocated {} bytes",
+        allocated
+    );
+    assert!(
+        allocated < 1024 * 1024 * 256,
+        "Allocated {} bytes, bypassing OOM limit!",
+        allocated
+    );
 }
