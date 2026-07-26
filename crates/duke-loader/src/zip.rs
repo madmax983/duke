@@ -266,7 +266,19 @@ impl ZipReader {
         let compressed = &self.data[data_start..data_start + compressed_size];
 
         let decompressed = match info.compression_method {
-            METHOD_STORED => compressed.to_vec(),
+            METHOD_STORED => {
+                let cap = usize::try_from(info.uncompressed_size).unwrap_or(usize::MAX);
+                let max_size = 1024 * 1024 * 256; // 256 MB max size to prevent OOM
+                if cap > max_size || compressed.len() > max_size {
+                    return Err(Error::ZipFormat {
+                        msg: format!(
+                            "entry '{}' uncompressed size {} exceeds limit {}",
+                            info.name, cap, max_size
+                        ),
+                    });
+                }
+                compressed.to_vec()
+            }
             METHOD_DEFLATED => {
                 let decoder = flate2::read::DeflateDecoder::new(compressed);
                 let cap = usize::try_from(info.uncompressed_size).unwrap_or(usize::MAX);
