@@ -36,3 +36,10 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-24 - [Broken Intra-Doc Links]
+**Confusion:** The documentation for `duke_gc::Heap::compact_old` linked to the private item `mark_old`, and `duke_interpreter::ClassRegistry::enable_real_jdk_shadow` linked to the private item `KEEP_SYNTHETIC`, causing `rustdoc::private_intra_doc_links` warnings.
+**Clarification:** Downgraded the intra-doc links `[`mark_old`]` and `[`KEEP_SYNTHETIC`]` to standard inline backticks `` `mark_old` `` and `` `KEEP_SYNTHETIC` `` respectively, and removed the definition of `[`mark_old`]: Self::mark_old`. This prevents broken link warnings for private items in public documentation.
+
+## 2024-05-24 - [Integration Tests Missing Docs]
+**Confusion:** Integration test files `havoc_classfile_proptest.rs`, `havoc_slice_panics.rs` and `havoc_jdwp_oom.rs` generated `missing_docs` crate warnings.
+**Clarification:** Added `#![allow(missing_docs)]` to the top of these integration test files as they do not require full crate documentation blocks, matching the pattern of other havoc tests.
