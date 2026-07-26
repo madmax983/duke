@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use duke_gc::Heap;
 use duke_runtime::Slot;
 
