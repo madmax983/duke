@@ -4446,10 +4446,7 @@ pub(crate) fn native_sb_append_string(
         Some(Slot::Reference(Some(r))) => string_value_from_ref(heap, *r).unwrap_or_default(),
         _ => "null".to_string(),
     };
-    let obj = heap.get_mut(this_ref)?;
-    if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&append_str);
-    }
+    append_to_string_builder(heap, this_ref, &append_str)?;
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
 /// Native: `StringBuilder.append(Ljava/lang/CharSequence;II)Ljava/lang/StringBuilder;`
@@ -4480,10 +4477,7 @@ pub(crate) fn native_sb_append_charsequence_range(
         }
         _ => "null".to_string(),
     };
-    let obj = heap.get_mut(this_ref)?;
-    if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&sub);
-    }
+    append_to_string_builder(heap, this_ref, &sub)?;
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
 /// Native: `StringBuilder.append(I)Ljava/lang/StringBuilder;`
@@ -4495,10 +4489,7 @@ pub(crate) fn native_sb_append_int(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = extract_int_arg(args, 1)?;
-    let obj = heap.get_mut(this_ref)?;
-    if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&val.to_string());
-    }
+    append_to_string_builder(heap, this_ref, &val.to_string())?;
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
 /// Native: `StringBuilder.append(J)Ljava/lang/StringBuilder;`
@@ -4510,10 +4501,7 @@ pub(crate) fn native_sb_append_long(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = extract_long_arg(args, 1)?;
-    let obj = heap.get_mut(this_ref)?;
-    if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&val.to_string());
-    }
+    append_to_string_builder(heap, this_ref, &val.to_string())?;
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
 /// Native: `StringBuilder.append(D)Ljava/lang/StringBuilder;`
@@ -4525,10 +4513,7 @@ pub(crate) fn native_sb_append_double(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = extract_double_arg(args, 1)?;
-    let obj = heap.get_mut(this_ref)?;
-    if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&val.to_string());
-    }
+    append_to_string_builder(heap, this_ref, &val.to_string())?;
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
 /// Native: `StringBuilder.append(F)Ljava/lang/StringBuilder;`
@@ -4540,10 +4525,7 @@ pub(crate) fn native_sb_append_float(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let val = extract_float_arg(args, 1)?;
-    let obj = heap.get_mut(this_ref)?;
-    if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&val.to_string());
-    }
+    append_to_string_builder(heap, this_ref, &val.to_string())?;
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
 /// Native: `StringBuilder.append(Z)Ljava/lang/StringBuilder;`
@@ -4558,10 +4540,7 @@ pub(crate) fn native_sb_append_boolean(
         Some(Slot::Int(v)) => *v != 0,
         _ => false,
     };
-    let obj = heap.get_mut(this_ref)?;
-    if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(if val { "true" } else { "false" });
-    }
+    append_to_string_builder(heap, this_ref, if val { "true" } else { "false" })?;
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
 /// Native: `StringBuilder.append(C)Ljava/lang/StringBuilder;`
@@ -4599,10 +4578,7 @@ pub(crate) fn native_sb_append_object(
         Some(Slot::Reference(Some(r))) => heap_object_to_string_ref(heap, *r)?,
         _ => "null".to_string(),
     };
-    let obj = heap.get_mut(this_ref)?;
-    if let Some(ref mut buf) = obj.string_value {
-        buf.push_str(&append_str);
-    }
+    append_to_string_builder(heap, this_ref, &append_str)?;
     Ok(Some(Slot::Reference(Some(this_ref))))
 }
 /// Native: `StringBuilder.toString()Ljava/lang/String;`
