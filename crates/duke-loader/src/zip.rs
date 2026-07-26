@@ -214,6 +214,7 @@ impl ZipReader {
     /// Returns [`Error::ZipFormat`] on decompression or format errors,
     /// or [`Error::ZipCrc32`] on checksum mismatch.
     #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::too_many_lines)]
     pub fn read_entry_info(&self, info: &ZipEntryInfo) -> Result<Vec<u8>> {
         let offset = usize::try_from(info.local_header_offset).unwrap_or(usize::MAX);
 

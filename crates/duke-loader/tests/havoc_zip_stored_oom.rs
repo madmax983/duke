@@ -52,7 +52,7 @@ proptest! {
             let res = reader.read_entry("fuzz.txt");
             assert!(res.is_err(), "Expected error for uncompressed size > 256MB");
             if let Err(duke_loader::Error::ZipFormat { msg }) = res {
-                assert!(msg.contains("exceeds limit"), "Wrong error message: {}", msg);
+                assert!(msg.contains("exceeds limit"), "Wrong error message: {msg}");
             } else {
                 panic!("Expected ZipFormat error");
             }
