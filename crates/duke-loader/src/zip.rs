@@ -1,5 +1,16 @@
 //! Read-only ZIP/JAR archive support.
 //!
+//! # The Index-on-Open Philosophy
+//!
+//! Why do we use lazy decompression? A typical enterprise application might have hundreds
+//! of JAR files on its classpath, containing thousands of classes. Loading and decompressing
+//! every `.class` file upfront would cause massive memory spikes and slow startup times.
+//!
+//! Instead, this module implements an **index-on-open** pattern. When a ZIP is opened,
+//! we jump directly to the End of Central Directory (EOCD), read the index of files, and map
+//! their byte offsets in memory. We only decompress the actual byte streams when a class
+//! is explicitly requested.
+//!
 //! Implements index-on-open, lazy decompression — the same pattern as
 //! [`super::jimage::JImageReader`].  Used both by the internal classloader
 //! (`ZipLoader`) and by the Java-space `ZipFile` native bridges.

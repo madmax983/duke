@@ -1,4 +1,9 @@
 //! `duke-loader::directory` - Loads classes and resources from directories.
+//!
+//! Why does this module exist? While the JVM heavily relies on JAR files, developers
+//! frequently build and run code directly from uncompressed folders (like `target/classes`
+//! or `build/classes`). This module provides a simple, direct-to-disk loader that maps
+//! JVM internal class names directly to filesystem paths.
 
 use std::path::{Path, PathBuf};
 
@@ -72,6 +77,23 @@ impl DirectoryLoader {
 }
 
 impl ClassLoader for DirectoryLoader {
+    /// Attempts to find and load a `.class` file.
+    ///
+    /// The `name` parameter must be an internal JVM name using forward slashes
+    /// (e.g., `java/lang/Object`), not dotted package names.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::PathBuf;
+    /// use duke_loader::{ClassLoader, DirectoryLoader};
+    ///
+    /// let loader = DirectoryLoader::new(PathBuf::from("my_classes"));
+    ///
+    /// // Invalid: Dotted names are rejected immediately without hitting the disk.
+    /// let result = loader.find_class("java.lang.Object");
+    /// assert!(result.is_err());
+    /// ```
     fn find_class(&self, name: &str) -> Result<Vec<u8>> {
         if name.contains('.') {
             return Err(Error::NotFound {
