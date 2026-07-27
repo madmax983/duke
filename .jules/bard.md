@@ -36,3 +36,10 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-07-27 - [Broken Intra-Doc Links & Bracket Escaping]
+**Confusion:** Rustdoc interprets bracketed text like `[0]` and `[1]` in comments as intra-doc links, which breaks `cargo doc` if they don't resolve. Also, linking to private items like `[`mark_old`]` from public documentation causes `rustdoc::private_intra_doc_links` warnings.
+**Clarification:** Use standard backticks ` `mark_old` ` for private items instead of intra-doc links. Escape bracketed text as `\[0\]` or wrap in backticks to avoid broken link resolution.
+
+## 2024-07-27 - [Missing Stories in Loader]
+**Confusion:** The `duke-loader` module was missing the "why". Developers looking at `ZipLoader` and `DirectoryLoader` didn't have high-level documentation explaining the lazy-decompression index-on-open pattern, or why a simple directory loader exists alongside complex ZIP parsing.
+**Clarification:** Added narrative module-level documentation (`//!`) to `zip.rs` explaining the memory benefits of the index-on-open philosophy, and to `directory.rs` explaining its purpose for uncompressed build folders. Added an executable doctest to demonstrate `DirectoryLoader` lookup failures.
