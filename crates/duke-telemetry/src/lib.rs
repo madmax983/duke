@@ -429,6 +429,14 @@ mod tests {
 
     #[test]
     #[cfg(feature = "telemetry")]
+    fn should_indicate_empty_exception_flow_in_markdown_report() {
+        let empty_store = TelemetryStore::default();
+        let empty_md = empty_store.to_markdown_report();
+        assert!(empty_md.contains("No exception flow events recorded."));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
     fn test_print_report_empty() {
         let store = TelemetryStore::default();
         let mut buf = Vec::new();

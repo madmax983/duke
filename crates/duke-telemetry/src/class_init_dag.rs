@@ -153,6 +153,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn class_init_dag_empty_formatting() {
+        let store = ClassInitDagStore::default();
+        let dot = store.to_dot();
+        assert!(dot.contains("digraph ClassInitDag {"));
+        assert!(!dot.contains("->"));
+
+        let mermaid = store.to_mermaid();
+        assert!(mermaid.contains("graph TD;"));
+        assert!(!mermaid.contains("-->"));
+    }
+
+    #[test]
     fn class_init_dag_to_dot() {
         let mut store = ClassInitDagStore::default();
         store.record("java/lang/String", "java/lang/System", 500);
