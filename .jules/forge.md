@@ -85,3 +85,6 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+**Extracting inline match blocks from main decode loop**
+**Learning:** The `decode_one` function had an inline block for `op::POP..=op::SWAP`, violating the pattern of extracting logic into strictly-typed helper functions.
+**Action:** Extract inline logic from main match blocks into dedicated helper functions (e.g., `decode_stack_op`) to maintain a flat structure and prevent God Functions.
