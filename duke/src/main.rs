@@ -22,6 +22,8 @@ mod jar_analyze;
 mod jar_diff;
 #[cfg(feature = "nova")]
 mod jar_search;
+#[cfg(feature = "nova")]
+mod jar_similarity;
 mod jdwp;
 #[cfg(feature = "nova")]
 mod pathfinding;
@@ -385,6 +387,8 @@ fn main() {
         eprintln!("       duke cg <classfile.class>");
         eprintln!("       duke analyze <classfile.class>");
         eprintln!("       duke jar-analyze <file.jar>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke jar-similarity <file.jar>");
         eprintln!("       duke histogram <file.jar>");
         eprintln!("       duke search <classfile.class> <opcode>");
         eprintln!("       duke scan <classfile.class>");
@@ -581,6 +585,13 @@ fn main() {
     }
     if args.len() >= 3 && args[1] == "jar-analyze" {
         jar_analyze::dump_jar_analyze(&args[2]);
+        return;
+    }
+    if args.len() >= 3 && args[1] == "jar-similarity" {
+        #[cfg(feature = "nova")]
+        jar_similarity::dump_jar_similarity(&args[2]);
+        #[cfg(not(feature = "nova"))]
+        eprintln!("duke: 'jar-similarity' requires the 'nova' feature flag.");
         return;
     }
     if args.len() >= 3 && args[1] == "analyze" {
