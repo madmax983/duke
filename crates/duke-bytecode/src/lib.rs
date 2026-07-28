@@ -767,3 +767,9 @@ mod tests {
 }
 #[cfg(test)]
 mod fuzz;
+
+#[cfg(feature = "nova")]
+pub(crate) mod analyzer;
+
+#[cfg(feature = "nova")]
+pub use analyzer::{BytecodeSmell, analyze_smells};
