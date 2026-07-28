@@ -5983,3 +5983,57 @@ mod string_get_bytes_copy_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+    use duke_gc::Heap;
+
+    #[test]
+    #[allow(clippy::unnecessary_wraps)]
+    fn should_return_error_when_indenting_causes_oom() -> Result<()>  {
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("a\nb\nc".to_string());
+        let args = [
+            Slot::Reference(Some(s)),
+            Slot::Int(1024 * 1024 * 128 / 3 + 1),
+        ];
+        let mut control = NativeControl::default();
+        let mut out = Vec::new();
+        let result = native_string_indent(&args, &mut heap, &mut out, &mut control);
+        assert!(matches!(
+            result,
+            Err(Error::JavaException { class_name }) if class_name == "java/lang/OutOfMemoryError"
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn should_split_successfully_when_falling_back_to_literal_regex() -> Result<()> {
+        let mut heap = Heap::new();
+        let s = heap.allocate_string("a(b(c".to_string());
+        let delim = heap.allocate_string("(".to_string());
+        let args = [
+            Slot::Reference(Some(s)),
+            Slot::Reference(Some(delim)),
+            Slot::Int(0),
+        ];
+        let mut control = NativeControl::default();
+        let mut out = Vec::new();
+        let result = native_string_split_limit(&args, &mut heap, &mut out, &mut control)?;
+
+        if let Some(Slot::Reference(Some(arr_ref))) = result {
+            let parts: Vec<_> = heap.get(arr_ref)?.fields.iter().map(|f| {
+                if let Slot::Reference(Some(s_ref)) = f {
+                    string_value_from_ref(&heap, *s_ref).unwrap_or_default()
+                } else {
+                    String::new()
+                }
+            }).collect();
+            assert_eq!(parts, vec!["a", "b", "c"]);
+        } else {
+            panic!("Expected array of strings");
+        }
+        Ok(())
+    }
+}

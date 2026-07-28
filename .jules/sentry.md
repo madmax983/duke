@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Documenting the unwrap strategy
+**Learning:** Found several `unwrap()` instances across the codebase that should be replaced with `Result` based error handling or tested to ensure they don't panic.
+**Action:** Identifying these locations and testing them or replacing them with safe alternatives is a priority.
