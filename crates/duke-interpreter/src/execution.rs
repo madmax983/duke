@@ -216,6 +216,7 @@ fn layout_coherence_check(
     clippy::cast_possible_wrap,
     clippy::cast_precision_loss,
     clippy::too_many_lines,
+    clippy::large_stack_frames,
     clippy::too_many_arguments,
     clippy::cognitive_complexity,
     clippy::manual_let_else,
