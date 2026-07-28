@@ -27,6 +27,9 @@ const EOCD_MIN_SIZE: usize = 22;
 /// (22-byte EOCD + up to 65535-byte comment.)
 const EOCD_MAX_SEARCH: usize = EOCD_MIN_SIZE + 65535;
 
+/// Maximum allowed uncompressed size for a single ZIP entry (256 MB) to prevent OOM.
+const MAX_UNCOMPRESSED_SIZE: usize = 1024 * 1024 * 256;
+
 // ───────────────────────────────────────────────────────────────────────────
 // CRC-32 (standard IEEE polynomial 0xEDB88320)
 // ───────────────────────────────────────────────────────────────────────────
@@ -214,6 +217,7 @@ impl ZipReader {
     /// Returns [`Error::ZipFormat`] on decompression or format errors,
     /// or [`Error::ZipCrc32`] on checksum mismatch.
     #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::too_many_lines)]
     pub fn read_entry_info(&self, info: &ZipEntryInfo) -> Result<Vec<u8>> {
         let offset = usize::try_from(info.local_header_offset).unwrap_or(usize::MAX);
 
@@ -266,32 +270,43 @@ impl ZipReader {
         let compressed = &self.data[data_start..data_start + compressed_size];
 
         let decompressed = match info.compression_method {
-            METHOD_STORED => compressed.to_vec(),
-            METHOD_DEFLATED => {
-                let decoder = flate2::read::DeflateDecoder::new(compressed);
-                let cap = usize::try_from(info.uncompressed_size).unwrap_or(usize::MAX);
-                let max_size = 1024 * 1024 * 256; // 256 MB max size to prevent OOM
-                if cap > max_size {
+            METHOD_STORED => {
+                if compressed.len() > MAX_UNCOMPRESSED_SIZE {
                     return Err(Error::ZipFormat {
                         msg: format!(
                             "entry '{}' uncompressed size {} exceeds limit {}",
-                            info.name, cap, max_size
+                            info.name,
+                            compressed.len(),
+                            MAX_UNCOMPRESSED_SIZE
+                        ),
+                    });
+                }
+                compressed.to_vec()
+            }
+            METHOD_DEFLATED => {
+                let decoder = flate2::read::DeflateDecoder::new(compressed);
+                let cap = usize::try_from(info.uncompressed_size).unwrap_or(usize::MAX);
+                if cap > MAX_UNCOMPRESSED_SIZE {
+                    return Err(Error::ZipFormat {
+                        msg: format!(
+                            "entry '{}' uncompressed size {} exceeds limit {}",
+                            info.name, cap, MAX_UNCOMPRESSED_SIZE
                         ),
                     });
                 }
                 let mut buf = Vec::with_capacity(cap.min(compressed.len().saturating_mul(2)));
                 let bytes_read = decoder
-                    .take((max_size as u64).saturating_add(1))
+                    .take((MAX_UNCOMPRESSED_SIZE as u64).saturating_add(1))
                     .read_to_end(&mut buf)
                     .map_err(|_| Error::ZipFormat {
                         msg: format!("failed to deflate entry '{}'", info.name),
                     })?;
 
-                if bytes_read > max_size {
+                if bytes_read > MAX_UNCOMPRESSED_SIZE {
                     return Err(Error::ZipFormat {
                         msg: format!(
                             "entry '{}' uncompressed size exceeds limit {}",
-                            info.name, max_size
+                            info.name, MAX_UNCOMPRESSED_SIZE
                         ),
                     });
                 }
