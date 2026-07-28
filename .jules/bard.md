@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-25 - [Broken intra-doc links to private items]
+**Confusion:** `cargo doc` warns about broken links when `--document-private-items` is not used, because public functions are linking to private items (e.g. `KEEP_SYNTHETIC`, `Heap::set_string_layout`, array layouts like `[0]`).
+**Clarification:** Downgraded these intra-doc links to standard backticks (e.g. `` `KEEP_SYNTHETIC` ``) and escaped brackets (e.g. `\[0\]`) in `duke-interpreter` to prevent `rustdoc` from misinterpreting them.

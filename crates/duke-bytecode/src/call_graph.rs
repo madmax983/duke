@@ -108,7 +108,25 @@ fn extract_method_ref(cf: &ClassFile, idx: CpIndex) -> Option<(String, String, S
 /// ```
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 #[must_use]
-/// ⚡ Bolt: Using `BTreeSet<String>` removes the need to collect and sort a `Vec` and avoids cloning `source_id` in the hot loop.
+/// Generates a Mermaid call graph from a parsed `ClassFile`.
+///
+/// The generated graph illustrates all method invocations (`invokevirtual`, `invokespecial`,
+/// `invokestatic`, and `invokeinterface`) made by methods within the given class.
+///
+/// # Examples
+///
+/// ```
+/// use duke_classfile::parse;
+/// use duke_bytecode::generate_mermaid_call_graph;
+///
+/// // Use a real .class file fixture for the test
+/// let class_bytes = std::fs::read("../../tests/fixtures/HelloWorld.class").unwrap();
+/// let class_file = parse(&class_bytes).unwrap();
+///
+/// let mermaid = generate_mermaid_call_graph(&class_file);
+/// assert!(mermaid.starts_with("graph TD\n"));
+/// ```
+///
 pub fn generate_mermaid_call_graph(cf: &ClassFile) -> String {
     let mut cg = String::from("graph TD\n");
     let mut edges = BTreeSet::new();
