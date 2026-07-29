@@ -34,6 +34,7 @@
 pub(crate) mod error;
 pub(crate) mod frame;
 pub(crate) mod slot;
+pub mod sync;
 
 pub use error::{Error, Result};
 pub use frame::Frame;
