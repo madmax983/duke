@@ -1,0 +1,7 @@
+🕸️ Tangle: The codebase was polluted with repetitive lock poisoning handling boilerplate (`.unwrap_or_else(std::sync::PoisonError::into_inner)`) scattered across many files, cluttering the domain logic and increasing the risk of inconsistent error handling.
+
+📐 Blueprint: Created `duke_runtime::sync::{LockExt, RwLockExt}` extension traits that provide `.lock_poison_free()`, `.read_poison_free()`, and `.write_poison_free()` methods. Replaced all raw `.lock().unwrap_or_else(...)` calls with these centralized extension methods.
+
+🧱 Stability: Improved code DRY-ness and readability. Reduced structural coupling by encapsulating the standard library error unwrapping behind a clean internal API boundary.
+
+🔬 Verification: Builds successfully, all tests pass, and strict `clippy` checks are enforced without warnings. The `clippy::large_stack_frames` lint was properly addressed for `run_execution` to keep CI green.

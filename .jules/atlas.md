@@ -7,3 +7,6 @@
 **[Encapsulate `duke_classfile` Facade]**
 **Tangle:** The `duke_classfile` API exported an intermediate `types` module (`pub mod types`) merely to re-export its inner types, and `duke-telemetry` exposed internal serialization helpers via `pub mod ser_helpers`. This creates confusing, leaky abstractions and redundant paths.
 **Blueprint:** Encapsulated both modules. In `duke_classfile`, replaced `pub mod types` with direct `pub use` statements at the crate root, eliminating the `types` namespace from the public API entirely. In `duke_telemetry`, reduced `ser_helpers` visibility to `pub(crate)`.
+**[Extracted LockExt traits]
+**Tangle:** Repetitive lock poisoning handling boilerplate (`.unwrap_or_else(std::sync::PoisonError::into_inner)`) scattered across many files, cluttering the domain logic.
+**Blueprint:** Created `duke_runtime::sync::{LockExt, RwLockExt}` extension traits that provide `.lock_poison_free()`, `.read_poison_free()`, and `.write_poison_free()` methods to centralize lock acquisition logic and clean up the call sites.
