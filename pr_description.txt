@@ -1,0 +1,4 @@
+🚮 Smell: The `decode_one` function in `crates/duke-bytecode/src/decoder.rs` was becoming a "God Function", containing an inline `match` block for stack operations (`op::POP..=op::SWAP`). This increased complexity and visual noise, violating flattening principles.
+✨ Solution: Extracted the `op::POP..=op::SWAP` matching logic into a cleanly separated `decode_stack_op` helper function, matching the pattern used by other operation categories.
+🧼 Benefit: Reduces cognitive load and strictly flattens `decode_one`. It keeps the main instruction dispatch loop concise.
+🛡️ Verification: Tests passed. No logic changed. `cargo clippy` and `cargo test` confirm the exact runtime behavior is maintained safely.

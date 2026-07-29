@@ -1,20 +1,19 @@
-1. **Optimize String concatenation in `native_string_concat`**
-   - The function currently uses `format!("{s1}{s2}")` to concatenate two strings, which allocates a new string buffer inside `format!`, formats the arguments, and returns it.
-   - We can optimize this by pre-allocating a `String` with the exact required capacity and appending the strings:
-     ```rust
-     let mut combined = String::with_capacity(s1.len() + s2.len());
-     combined.push_str(&s1);
-     combined.push_str(&s2);
-     let r = heap.allocate_string(combined);
-     ```
-   - This eliminates the intermediate allocation and parsing overhead of `format!`, which is a common hotspot in interpreters.
-   - Add `// ⚡ Bolt: Eliminate intermediate format! allocation` comment.
-   - Ensure the tests pass.
-1. Refactor `print_report` methods in `duke-telemetry/src/lib.rs` to handle empty states gracefully (Reduces noise from empty reports).
-   - Before: Outputs headers and empty tables for empty components.
-   - After: Outputs a concise message stating no events were recorded.
-2. Complete pre commit steps to make sure proper testing, verifications, reviews and reflections are done.
-3. Submit the change using a descriptive title.
-1. **Optimize Vector Allocations in Execution (Vec::with_capacity)**: Pre-allocate vectors in `crates/duke-interpreter/src/execution.rs` for `Multianewarray` `dims` array and lambda args `impl_args` to avoid unnecessary dynamic heap reallocations.
-2. Complete pre commit steps to ensure proper testing, verification, review, and reflection are done.
-3. **Submit the PR**: Present PR titled '⚡ Bolt: Optimize Vector Allocations in Execution & Native' detailing 💡 What, 🎯 Why, 📊 Impact, and 🔭 Measurement. I will use `run_in_bash_session` to execute `git commit` with the requested PR details.
+1. **Refactor `decode_one` in `crates/duke-bytecode/src/decoder.rs`**:
+   - Extract the `op::POP..=op::SWAP` block inside `decode_one` into a new helper function called `decode_stack_op(opcode: u8) -> Result<Instruction>`.
+   - Update `decode_one` to call `decode_stack_op(opcode)`.
+   - Ensure the new function is placed *above* `decode_one` (so it appears before outer attributes) as per Forge's constraints and memory.
+
+2. **Review Journal & Guidelines**:
+   - Check if `decode_one` can be completely flattened, as the instructions state: "When refactoring or adding opcodes, avoid inlining logic in the main `decode_one` match block; extract it into dedicated helper functions to maintain a flat structure."
+
+3. **Verify the change**:
+   - Run `cargo fmt --all`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test`.
+   - The test should pass successfully and there should be no warnings.
+
+4. **Add journal entry to `.jules/forge.md`**:
+   - Record the extraction of `decode_stack_op` into a helper function to avoid inlined match logic inside `decode_one`.
+
+5. **Complete pre-commit steps to ensure proper testing, verification, review, and reflection are done**.
+
+6. **Request code review**:
+   - Run `git add` and request code review to finalize the PR.
