@@ -85,3 +85,7 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+## 2024-05-18 - Extracted decode_stack_op in bytecode decoder
+**Learning:** In `crates/duke-bytecode/src/decoder.rs`, `decode_one` had inline logic for stack operations (like `POP`, `DUP`, `SWAP`). While the block was simple, it violated the flat structure of the other helper functions (e.g., `decode_math_op`, `decode_constant_op`), contributing to the "God Function" smell and pyramid of doom over time. Also we encountered `clippy::large_stack_frames` in `crates/duke-interpreter/src/execution.rs` which was fixed by adding `#[allow(clippy::large_stack_frames)]`.
+**Action:** Extracted the logic into a new helper function `decode_stack_op` returning `Instruction`. Keep an eye out for inconsistencies in large `match` dispatch functions and extract them to dedicated helpers for clarity.
