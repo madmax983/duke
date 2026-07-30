@@ -85,3 +85,7 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+**Extracting Inline Match Blocks**
+**Learning:** In `crates/duke-bytecode/src/decoder.rs`, the `decode_one` function was becoming a "God Function" (too many lines) by containing large inline match blocks (like `op::POP..=op::SWAP` handling stack opcodes). Extracting these specific clusters into dedicated helper functions (`decode_stack_op`) flattens the outer function and significantly improves readability.
+**Action:** Always scan large match-based dispatch functions for cohesive groups of related operations that can be extracted into typed helper functions, and ensure outer lint attributes (`#[allow(clippy::...)]`) are preserved on the original function.
