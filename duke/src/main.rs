@@ -9,6 +9,8 @@ mod analyze;
 #[cfg(feature = "nova")]
 mod audit;
 #[cfg(feature = "nova")]
+mod clone_detect;
+#[cfg(feature = "nova")]
 mod cycle_detect;
 #[cfg(feature = "nova")]
 mod dead_code;
@@ -594,6 +596,28 @@ fn main() {
         purity::dump_purity_analysis(&args[2]);
         #[cfg(not(feature = "nova"))]
         eprintln!("duke: 'purity' command requires the 'nova' feature flag.");
+        return;
+    }
+
+    if args.len() >= 3 && args[1] == "clone-detect" {
+        #[cfg(feature = "nova")]
+        clone_detect::dump_clone_detect(
+            &args[2],
+            args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0.9),
+        );
+        #[cfg(not(feature = "nova"))]
+        eprintln!("duke: 'clone-detect' command requires the 'nova' feature flag.");
+        return;
+    }
+
+    if args.len() >= 3 && args[1] == "jar-clone-detect" {
+        #[cfg(feature = "nova")]
+        clone_detect::dump_jar_clone_detect(
+            &args[2],
+            args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0.9),
+        );
+        #[cfg(not(feature = "nova"))]
+        eprintln!("duke: 'jar-clone-detect' command requires the 'nova' feature flag.");
         return;
     }
 
