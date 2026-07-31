@@ -271,3 +271,70 @@ pub(crate) fn native_url_decoder_decode_charset(
     let decoded = www_form_url_decode(&encoded)?;
     Ok(Some(Slot::Reference(Some(heap.allocate_string(decoded)))))
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::NativeControl;
+
+    use duke_runtime::Slot;
+
+    #[test]
+    fn should_return_error_when_invalid_server_fd() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+
+        let this_ref = heap.allocate("java/net/ServerSocket".to_string(), 2);
+        heap.get_mut(this_ref).unwrap().fields[0] = Slot::Int(-1);
+
+        let args = [Slot::Reference(Some(this_ref))];
+        let result = native_server_socket_accept(&args, &mut heap, &mut out, &mut control);
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            crate::Error::JavaException { class_name } => {
+                assert_eq!(class_name, "java/io/IOException");
+            },
+            _ => panic!("Expected JavaException"),
+        }
+    }
+    #[test]
+    fn should_return_socket_when_accept_successful() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+
+        let server_ref = heap.allocate("java/net/ServerSocket".to_string(), 2);
+        heap.get_mut(server_ref).unwrap().fields[0] = Slot::Int(0);
+        heap.get_mut(server_ref).unwrap().fields[1] = Slot::Int(0);
+
+        let args = [Slot::Reference(Some(server_ref)), Slot::Int(0)];
+        native_server_socket_init(&args, &mut heap, &mut out, &mut control).unwrap();
+
+        let Slot::Int(port) = heap.get(server_ref).unwrap().fields[1] else {
+            panic!("Expected valid port");
+        };
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+
+            let _stream = std::net::TcpStream::connect(format!("127.0.0.1:{port}")).unwrap();
+            let _ = sender.send(());
+        });
+
+        let accept_args = [Slot::Reference(Some(server_ref))];
+        let result = native_server_socket_accept(&accept_args, &mut heap, &mut out, &mut control);
+
+        assert!(result.is_ok());
+        let opt_slot = result.unwrap();
+        assert!(opt_slot.is_some());
+        let Slot::Reference(Some(sock_ref)) = opt_slot.unwrap() else {
+            panic!("Expected reference");
+        };
+        let sock_obj = heap.get(sock_ref).unwrap();
+        assert_eq!(sock_obj.class_name, "java/net/Socket");
+        assert_eq!(sock_obj.fields.len(), 2);
+let _ = receiver.recv();
+handle.join().unwrap();
+}
+}
