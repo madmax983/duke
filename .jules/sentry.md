@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-07-31 - Testing Format and Serialization Output Gaps in Duke Telemetry
+**Learning:** Functions that generate formatted textual telemetry reports (`print_report`, `print_bytecode_cost`, etc.) often contain untested IO error handling paths both for the initial header writes and inside their iterators. Furthermore, `sort_by_key` closures in the report formatters need multiple distinct items in the telemetry store to be executed.
+**Action:** When filling telemetry reporting coverage gaps, use custom mock writers (e.g. `CountdownWriter`) that fail after a specific number of writes to hit internal iterator error paths, and insert multiple distinct mock telemetry records to ensure sorting logic closures are executed.
