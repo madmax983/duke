@@ -636,14 +636,26 @@ mod tests_extended {
         store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
         store.bytecode_cost.record("imul", "Foo", "bar", 10, 100);
 
-        store.object_lineage.record("java/lang/String", "Foo", 10, "bar");
-        store.object_lineage.record("java/lang/Object", "Foo", 10, "bar");
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .object_lineage
+            .record("java/lang/Object", "Foo", 10, "bar");
 
-        store.dispatch_resolution.record("Foo", 42, "java/lang/String", true);
-        store.dispatch_resolution.record("Foo", 43, "java/lang/Object", true);
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        store
+            .dispatch_resolution
+            .record("Foo", 43, "java/lang/Object", true);
 
-        store.native_boundary.record_call("java/lang/String", "intern", 100, true);
-        store.native_boundary.record_call("java/lang/String", "hashCode", 100, true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "hashCode", 100, true);
 
         let md = store.to_markdown_report();
         assert!(md.contains("iadd"));
@@ -657,11 +669,21 @@ mod tests_extended {
     fn test_print_io_errors() {
         let mut store = TelemetryStore::default();
         store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
-        store.object_lineage.record("java/lang/String", "Foo", 10, "bar");
-        store.class_init_dag.record("java/lang/String", "java/lang/System", 500);
-        store.exception_flow.record_throw("java/lang/Exception", "Foo", "bar", 10);
-        store.dispatch_resolution.record("Foo", 42, "java/lang/String", true);
-        store.native_boundary.record_call("java/lang/String", "intern", 100, true);
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
 
         let mut w = FailingWriter;
         // Test first line errors
@@ -677,8 +699,16 @@ mod tests_extended {
         assert!(store.print_object_lineage(&mut CountdownWriter(1)).is_err());
         assert!(store.print_class_init_dag(&mut CountdownWriter(1)).is_err());
         assert!(store.print_exception_flow(&mut CountdownWriter(1)).is_err());
-        assert!(store.print_dispatch_resolution(&mut CountdownWriter(1)).is_err());
-        assert!(store.print_native_boundary(&mut CountdownWriter(1)).is_err());
+        assert!(
+            store
+                .print_dispatch_resolution(&mut CountdownWriter(1))
+                .is_err()
+        );
+        assert!(
+            store
+                .print_native_boundary(&mut CountdownWriter(1))
+                .is_err()
+        );
 
         // Cover the markdown methods as well just in case
         store.markdown_bytecode_cost(&mut String::new());
