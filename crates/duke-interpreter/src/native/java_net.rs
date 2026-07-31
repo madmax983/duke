@@ -272,7 +272,7 @@ pub(crate) fn native_url_decoder_decode_charset(
     Ok(Some(Slot::Reference(Some(heap.allocate_string(decoded)))))
 }
 #[cfg(test)]
-mod tests {
+mod java_net_tests {
     use super::*;
     use crate::NativeControl;
 
