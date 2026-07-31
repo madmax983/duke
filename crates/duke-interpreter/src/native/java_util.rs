@@ -4965,13 +4965,10 @@ pub(crate) fn native_collections_swap(
     // fields[0] = size, elements at fields[1..=size]
     let fi = i + 1;
     let fj = j + 1;
-    let fields = heap.get(list_ref)?.fields.clone();
-    let len = fields.len();
+    let obj = heap.get_mut(list_ref)?;
+    let len = obj.fields.len();
     if fi < len && fj < len {
-        let vi = fields[fi];
-        let vj = fields[fj];
-        heap.get_mut(list_ref)?.fields[fi] = vj;
-        heap.get_mut(list_ref)?.fields[fj] = vi;
+        obj.fields.swap(fi, fj);
     }
     Ok(None)
 }
