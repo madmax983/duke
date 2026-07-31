@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Testing server socket accept
+**Learning:** Found an uncovered branch in `native_server_socket_accept` where the error case returning an IOException for an invalid or negative file descriptor was missing test coverage. Also missing the happy path for when it successfully returns a new client socket reference.
+**Action:** Adding a test module in `java_net.rs` to construct isolated scenarios with a dummy ServerSocket and both an invalid/negative socket id and a proper setup matching a valid connection to capture both output conditions correctly.
