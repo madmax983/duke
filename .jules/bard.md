@@ -36,3 +36,7 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+
+## 2024-05-25 - [Broken Intra-Doc Links]
+**Confusion:** The `cargo doc` command was failing due to `broken_intra_doc_links` and `private_intra_doc_links` on some files (`crates/duke-gc/src/lib.rs`, `crates/duke-interpreter/src/registry.rs`, `crates/duke-interpreter/src/native/common.rs`, `crates/duke-interpreter/src/native/java_io.rs`).
+**Clarification:** I changed the `[`intra_doc_link`]` format into simply using backticks for `private_intra_doc_links` when the item is private, and for broken links where the index 0 or 1 was meant to be used, I escaped them `\[0\]`. I also added `#[allow(clippy::large_stack_frames)]` to `run_execution` inside `crates/duke-interpreter/src/execution.rs` as it was causing a compilation error.
