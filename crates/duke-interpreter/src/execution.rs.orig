@@ -223,8 +223,7 @@ fn layout_coherence_check(
     clippy::single_match_else,
     clippy::float_cmp,
     clippy::items_after_statements,
-    clippy::used_underscore_binding,
-    clippy::large_stack_frames
+    clippy::used_underscore_binding
 )]
 pub fn run_execution(
     state: &mut ExecutionState,
