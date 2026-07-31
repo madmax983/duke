@@ -215,43 +215,7 @@ impl ZipReader {
     /// or [`Error::ZipCrc32`] on checksum mismatch.
     #[allow(clippy::cast_possible_truncation)]
     pub fn read_entry_info(&self, info: &ZipEntryInfo) -> Result<Vec<u8>> {
-        let offset = usize::try_from(info.local_header_offset).unwrap_or(usize::MAX);
-
-        // Validate local file header signature.
-        if offset
-            .checked_add(30)
-            .is_none_or(|end| end > self.data.len())
-        {
-            return Err(Error::ZipFormat {
-                msg: format!("local header at offset {offset} is truncated"),
-            });
-        }
-        let sig = read_u32_le(&self.data, offset);
-        if sig != LOCAL_SIGNATURE {
-            return Err(Error::ZipFormat {
-                msg: format!("expected local header signature at offset {offset}, got {sig:#010x}"),
-            });
-        }
-
-        // Read local header's own filename_len and extra_len to find data start.
-        if offset
-            .checked_add(30)
-            .is_none_or(|end| end > self.data.len())
-        {
-            return Err(Error::ZipFormat {
-                msg: format!("local header at offset {offset} is truncated"),
-            });
-        }
-        let filename_len = usize::from(read_u16_le(&self.data, offset + 26));
-        let extra_len = usize::from(read_u16_le(&self.data, offset + 28));
-        let data_start = offset
-            .checked_add(30)
-            .and_then(|v| v.checked_add(filename_len))
-            .and_then(|v| v.checked_add(extra_len))
-            .ok_or_else(|| Error::ZipFormat {
-                msg: format!("entry '{}' local header offset overflow", info.name),
-            })?;
-
+        let data_start = local_header_data_start(&self.data, info)?;
         let compressed_size = usize::try_from(info.compressed_size).unwrap_or(usize::MAX);
 
         if data_start
@@ -264,49 +228,7 @@ impl ZipReader {
         }
 
         let compressed = &self.data[data_start..data_start + compressed_size];
-
-        let decompressed = match info.compression_method {
-            METHOD_STORED => compressed.to_vec(),
-            METHOD_DEFLATED => {
-                let decoder = flate2::read::DeflateDecoder::new(compressed);
-                let cap = usize::try_from(info.uncompressed_size).unwrap_or(usize::MAX);
-                let max_size = 1024 * 1024 * 256; // 256 MB max size to prevent OOM
-                if cap > max_size {
-                    return Err(Error::ZipFormat {
-                        msg: format!(
-                            "entry '{}' uncompressed size {} exceeds limit {}",
-                            info.name, cap, max_size
-                        ),
-                    });
-                }
-                let mut buf = Vec::with_capacity(cap.min(compressed.len().saturating_mul(2)));
-                let bytes_read = decoder
-                    .take((max_size as u64).saturating_add(1))
-                    .read_to_end(&mut buf)
-                    .map_err(|_| Error::ZipFormat {
-                        msg: format!("failed to deflate entry '{}'", info.name),
-                    })?;
-
-                if bytes_read > max_size {
-                    return Err(Error::ZipFormat {
-                        msg: format!(
-                            "entry '{}' uncompressed size exceeds limit {}",
-                            info.name, max_size
-                        ),
-                    });
-                }
-
-                buf
-            }
-            other => {
-                return Err(Error::ZipFormat {
-                    msg: format!(
-                        "unsupported compression method {other} for entry '{}'",
-                        info.name
-                    ),
-                });
-            }
-        };
+        let decompressed = decompress_entry(info, compressed)?;
 
         // Validate CRC-32.
         let actual_crc = crc32_checksum(&decompressed);
@@ -643,6 +565,82 @@ fn is_nested_boot_inf_lib_archive(entry_name: &str) -> bool {
 // ───────────────────────────────────────────────────────────────────────────
 // Private parsing helpers
 // ───────────────────────────────────────────────────────────────────────────
+
+fn local_header_data_start(data: &[u8], info: &ZipEntryInfo) -> Result<usize> {
+    let offset = usize::try_from(info.local_header_offset).unwrap_or(usize::MAX);
+
+    // Validate local file header signature.
+    if offset.checked_add(30).is_none_or(|end| end > data.len()) {
+        return Err(Error::ZipFormat {
+            msg: format!("local header at offset {offset} is truncated"),
+        });
+    }
+    let sig = read_u32_le(data, offset);
+    if sig != LOCAL_SIGNATURE {
+        return Err(Error::ZipFormat {
+            msg: format!("expected local header signature at offset {offset}, got {sig:#010x}"),
+        });
+    }
+
+    // Read local header's own filename_len and extra_len to find data start.
+    if offset.checked_add(30).is_none_or(|end| end > data.len()) {
+        return Err(Error::ZipFormat {
+            msg: format!("local header at offset {offset} is truncated"),
+        });
+    }
+    let filename_len = usize::from(read_u16_le(data, offset + 26));
+    let extra_len = usize::from(read_u16_le(data, offset + 28));
+    offset
+        .checked_add(30)
+        .and_then(|v| v.checked_add(filename_len))
+        .and_then(|v| v.checked_add(extra_len))
+        .ok_or_else(|| Error::ZipFormat {
+            msg: format!("entry '{}' local header offset overflow", info.name),
+        })
+}
+
+fn decompress_entry(info: &ZipEntryInfo, compressed: &[u8]) -> Result<Vec<u8>> {
+    match info.compression_method {
+        METHOD_STORED => Ok(compressed.to_vec()),
+        METHOD_DEFLATED => {
+            let decoder = flate2::read::DeflateDecoder::new(compressed);
+            let cap = usize::try_from(info.uncompressed_size).unwrap_or(usize::MAX);
+            let max_size = 1024 * 1024 * 256; // 256 MB max size to prevent OOM
+            if cap > max_size {
+                return Err(Error::ZipFormat {
+                    msg: format!(
+                        "entry '{}' uncompressed size {} exceeds limit {}",
+                        info.name, cap, max_size
+                    ),
+                });
+            }
+            let mut buf = Vec::with_capacity(cap.min(compressed.len().saturating_mul(2)));
+            let bytes_read = decoder
+                .take((max_size as u64).saturating_add(1))
+                .read_to_end(&mut buf)
+                .map_err(|_| Error::ZipFormat {
+                    msg: format!("failed to deflate entry '{}'", info.name),
+                })?;
+
+            if bytes_read > max_size {
+                return Err(Error::ZipFormat {
+                    msg: format!(
+                        "entry '{}' uncompressed size exceeds limit {}",
+                        info.name, max_size
+                    ),
+                });
+            }
+
+            Ok(buf)
+        }
+        other => Err(Error::ZipFormat {
+            msg: format!(
+                "unsupported compression method {other} for entry '{}'",
+                info.name
+            ),
+        }),
+    }
+}
 
 /// Little-endian u16 read.
 fn read_u16_le(data: &[u8], offset: usize) -> u16 {
