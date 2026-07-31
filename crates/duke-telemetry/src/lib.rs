@@ -599,3 +599,123 @@ mod tests {
         assert!(s.contains("java/lang/Exception"));
     }
 }
+#[cfg(test)]
+mod tests_extended {
+    use crate::TelemetryStore;
+    use std::io::Write;
+
+    struct FailingWriter;
+    impl Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("disk full"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct CountdownWriter(usize);
+    impl Write for CountdownWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if self.0 == 0 {
+                Err(std::io::Error::other("disk full"))
+            } else {
+                self.0 -= 1;
+                Ok(buf.len())
+            }
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_sort_by_key_coverage() {
+        let mut store = TelemetryStore::default();
+        // Insert 2 distinct items to cover the sort closures
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store.bytecode_cost.record("imul", "Foo", "bar", 10, 100);
+
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .object_lineage
+            .record("java/lang/Object", "Foo", 10, "bar");
+
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        store
+            .dispatch_resolution
+            .record("Foo", 43, "java/lang/Object", true);
+
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "hashCode", 100, true);
+
+        let md = store.to_markdown_report();
+        assert!(md.contains("iadd"));
+        assert!(md.contains("imul"));
+
+        let mut buf = Vec::new();
+        store.print_report(&mut buf).unwrap();
+    }
+
+    #[test]
+    fn test_print_io_errors() {
+        let mut store = TelemetryStore::default();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+
+        let mut w = FailingWriter;
+        // Test first line errors
+        assert!(store.print_bytecode_cost(&mut w).is_err());
+        assert!(store.print_object_lineage(&mut w).is_err());
+        assert!(store.print_class_init_dag(&mut w).is_err());
+        assert!(store.print_exception_flow(&mut w).is_err());
+        assert!(store.print_dispatch_resolution(&mut w).is_err());
+        assert!(store.print_native_boundary(&mut w).is_err());
+
+        // Test loop body IO errors with countdown writer
+        assert!(store.print_bytecode_cost(&mut CountdownWriter(1)).is_err());
+        assert!(store.print_object_lineage(&mut CountdownWriter(1)).is_err());
+        assert!(store.print_class_init_dag(&mut CountdownWriter(1)).is_err());
+        assert!(store.print_exception_flow(&mut CountdownWriter(1)).is_err());
+        assert!(
+            store
+                .print_dispatch_resolution(&mut CountdownWriter(1))
+                .is_err()
+        );
+        assert!(
+            store
+                .print_native_boundary(&mut CountdownWriter(1))
+                .is_err()
+        );
+
+        // Cover the markdown methods as well just in case
+        store.markdown_bytecode_cost(&mut String::new());
+        store.markdown_object_lineage(&mut String::new());
+        store.markdown_class_init_dag(&mut String::new());
+        store.markdown_exception_flow(&mut String::new());
+        store.markdown_dispatch_resolution(&mut String::new());
+        store.markdown_native_boundary(&mut String::new());
+    }
+}
