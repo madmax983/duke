@@ -19,7 +19,7 @@ pub(crate) mod opcodes;
 #[cfg(feature = "nova")]
 pub(crate) mod reachability;
 #[cfg(feature = "nova")]
-pub(crate) mod similarity;
+pub mod similarity;
 pub(crate) mod verifier;
 
 #[cfg(feature = "nova")]

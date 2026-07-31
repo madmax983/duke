@@ -9,6 +9,8 @@ mod analyze;
 #[cfg(feature = "nova")]
 mod audit;
 #[cfg(feature = "nova")]
+mod clone_detect;
+#[cfg(feature = "nova")]
 mod cycle_detect;
 #[cfg(feature = "nova")]
 mod dead_code;
@@ -399,6 +401,8 @@ fn main() {
         eprintln!("       duke jar-dead-code <file.jar>");
         #[cfg(feature = "nova")]
         eprintln!("       duke jar-search <file.jar> <query>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke jar-clones <file.jar> [threshold]");
         eprintln!("       duke -jar <file.jar> [string-arg...]");
         eprintln!("Options: --telemetry[=path]  dump telemetry JSON after execution");
         eprintln!("         --telemetry-md[=p]  dump telemetry Markdown report after execution");
@@ -456,6 +460,29 @@ fn main() {
         #[cfg(not(feature = "nova"))]
         {
             eprintln!("duke: unknown subcommand 'jar-search'");
+            std::process::exit(1);
+        }
+    }
+
+    // Dispatch `jar-clones`
+    if args.len() > 1 && args[1] == "jar-clones" {
+        if args.len() < 3 {
+            eprintln!("Usage: duke jar-clones <file.jar> [threshold]");
+            std::process::exit(1);
+        }
+        #[cfg(feature = "nova")]
+        {
+            let threshold = if args.len() >= 4 {
+                args[3].parse().unwrap_or(0.9)
+            } else {
+                0.9
+            };
+            clone_detect::dump_clone_detect(&args[2], threshold);
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: unknown subcommand 'jar-clones'");
             std::process::exit(1);
         }
     }
