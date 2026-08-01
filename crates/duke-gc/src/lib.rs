@@ -802,20 +802,26 @@ impl Heap {
     /// found immediately after allocation (both indicate heap corruption).
     pub fn set_string_layout(&mut self, string_ref: u64, value: &str) {
         let latin1 = value.chars().all(|c| c as u32 <= 0xFF);
-        let (coder, bytes): (i32, Vec<u8>) = if latin1 {
-            (0, value.chars().map(|c| c as u8).collect())
+        let coder = i32::from(!latin1);
+        let bytes_len = if latin1 {
+            value.chars().count()
         } else {
-            (1, value.encode_utf16().flat_map(u16::to_le_bytes).collect())
+            value.encode_utf16().count() * 2
         };
 
-        let bytes_ref = self.allocate("[B".to_string(), bytes.len());
+        let bytes_ref = self.allocate("[B".to_string(), bytes_len);
         {
             let arr = self
                 .get_mut(bytes_ref)
                 .expect("freshly allocated byte array must exist");
-            for (i, &b) in bytes.iter().enumerate() {
-                // Java `byte` is signed: reinterpret the raw octet as i8.
-                arr.fields[i] = Slot::Int(i32::from(i8::from_ne_bytes([b])));
+            if latin1 {
+                for (i, c) in value.chars().enumerate() {
+                    arr.fields[i] = Slot::Int(i32::from(i8::from_ne_bytes([c as u8])));
+                }
+            } else {
+                for (i, b) in value.encode_utf16().flat_map(u16::to_le_bytes).enumerate() {
+                    arr.fields[i] = Slot::Int(i32::from(i8::from_ne_bytes([b])));
+                }
             }
         }
 
