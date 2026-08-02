@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-08-02 - Testing network socket acceptance
+**Learning:** Testing `java.net.ServerSocket.accept()` requires setting up an ephemeral port and a client socket connection on a separate thread using channel synchronization to avoid flaky tests.
+**Action:** Always use `mpsc::channel()` with `thread::spawn` when simulating a client connecting to a server socket locally to ensure the test runs deterministically and does not block.
