@@ -85,3 +85,6 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+## 2024-05-24 - Extracted Stack Op Decoding
+**Learning:** The `decode_one` function in `crates/duke-bytecode/src/decoder.rs` was becoming a God Function, specifically the branch for stack manipulation opcodes (`POP` through `SWAP`) which contained an inline `match` block.
+**Action:** Extracted the stack op decoding into a private helper function `decode_stack_op(opcode: u8) -> Result<Instruction>`. This flattens the structure and improves readability, adhering to Forge's preference for extracting large blocks of logic.
