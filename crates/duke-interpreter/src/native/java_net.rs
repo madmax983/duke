@@ -271,3 +271,84 @@ pub(crate) fn native_url_decoder_decode_charset(
     let decoded = www_form_url_decode(&encoded)?;
     Ok(Some(Slot::Reference(Some(heap.allocate_string(decoded)))))
 }
+#[cfg(test)]
+mod java_net_tests {
+    use super::*;
+    use duke_runtime::Slot;
+    use duke_gc::Heap;
+    use crate::registry::NativeControl;
+    use std::thread;
+    use std::sync::{Arc, Barrier};
+
+    #[test]
+    fn test_native_server_socket_accept_invalid_fd() {
+        let mut heap = Heap::new();
+        let server_ref = heap.allocate("java/net/ServerSocket".to_string(), 2);
+        heap.get_mut(server_ref).unwrap().fields[0] = Slot::Int(0);
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let result = native_server_socket_accept(
+            &[Slot::Reference(Some(server_ref))],
+            &mut heap,
+            &mut out,
+            &mut control,
+        );
+        assert!(result.is_err());
+        if let Err(duke_runtime::Error::JavaException { class_name }) = result {
+            assert_eq!(class_name, "java/io/IOException");
+        } else {
+            panic!("Expected IOException");
+        }
+    }
+
+    #[test]
+    fn test_native_server_socket_accept_valid() {
+        let mut heap = Heap::new();
+        let server_ref = heap.allocate("java/net/ServerSocket".to_string(), 2);
+        let mut out = Vec::new();
+        let mut control = NativeControl::default();
+        let init_res = native_server_socket_init(
+            &[Slot::Reference(Some(server_ref)), Slot::Int(0)],
+            &mut heap,
+            &mut out,
+            &mut control,
+        );
+        assert!(init_res.is_ok());
+        let actual_port = match heap.get(server_ref).unwrap().fields[1] {
+            Slot::Int(port) => port,
+            _ => panic!("Expected Int port"),
+        };
+        let port_u16 = actual_port as u16;
+        let barrier = Arc::new(Barrier::new(2));
+        let barrier_clone = barrier.clone();
+
+        let t = thread::spawn(move || {
+            let _stream = std::net::TcpStream::connect(("127.0.0.1", port_u16)).unwrap();
+            // Wait for main thread to accept connection before dropping the stream
+            barrier_clone.wait();
+        });
+
+        // Let the OS setup the connection before we attempt to accept
+        // We do not sleep, accept blocks until connection is received.
+        let accept_res = native_server_socket_accept(
+            &[Slot::Reference(Some(server_ref))],
+            &mut heap,
+            &mut out,
+            &mut control,
+        );
+
+        barrier.wait();
+        t.join().unwrap();
+
+        assert!(accept_res.is_ok());
+        let socket_slot = accept_res.unwrap().unwrap();
+        if let Slot::Reference(Some(socket_ref)) = socket_slot {
+            let socket_obj = heap.get(socket_ref).unwrap();
+            assert_eq!(socket_obj.class_name, "java/net/Socket");
+            assert!(matches!(socket_obj.fields[0], Slot::Int(id) if id > 0));
+            assert!(matches!(socket_obj.fields[1], Slot::Int(id) if id > 0));
+        } else {
+            panic!("Expected Socket reference");
+        }
+    }
+}

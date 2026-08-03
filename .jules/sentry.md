@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Testing Native Server Sockets
+**Learning:** Testing native network bindings like `ServerSocket.accept` directly in unit tests using blocking `accept()` loops without timeout mechanisms and active background client threads (using `std::sync::Barrier`) can lead to CI deadlocks or flakiness, while `std::thread::sleep` is considered an anti-pattern.
+**Action:** When testing internal interpreter network primitives, focus on the error handling bounds (like invalid file descriptors returning `IOException`) or use robust concurrency primitives like `std::sync::mpsc::channel` and `std::sync::Barrier` paired with non-ephemeral ephemeral local ports (`127.0.0.1:0`) instead of relying on brittle sleep intervals to synchronize mock clients.
