@@ -271,3 +271,101 @@ pub(crate) fn native_url_decoder_decode_charset(
     let decoded = www_form_url_decode(&encoded)?;
     Ok(Some(Slot::Reference(Some(heap.allocate_string(decoded)))))
 }
+#[cfg(test)]
+mod java_net_tests {
+    use super::*;
+    use std::io::sink;
+    use duke_runtime::Slot;
+    use crate::NativeControl;
+    use duke_gc::Heap;
+    use std::thread;
+    use std::sync::mpsc;
+    use std::net::TcpStream;
+    // Note: Error is not publicly re-exported from crate::error, but java_net imports Error directly via use crate::error::Error in java_net's parent or it's accessible through super::Error
+
+    #[test]
+    fn should_return_error_when_server_socket_invalid_in_accept() {
+        let mut heap = Heap::new();
+        let mut control = NativeControl::default();
+        let server_ref = heap.allocate("java/net/ServerSocket".to_string(), 2);
+
+        // Setup invalid fd
+        heap.get_mut(server_ref).unwrap().fields[0] = Slot::Int(0);
+
+        let result = native_server_socket_accept(
+            &[Slot::Reference(Some(server_ref))],
+            &mut heap,
+            &mut sink(),
+            &mut control,
+        );
+
+        match result {
+            Err(crate::Error::JavaException { class_name }) => {
+                assert_eq!(class_name, "java/io/IOException");
+            }
+            _ => panic!("Expected IOException for invalid server fd"),
+        }
+    }
+
+    #[test]
+    fn should_accept_connection_successfully() {
+        let mut heap = Heap::new();
+        let mut control = NativeControl::default();
+        let server_ref = heap.allocate("java/net/ServerSocket".to_string(), 2);
+
+        // Bind to ephemeral port
+        let bind_args = [Slot::Reference(Some(server_ref)), Slot::Int(0)];
+        native_server_socket_init(&bind_args, &mut heap, &mut sink(), &mut control).unwrap();
+
+        // Get actual port
+        let port_result = native_server_socket_get_local_port(
+            &[Slot::Reference(Some(server_ref))],
+            &mut heap,
+            &mut sink(),
+            &mut control,
+        ).unwrap().unwrap();
+
+        let Slot::Int(port) = port_result else {
+            panic!("Expected port to be Int")
+        };
+
+        // Use a channel to ensure the client connects only after we know the port
+        let (tx, rx) = mpsc::channel();
+
+        let client_thread = thread::spawn(move || {
+            rx.recv().unwrap(); // Wait for signal
+            TcpStream::connect(format!("127.0.0.1:{port}")).unwrap()
+        });
+
+        tx.send(()).unwrap();
+
+        // Accept connection
+        let accept_args = [Slot::Reference(Some(server_ref))];
+        let socket_opt = native_server_socket_accept(
+            &accept_args,
+            &mut heap,
+            &mut sink(),
+            &mut control,
+        ).unwrap();
+
+        let Slot::Reference(Some(socket_ref)) = socket_opt.unwrap() else {
+            panic!("Expected Socket reference")
+        };
+
+        // Verify socket fields are valid (reader_id, writer_id > 0)
+        let Slot::Int(reader_id) = heap.get(socket_ref).unwrap().fields[0] else {
+            panic!("Expected Int reader_id")
+        };
+        let Slot::Int(writer_id) = heap.get(socket_ref).unwrap().fields[1] else {
+            panic!("Expected Int writer_id")
+        };
+
+        assert!(reader_id > 0, "Reader ID should be valid");
+        assert!(writer_id > 0, "Writer ID should be valid");
+
+        // Cleanup
+        heap.close_host_file(reader_id);
+        heap.close_host_file(writer_id);
+        client_thread.join().unwrap();
+    }
+}

@@ -47,3 +47,8 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-08-04 - Native Server Socket Testing
+
+**Learning:** When testing network/socket natives that rely on OS file descriptors being non-zero (like `native_server_socket_accept`), tests must check for the invalid FD branch (e.g. `Slot::Int(0)`) to ensure the proper Java `IOException` is raised. To successfully test the valid socket connection pathway without ephemeral port conflicts or slow sleep-based synchronization, bind the socket native to port `0`, read back the OS-assigned port using the native getter, and synchronize the client connection thread via a `mpsc::channel`.
+
+**Action:** Ensure tests for native socket APIs in `duke-interpreter` always test both the invalid FD exception pathway and use ephemeral OS ports synchronized by channels to prevent flaky race conditions.
