@@ -9,6 +9,8 @@ mod analyze;
 #[cfg(feature = "nova")]
 mod audit;
 #[cfg(feature = "nova")]
+mod clone_detect;
+#[cfg(feature = "nova")]
 mod cycle_detect;
 #[cfg(feature = "nova")]
 mod dead_code;
@@ -389,6 +391,8 @@ fn main() {
         eprintln!("       duke search <classfile.class> <opcode>");
         eprintln!("       duke scan <classfile.class>");
         eprintln!("       duke jar-scan <file.jar>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke clone-detect <file.jar> [threshold]");
         eprintln!("       duke uml <classfile.class>");
         eprintln!("       duke exec <classfile.class> <method> [int-arg...]");
         eprintln!("       duke run <classfile.class> [string-arg...]");
@@ -409,6 +413,28 @@ fn main() {
         );
         eprintln!("         (also enabled by DUKE_REAL_JDK=1; needs a JDK jimage)");
         process::exit(1);
+    }
+
+    // Dispatch `clone-detect`
+    if args.len() > 1 && args[1] == "clone-detect" {
+        if args.len() < 3 {
+            eprintln!("Usage: duke clone-detect <file.jar> [threshold]");
+            std::process::exit(1);
+        }
+        #[cfg(feature = "nova")]
+        {
+            let threshold = args
+                .get(3)
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.9);
+            clone_detect::dump_clone_detect(&args[2], threshold);
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: unknown subcommand 'clone-detect'");
+            std::process::exit(1);
+        }
     }
 
     // Dispatch `-jar`: discover Main-Class from manifest and execute it.
