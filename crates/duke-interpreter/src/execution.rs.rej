@@ -1,0 +1,10 @@
+--- crates/duke-interpreter/src/execution.rs
++++ crates/duke-interpreter/src/execution.rs
+@@ -225,6 +225,7 @@
+     );
+ }
+
++#[allow(clippy::large_stack_frames)]
+ pub fn run_execution(
+     method_ref: Address,
+     heap: &mut Heap,

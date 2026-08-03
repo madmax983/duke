@@ -314,11 +314,10 @@ mod java_net_tests {
             &mut control,
         );
         assert!(init_res.is_ok());
-        let actual_port = match heap.get(server_ref).unwrap().fields[1] {
-            Slot::Int(port) => port,
-            _ => panic!("Expected Int port"),
+        let Slot::Int(actual_port) = heap.get(server_ref).unwrap().fields[1] else {
+            panic!("Expected Int port");
         };
-        let port_u16 = actual_port as u16;
+        let port_u16 = u16::try_from(actual_port).unwrap();
         let barrier = Arc::new(Barrier::new(2));
         let barrier_clone = barrier.clone();
 
