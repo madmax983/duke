@@ -1,0 +1,6 @@
+1. We need to find an untested edge case in the `duke-interpreter` or other crates. The coverage report shows `native_server_socket_accept` in `java_net.rs` is untested (FNDA:0).
+2. I will write a test for `native_server_socket_accept` in `java_net_tests.rs` and include it in `java_net.rs`. Wait, I can just create a test module in `crates/duke-interpreter/src/tests.rs` or directly test it in `crates/duke-interpreter/src/native/java_net.rs`.
+3. Wait, `crates/duke-interpreter/src/native/java_net.rs` doesn't have a `mod tests;`. But I can add one. Wait, in `AGENTS.md` or memory: "When adding unit tests to files that are include!'d directly into lib.rs (e.g., crates/duke-interpreter/src/native/java_lang.rs), do not use the standard mod tests {} block. This collides with lib.rs's existing mod tests; declaration and causes an E0428 error. Instead, use a uniquely named test module like mod java_lang_tests {}."
+4. So I will add `#[cfg(test)] mod java_net_tests { ... }` at the bottom of `java_net.rs`.
+5. The test needs to test `native_server_socket_accept` with a valid fd (mocked somehow) or invalid fd (e.g. 0).
+6. Let's look at `native_server_socket_accept`. If `id` > 0, it calls `heap.accept_connection(server_fd)`. Wait, we can test the case where `id <= 0` or missing, which returns `IOException`.
