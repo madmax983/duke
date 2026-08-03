@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**Remove O(N) heap allocations on vector extraction**
+**Learning:** Found multiple instances where large vectors (like heap fields) were being entirely cloned (`fields.clone()`) just to read a handful of values. This resulted in significant memory allocation overhead on hot paths like regex matching and logging handler retrieval. Furthermore, attempting to replace this with direct extraction without explicit block scoping caused borrow checker errors due to immutable borrows living across later mutable heap operations.
+**Action:** Use a lexical block `{ let fields = &heap.get(m_ref)?.fields; ... }` to immutably borrow the vector, extract the necessary `Slot` references via pattern matching or indexing, and return them. The block naturally drops the immutable borrow, allowing subsequent mutable calls (`heap.get_mut`) to succeed safely while bypassing O(N) heap allocations.
