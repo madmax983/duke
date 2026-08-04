@@ -116,9 +116,20 @@ fn atomic_bool_arg(args: &[Slot], idx: usize) -> Result<bool> {
 }
 
 #[inline]
+const fn extract_ref_field(slot: Option<Slot>) -> Result<u64> {
+    match slot {
+        Some(Slot::Reference(Some(r))) => Ok(r),
+        Some(Slot::Reference(None)) | None => Err(Error::NullPointerException),
+        Some(_) => Err(Error::TypeMismatch {
+            expected: "reference",
+            got: "other",
+        }),
+    }
+}
+
 fn extract_ref_arg(args: &[Slot], idx: usize) -> Result<u64> {
-    match args.get(idx) {
-        Some(Slot::Reference(Some(r))) => Ok(*r),
+    match args.get(idx).copied() {
+        Some(Slot::Reference(Some(r))) => Ok(r),
         _ => Err(Error::NullPointerException),
     }
 }
@@ -2071,21 +2082,12 @@ pub(crate) fn native_boot_jar_file_archive_get_manifest(
     control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let jar_file_ref = match heap
+    let jar_file_ref = extract_ref_field(heap
         .get(this_ref)?
         .fields
         .get(BOOT_JAR_FILE_ARCHIVE_JAR_FILE_SLOT)
         .copied()
-    {
-        Some(Slot::Reference(Some(jar_file_ref))) => jar_file_ref,
-        Some(Slot::Reference(None)) | None => return Err(Error::NullPointerException),
-        Some(_) => {
-            return Err(Error::TypeMismatch {
-                expected: "reference",
-                got: "other",
-            });
-        }
-    };
+    )?;
     native_jar_file_get_manifest(&[Slot::Reference(Some(jar_file_ref))], heap, out, control)
 }
 
@@ -2126,21 +2128,12 @@ pub(crate) fn native_boot_exploded_archive_get_manifest(
         return Ok(Some(slot));
     }
 
-    let root_directory_ref = match heap
+    let root_directory_ref = extract_ref_field(heap
         .get(this_ref)?
         .fields
         .get(BOOT_EXPLODED_ARCHIVE_ROOT_DIRECTORY_SLOT)
         .copied()
-    {
-        Some(Slot::Reference(Some(root_directory_ref))) => root_directory_ref,
-        Some(Slot::Reference(None)) | None => return Err(Error::NullPointerException),
-        Some(_) => {
-            return Err(Error::TypeMismatch {
-                expected: "reference",
-                got: "other",
-            });
-        }
-    };
+    )?;
     let manifest_path = file_path_from_ref(root_directory_ref, heap)?.join("META-INF/MANIFEST.MF");
     let manifest_bytes = match std::fs::read(&manifest_path) {
         Ok(bytes) => bytes,
@@ -8202,16 +8195,7 @@ fn callback_invoke_registered_lambda(
         return Ok(None);
     }
 
-    let this_ref = match args.first().copied() {
-        Some(Slot::Reference(Some(reference))) => reference,
-        Some(Slot::Reference(None)) | None => return Err(Error::NullPointerException),
-        Some(_) => {
-            return Err(Error::TypeMismatch {
-                expected: "reference",
-                got: "other",
-            });
-        }
-    };
+    let this_ref = extract_ref_field(args.first().copied() )?;
     let lambda_object = heap.get(this_ref)?;
     let mut impl_args =
         Vec::with_capacity(lambda_info.captured_count + args.len().saturating_sub(1));

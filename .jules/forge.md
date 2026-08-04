@@ -85,3 +85,7 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+**[Extract Duplicate Logic in Native Handlers]**
+**Learning:** `crates/duke-interpreter/src/native/common.rs` had numerous duplicate blocks for extracting reference arguments matching against `Slot::Reference(Some(r))` with verbose, boilerplate-heavy fallback arms to return type mismatch or null pointer exceptions.
+**Action:** Replaced the repetitive block pattern with a new private constant helper function `extract_ref_field` that takes an `Option<Slot>` and returns the extracted reference id or standard `Err` results, consolidating error logic.
