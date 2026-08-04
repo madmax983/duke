@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-18 - Missing bounds/null test for ServerSocket Accept
+**Learning:** `native_server_socket_accept` was missing coverage for the empty arguments path, a critical sanity check to prevent panics on invalid reflection or JNI boundaries.
+**Action:** Added a focused unit test calling the function with an empty `args` vector to verify it safely returns an `Err`.

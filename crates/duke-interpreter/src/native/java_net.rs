@@ -271,3 +271,19 @@ pub(crate) fn native_url_decoder_decode_charset(
     let decoded = www_form_url_decode(&encoded)?;
     Ok(Some(Slot::Reference(Some(heap.allocate_string(decoded)))))
 }
+#[cfg(test)]
+mod sentry_coverage_gap_tests {
+    use super::*;
+    use duke_gc::Heap;
+    use crate::NativeControl;
+    use std::io::sink;
+
+    #[test]
+    fn test_server_socket_accept_error() {
+        let mut heap = Heap::new();
+        let mut control = NativeControl::default();
+        let args = vec![];
+        let res = native_server_socket_accept(&args, &mut heap, &mut sink(), &mut control);
+        assert!(res.is_err());
+    }
+}
