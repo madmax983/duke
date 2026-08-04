@@ -23,6 +23,7 @@ mod jar_diff;
 #[cfg(feature = "nova")]
 mod jar_search;
 mod jdwp;
+mod metrics_export;
 #[cfg(feature = "nova")]
 mod pathfinding;
 #[cfg(feature = "nova")]
@@ -657,6 +658,8 @@ fn main() {
         "stub" => generate_stubs(&class_file),
         #[cfg(feature = "nova")]
         "dead-code" => dead_code::dump_dead_code(&class_file),
+        #[cfg(feature = "nova")]
+        "export-metrics" => metrics_export::export_jar_metrics_csv(path, "metrics.csv"),
         other => {
             eprintln!("duke: unknown subcommand '{other}'");
             process::exit(1);
