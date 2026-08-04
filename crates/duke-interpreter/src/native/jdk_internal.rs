@@ -241,6 +241,18 @@ pub(crate) fn native_vm_initialize(
     ops.write_static_field("jdk/internal/misc/VM", "initLevel", Slot::Int(SYSTEM_BOOTED))?;
     Ok(None)
 }
+
+/// Native: `jdk/internal/misc/VM.getNanoTimeAdjustment(J)J`.
+/// Stub implementation that just returns 0 since we don't support high-resolution time adjustments yet.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_vm_get_nano_time_adjustment(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(Slot::Long(0)))
+}
 /// Native: `jdk/internal/reflect/Reflection.getClassAccessFlags(Ljava/lang/Class;)I`.
 ///
 /// Returns the raw `ClassFile.access_flags` (§4.1) of the argument class. Real

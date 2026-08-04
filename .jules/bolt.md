@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**Use zero-cost `slice::swap` instead of cloning Vectors for element swapping**
+**Learning:** `heap.get(list_ref)?.fields.clone()` executes an O(N) heap allocation when called inside methods like `Collections.swap`, causing massive memory pressure during sorting.
+**Action:** Always prefer grabbing a mutable slice reference (`&mut heap.get_mut(list_ref)?.fields`) and using the built in zero-cost abstraction `fields.swap(i, j)` to eliminate intermediate heap allocations.
