@@ -4947,7 +4947,7 @@ pub(crate) fn native_hashmap_replace(
     }
 }
 /// Native: `Collections.swap(List, int, int)V` — swaps elements at indices i and j.
-/// ⚡ Bolt Optimization: Uses zero-cost slice::swap instead of cloning the entire vector.
+/// ⚡ Bolt Optimization: Uses zero-cost `slice::swap` instead of cloning the entire vector.
 pub(crate) fn native_collections_swap(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
