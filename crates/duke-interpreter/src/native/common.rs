@@ -1491,7 +1491,7 @@ fn string_bytes_for_arg(
 
 /// Populate a freshly-constructed `java/lang/String` receiver on a `<init>`
 /// path. Sets the authoritative `string_value` side-channel AND mints the real
-/// 4-slot layout (`value:[B`, `coder:B`) via [`Heap::set_string_layout`], so the
+/// 4-slot layout (`value:[B`, `coder:B`) via `Heap::set_string_layout`, so the
 /// `new java/lang/String` + `<init>` mint path is coherent with the
 /// `allocate_string` mint path (both leave slot0/slot1 populated). An empty
 /// `value` still gets a valid zero-length `[B` in slot0.
