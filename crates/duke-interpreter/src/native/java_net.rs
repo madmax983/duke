@@ -271,3 +271,78 @@ pub(crate) fn native_url_decoder_decode_charset(
     let decoded = www_form_url_decode(&encoded)?;
     Ok(Some(Slot::Reference(Some(heap.allocate_string(decoded)))))
 }
+#[cfg(test)]
+mod tests_java_net_accept {
+    use super::*;
+    use std::io::sink;
+    use duke_runtime::Slot;
+    use crate::Error;
+    use std::thread;
+    use std::sync::mpsc;
+    use std::net::TcpStream;
+
+    #[test]
+    fn should_return_error_when_accept_on_invalid_socket() {
+        let mut heap = duke_gc::Heap::new();
+        // Allocate a ServerSocket without fields
+        let server_ref = heap.allocate("java/net/ServerSocket".to_string(), 0);
+        let args = vec![Slot::Reference(Some(server_ref))];
+        let mut out = sink();
+        let mut control = NativeControl::default();
+
+        let result = native_server_socket_accept(&args, &mut heap, &mut out, &mut control);
+        assert!(matches!(result, Err(Error::JavaException { .. })));
+
+        let server_ref2 = heap.allocate("java/net/ServerSocket".to_string(), 1);
+        heap.get_mut(server_ref2).unwrap().fields[0] = Slot::Int(0);
+        let args2 = vec![Slot::Reference(Some(server_ref2))];
+        let result2 = native_server_socket_accept(&args2, &mut heap, &mut out, &mut control);
+        assert!(matches!(result2, Err(Error::JavaException { .. })));
+    }
+
+    #[test]
+    fn should_accept_connection_and_return_socket() {
+        let mut heap = duke_gc::Heap::new();
+        let mut out = sink();
+        let mut control = NativeControl::default();
+
+        // 1. Initialize ServerSocket on port 0
+        let server_ref = heap.allocate("java/net/ServerSocket".to_string(), 2);
+        let args_init = vec![Slot::Reference(Some(server_ref)), Slot::Int(0)];
+        native_server_socket_init(&args_init, &mut heap, &mut out, &mut control).unwrap();
+
+        // 2. Get the actual port
+        let args_get_port = vec![Slot::Reference(Some(server_ref))];
+        let port_slot = native_server_socket_get_local_port(&args_get_port, &mut heap, &mut out, &mut control).unwrap().unwrap();
+        let Slot::Int(port) = port_slot else { panic!() };
+
+        // 3. Connect a client in a separate thread
+        let (tx, rx) = mpsc::channel();
+        let (tx_sync, rx_sync) = mpsc::channel();
+        let handle = thread::spawn(move || {
+            tx.send(()).unwrap();
+            let _stream = TcpStream::connect(format!("127.0.0.1:{port}")).unwrap();
+            // Wait for a bit so the accept can complete
+            rx_sync.recv().unwrap();
+        });
+
+        rx.recv().unwrap();
+        tx_sync.send(()).unwrap();
+
+        // 4. Accept the connection
+        let args_accept = vec![Slot::Reference(Some(server_ref))];
+        let socket_slot = native_server_socket_accept(&args_accept, &mut heap, &mut out, &mut control).unwrap().unwrap();
+
+        handle.join().unwrap();
+
+        // Verify a socket was returned
+        let Slot::Reference(Some(socket_ref)) = socket_slot else { panic!() };
+        let socket_obj = heap.get(socket_ref).unwrap();
+        assert_eq!(socket_obj.class_name, "java/net/Socket");
+        assert_eq!(socket_obj.fields.len(), 2);
+        let Slot::Int(reader_id) = socket_obj.fields[0] else { panic!() };
+        let Slot::Int(writer_id) = socket_obj.fields[1] else { panic!() };
+        assert!(reader_id > 0);
+        assert!(writer_id > 0);
+    }
+}

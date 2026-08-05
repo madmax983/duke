@@ -1568,3 +1568,38 @@ mod tests {
         assert!(!Instruction::Nop.is_unconditional_jump());
     }
 }
+
+#[cfg(test)]
+mod tests_instruction {
+    use super::*;
+
+    #[test]
+    fn should_return_true_for_unconditional_jump() {
+        assert!(Instruction::Goto(5).is_unconditional_jump());
+        assert!(Instruction::GotoW(5).is_unconditional_jump());
+        assert!(Instruction::Jsr(5).is_unconditional_jump());
+        assert!(Instruction::JsrW(5).is_unconditional_jump());
+        assert!(!Instruction::Iconst0.is_unconditional_jump());
+    }
+
+    #[test]
+    fn should_return_true_for_switch() {
+        assert!(
+            Instruction::Tableswitch {
+                default: 0,
+                low: 0,
+                high: 0,
+                offsets: vec![],
+            }
+            .is_switch()
+        );
+        assert!(
+            Instruction::Lookupswitch {
+                default: 0,
+                pairs: vec![],
+            }
+            .is_switch()
+        );
+        assert!(!Instruction::Iconst0.is_switch());
+    }
+}

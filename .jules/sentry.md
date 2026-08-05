@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2025-02-05 - Native Server Socket Testing
+**Learning:** Testing native server sockets without flaky tests requires binding to port `0` to get an ephemeral OS port, extracting the port number via the `get_local_port` native method, and using `std::sync::mpsc::channel` to coordinate the client connection in a separate thread.
+**Action:** When testing networked native methods, avoid sleep-based synchronization and always use OS-assigned ephemeral ports (port 0) with explicit channel synchronization.
