@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-25 - [Broken intra-doc links]
+**Confusion:** Some items were linked using incorrect markdown syntax, causing `cargo doc` to generate warnings for broken links (e.g. `[1]` vs `` `[1]` ``) or linking to private items `[`mark_old`]`.
+**Clarification:** Replaced `[0]` and `[1]` with `` `[0]` `` and `` `[1]` `` to avoid being treated as intra-doc links in `duke-interpreter/src/native/java_io.rs`. Replaced `[`mark_old`]` with `` `mark_old` `` in `duke-gc/src/lib.rs`. Replaced `[`KEEP_SYNTHETIC`]` with `` `KEEP_SYNTHETIC` `` in `duke-interpreter/src/registry.rs`. Replaced `[`Heap::set_string_layout`]` with `` `Heap::set_string_layout` `` in `duke-interpreter/src/native/common.rs`.
