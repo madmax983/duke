@@ -271,3 +271,31 @@ pub(crate) fn native_url_decoder_decode_charset(
     let decoded = www_form_url_decode(&encoded)?;
     Ok(Some(Slot::Reference(Some(heap.allocate_string(decoded)))))
 }
+#[cfg(test)]
+mod tests_java_net {
+    use super::*;
+    use crate::NativeControl;
+    use duke_gc::Heap;
+    use duke_runtime::Slot;
+
+    #[test]
+    fn test_should_return_error_when_server_socket_is_closed() {
+        let mut heap = Heap::new();
+        let mut out = std::io::sink();
+        let mut control = NativeControl::default();
+
+        let this_ref = heap.allocate("java/net/ServerSocket".to_string(), 2);
+        // fd 0 indicates closed socket or not initialized
+        heap.get_mut(this_ref).unwrap().fields[0] = Slot::Int(0);
+
+        let args = vec![Slot::Reference(Some(this_ref))];
+        let result = native_server_socket_accept(&args, &mut heap, &mut out, &mut control);
+
+        match result {
+            Err(Error::JavaException { class_name }) => {
+                assert_eq!(class_name, "java/io/IOException");
+            }
+            _ => panic!("Expected IOException"),
+        }
+    }
+}

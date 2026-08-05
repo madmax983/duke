@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2025-08-05 - Testing Native Functions with Mocks
+**Learning:** When testing native interpreter functions that require an output stream (`&mut dyn std::io::Write`), using `std::io::sink()` is cleaner and safer than writing custom dummy structs, as it appropriately handles zero-write edge cases without boilerplate. Additionally, when writing tests inside included files (e.g., via `include!`), use unique module names (like `mod tests_java_net`) to avoid `E0428` collisions.
+**Action:** Use `std::io::sink()` for discarding outputs in unit tests, and suffix `mod tests` with the file name when dealing with aggregated modules to prevent compilation failures.
