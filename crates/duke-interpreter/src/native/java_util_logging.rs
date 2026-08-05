@@ -424,24 +424,27 @@ pub(crate) fn native_jul_logger_remove_handler(
 ) -> Result<Option<Slot>> {
     let logger_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
-    let fields = heap.get(logger_ref)?.fields.clone();
-    let count = match fields.get(JUL_LOGGER_HANDLER_COUNT_FIELD) {
-        Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
-        _ => 0,
-    };
-    let mut retained = Vec::new();
-    let mut removed = false;
-    for idx in 0..count {
-        let handler_slot = fields
-            .get(JUL_LOGGER_HANDLERS_START + idx)
-            .copied()
-            .unwrap_or(Slot::Reference(None));
-        if !removed && handler_slot == target {
-            removed = true;
-        } else {
-            retained.push(handler_slot);
+    let retained = {
+        let fields = &heap.get(logger_ref)?.fields;
+        let count = match fields.get(JUL_LOGGER_HANDLER_COUNT_FIELD) {
+            Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
+            _ => 0,
+        };
+        let mut retained = Vec::new();
+        let mut removed = false;
+        for idx in 0..count {
+            let handler_slot = fields
+                .get(JUL_LOGGER_HANDLERS_START + idx)
+                .copied()
+                .unwrap_or(Slot::Reference(None));
+            if !removed && handler_slot == target {
+                removed = true;
+            } else {
+                retained.push(handler_slot);
+            }
         }
-    }
+        retained
+    };
     heap.get_mut(logger_ref)?
         .fields
         .truncate(JUL_LOGGER_HANDLERS_START);
@@ -462,19 +465,21 @@ pub(crate) fn native_jul_logger_get_handlers(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let logger_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(logger_ref)?.fields.clone();
-    let count = match fields.get(JUL_LOGGER_HANDLER_COUNT_FIELD) {
-        Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
-        _ => 0,
+    let handlers = {
+        let fields = &heap.get(logger_ref)?.fields;
+        let count = match fields.get(JUL_LOGGER_HANDLER_COUNT_FIELD) {
+            Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
+            _ => 0,
+        };
+        (0..count)
+            .map(|idx| {
+                fields
+                    .get(JUL_LOGGER_HANDLERS_START + idx)
+                    .copied()
+                    .unwrap_or(Slot::Reference(None))
+            })
+            .collect::<Vec<Slot>>()
     };
-    let handlers: Vec<Slot> = (0..count)
-        .map(|idx| {
-            fields
-                .get(JUL_LOGGER_HANDLERS_START + idx)
-                .copied()
-                .unwrap_or(Slot::Reference(None))
-        })
-        .collect();
     let array_ref = allocate_reference_array_from_slots(
         heap,
         "[Ljava/util/logging/Handler;",
@@ -558,16 +563,18 @@ pub(crate) fn native_jul_log_manager_get_logger_names(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let manager_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(manager_ref)?.fields.clone();
     let count = jul_manager_count(heap, manager_ref);
-    let names: Vec<Slot> = (0..count)
-        .map(|idx| {
-            fields
-                .get(JUL_MANAGER_LOGGERS_START + idx * 2)
-                .copied()
-                .unwrap_or(Slot::Reference(None))
-        })
-        .collect();
+    let names: Vec<Slot> = {
+        let fields = &heap.get(manager_ref)?.fields;
+        (0..count)
+            .map(|idx| {
+                fields
+                    .get(JUL_MANAGER_LOGGERS_START + idx * 2)
+                    .copied()
+                    .unwrap_or(Slot::Reference(None))
+            })
+            .collect()
+    };
     let enumeration_ref = heap.allocate(
         "duke/util/JulLoggerNameEnumeration".to_string(),
         JUL_ENUM_NAMES_START + names.len(),
