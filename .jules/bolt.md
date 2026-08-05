@@ -37,3 +37,6 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+**Heap Object Fields Borrowing**
+**Learning:** Calling `heap.get(ref)?.fields.clone()` just to read a few elements causes unnecessary O(N) heap allocations, which is a major performance bottleneck in hot paths.
+**Action:** Use a scoped immutable borrow (e.g. `let (val) = { let fields = &heap.get(ref)?.fields; fields.get(idx) };`) to extract needed slots, and ensure the immutable reference is dropped before making any subsequent mutable calls to the heap.

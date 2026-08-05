@@ -585,16 +585,19 @@ fn jul_manager_find_logger_by_name(
     manager_ref: u64,
     name: &str,
 ) -> Result<Option<u64>> {
-    let fields = heap.get(manager_ref)?.fields.clone();
     let count = jul_manager_count(heap, manager_ref);
     for idx in 0..count {
         let name_idx = JUL_MANAGER_LOGGERS_START + idx * 2;
         let logger_idx = name_idx + 1;
-        let Some(Slot::Reference(Some(name_ref))) = fields.get(name_idx).copied() else {
+        let (name_ref_opt, logger_ref_opt) = {
+            let fields = &heap.get(manager_ref)?.fields;
+            (fields.get(name_idx).copied(), fields.get(logger_idx).copied())
+        };
+        let Some(Slot::Reference(Some(name_ref))) = name_ref_opt else {
             continue;
         };
         if string_value_from_ref(heap, name_ref)? == name
-            && let Some(Slot::Reference(Some(logger_ref))) = fields.get(logger_idx).copied()
+            && let Some(Slot::Reference(Some(logger_ref))) = logger_ref_opt
         {
             return Ok(Some(logger_ref));
         }
