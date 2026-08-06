@@ -271,3 +271,25 @@ pub(crate) fn native_url_decoder_decode_charset(
     let decoded = www_form_url_decode(&encoded)?;
     Ok(Some(Slot::Reference(Some(heap.allocate_string(decoded)))))
 }
+#[cfg(test)]
+mod tests_java_net_sentry {
+    use super::*;
+    use duke_gc::Heap;
+    use duke_runtime::Slot;
+
+    #[test]
+    fn should_return_error_when_server_socket_accept_invalid_fd() {
+        let mut heap = Heap::new();
+        let mut control = crate::NativeControl::default();
+        let mut out = std::io::sink();
+
+        let this_ref = heap.allocate("java/net/ServerSocket".to_string(), 2);
+        heap.get_mut(this_ref).unwrap().fields[0] = Slot::Int(0);
+
+        let args = [Slot::Reference(Some(this_ref))];
+
+        let result = native_server_socket_accept(&args, &mut heap, &mut out, &mut control);
+
+        assert!(matches!(result, Err(Error::JavaException { ref class_name }) if class_name == "java/io/IOException"));
+    }
+}
