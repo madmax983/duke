@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+## 2024-08-06 - Avoid heap allocations when accessing fields
+
+**Learning:** When retrieving fields from a `duke_gc::Heap` object using `heap.get(ref)?.fields.clone()`, it causes a costly O(N) heap allocation (where N is the number of fields) just to read a few fields or pass them to another function.
+**Action:** Instead of cloning the entire `fields` vector, use a scoped immutable borrow (`let fields = &heap.get(ref)?.fields;`), extract the required slots using indexing or pattern matching, and ensure the reference is dropped before any mutable borrows of the heap. This eliminates the intermediate `Vec` allocation, making the operation zero-cost.

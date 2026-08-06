@@ -85,20 +85,24 @@ pub(crate) fn native_matcher_find(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
-        return Ok(Some(Slot::Int(0)));
+    // Extract fields without allocating by using a scoped immutable borrow
+    let (pat_ref, input_slot, pos) = {
+        let fields = &heap.get(m_ref)?.fields;
+        let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
+            return Ok(Some(Slot::Int(0)));
+        };
+        let input_slot = fields
+            .get(MATCHER_INPUT_FIELD)
+            .copied()
+            .unwrap_or(Slot::Reference(None));
+        let pos = match fields.get(MATCHER_POS_FIELD).copied() {
+            Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
+            _ => 0,
+        };
+        (pat_ref, input_slot, pos)
     };
-    let input_slot = fields
-        .get(MATCHER_INPUT_FIELD)
-        .copied()
-        .unwrap_or(Slot::Reference(None));
     let Slot::Reference(Some(input_ref)) = input_slot else {
         return Ok(Some(Slot::Int(0)));
-    };
-    let pos = match fields.get(MATCHER_POS_FIELD).copied() {
-        Some(Slot::Int(n)) => usize::try_from(n.max(0)).unwrap_or(0),
-        _ => 0,
     };
     let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
     let input = charsequence_chars(heap, input_ref)?.unwrap_or_default();
@@ -119,12 +123,16 @@ pub(crate) fn native_matcher_matches(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
-        return Ok(Some(Slot::Int(0)));
-    };
-    let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
-        return Ok(Some(Slot::Int(0)));
+    // Extract fields without allocating by using a scoped immutable borrow
+    let (pat_ref, input_ref) = {
+        let fields = &heap.get(m_ref)?.fields;
+        let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
+            return Ok(Some(Slot::Int(0)));
+        };
+        let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
+            return Ok(Some(Slot::Int(0)));
+        };
+        (pat_ref, input_ref)
     };
     let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
     let input = charsequence_chars(heap, input_ref)?.unwrap_or_default();
@@ -358,12 +366,16 @@ pub(crate) fn native_matcher_replace_all(
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let repl_ref = extract_ref_arg(args, 1)?;
-    let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
-        return Ok(Some(Slot::Reference(None)));
-    };
-    let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
-        return Ok(Some(Slot::Reference(None)));
+    // Extract fields without allocating by using a scoped immutable borrow
+    let (pat_ref, input_ref) = {
+        let fields = &heap.get(m_ref)?.fields;
+        let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
+            return Ok(Some(Slot::Reference(None)));
+        };
+        let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
+            return Ok(Some(Slot::Reference(None)));
+        };
+        (pat_ref, input_ref)
     };
     let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
     let input = charsequence_chars(heap, input_ref)?.unwrap_or_default();
@@ -382,12 +394,15 @@ pub(crate) fn native_matcher_replace_first(
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let repl_ref = extract_ref_arg(args, 1)?;
-    let fields = heap.get(m_ref)?.fields.clone();
-    let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
-        return Ok(Some(Slot::Reference(None)));
-    };
-    let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
-        return Ok(Some(Slot::Reference(None)));
+    let (pat_ref, input_ref) = {
+        let fields = &heap.get(m_ref)?.fields;
+        let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
+            return Ok(Some(Slot::Reference(None)));
+        };
+        let Some(Slot::Reference(Some(input_ref))) = fields.get(MATCHER_INPUT_FIELD).copied() else {
+            return Ok(Some(Slot::Reference(None)));
+        };
+        (pat_ref, input_ref)
     };
     let (pattern_str, flags) = pattern_text_and_flags(heap, pat_ref)?;
     let input = charsequence_chars(heap, input_ref)?.unwrap_or_default();
