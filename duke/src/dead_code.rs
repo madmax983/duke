@@ -170,48 +170,45 @@ pub fn dump_jar_dead_code(jar_path: &str) {
             continue;
         }
         let class_name_internal = entry_name.strip_suffix(".class").unwrap();
-        if let Ok(bytes) = loader.find_class(class_name_internal) {
-            if let Ok(cf) = duke_classfile::parse(&bytes) {
-                total_classes += 1;
-                let class_name = resolve_class_name(&cf, cf.this_class);
+        let Ok(bytes) = loader.find_class(class_name_internal) else {
+            continue;
+        };
+        let Ok(cf) = duke_classfile::parse(&bytes) else {
+            continue;
+        };
+        total_classes += 1;
+        let class_name = resolve_class_name(&cf, cf.this_class);
 
-                for method in &cf.methods {
-                    let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
-                    let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
-                    let full_name = format!("{class_name}::{name_str}{desc_str}");
+        for method in &cf.methods {
+            let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
+            let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
+            let full_name = format!("{class_name}::{name_str}{desc_str}");
 
-                    defined_methods.insert(full_name.clone());
+            defined_methods.insert(full_name.clone());
 
-                    if name_str == "main" || name_str == "<clinit>" || name_str == "<init>" {
-                        called_methods.insert(full_name);
-                    }
+            if name_str == "main" || name_str == "<clinit>" || name_str == "<init>" {
+                called_methods.insert(full_name);
+            }
 
-                    for attr in &method.attributes {
-                        if let AttributeData::Code(code) = &attr.data {
-                            if let Ok(instructions) = decode(&code.code) {
-                                for (_, instr) in instructions {
-                                    let target_idx = match instr {
-                                        Instruction::Invokevirtual(idx)
-                                        | Instruction::Invokespecial(idx)
-                                        | Instruction::Invokestatic(idx)
-                                        | Instruction::Invokeinterface { index: idx, .. } => {
-                                            Some(idx)
-                                        }
-                                        _ => None,
-                                    };
+            for attr in &method.attributes {
+                if let AttributeData::Code(code) = &attr.data {
+                    if let Ok(instructions) = decode(&code.code) {
+                        for (_, instr) in instructions {
+                            let target_idx = match instr {
+                                Instruction::Invokevirtual(idx)
+                                | Instruction::Invokespecial(idx)
+                                | Instruction::Invokestatic(idx)
+                                | Instruction::Invokeinterface { index: idx, .. } => Some(idx),
+                                _ => None,
+                            };
 
-                                    if let Some(idx) = target_idx {
-                                        if let Some((
-                                            target_class,
-                                            target_method,
-                                            target_descriptor,
-                                        )) = extract_method_ref(&cf, idx)
-                                        {
-                                            called_methods.insert(format!(
-                                                "{target_class}::{target_method}{target_descriptor}"
-                                            ));
-                                        }
-                                    }
+                            if let Some(idx) = target_idx {
+                                if let Some((target_class, target_method, target_descriptor)) =
+                                    extract_method_ref(&cf, idx)
+                                {
+                                    called_methods.insert(format!(
+                                        "{target_class}::{target_method}{target_descriptor}"
+                                    ));
                                 }
                             }
                         }
