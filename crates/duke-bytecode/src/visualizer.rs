@@ -3,7 +3,7 @@
 #[cfg(feature = "nova")]
 use crate::basic_block::BasicBlock;
 #[cfg(feature = "nova")]
-use crate::{find_dead_blocks, find_shortest_path, generate_basic_block_cfg};
+use crate::{generate_basic_block_cfg, find_shortest_path, find_dead_blocks};
 use std::fmt::Write;
 
 /// Generates a Mermaid control flow graph with annotations for shortest path and dead blocks.
@@ -23,7 +23,18 @@ pub fn generate_annotated_cfg(blocks: &[BasicBlock], start_pc: usize, target_pc:
         let _ = writeln!(cfg, "    class block{dead_pc} dead;");
     }
 
-    if let Some(path) = find_shortest_path(blocks, start_pc, target_pc) {
+    // The target_pc provided might be an instruction in the middle of a basic block.
+    // The find_shortest_path function works on basic block start_pc's.
+    // We need to find the block that contains target_pc, and use its start_pc.
+    let mut target_block_pc = target_pc;
+    for block in blocks {
+        if target_pc >= block.start_pc && target_pc < block.end_pc {
+            target_block_pc = block.start_pc;
+            break;
+        }
+    }
+
+    if let Some(path) = find_shortest_path(blocks, start_pc, target_block_pc) {
         for pc in path {
             let _ = writeln!(cfg, "    class block{pc} path;");
         }
@@ -53,8 +64,6 @@ mod tests {
 
         assert!(cfg.contains("class block3 dead;"));
 
-        // Shortest path logic returns target_pc as the end of the path.
-        // It should contain block0 and block6 since 0 goes to 6, and 6 contains 7.
         assert!(cfg.contains("class block0 path;"));
         assert!(cfg.contains("class block6 path;"));
     }
