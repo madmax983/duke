@@ -14419,7 +14419,7 @@ fn pattern_split_impl(args: &[Slot], heap: &mut duke_gc::Heap, limit: i32) -> Re
 
 
 fn matcher_pattern_input(heap: &duke_gc::Heap, m_ref: u64) -> Result<Option<(u64, u64)>> {
-    let fields = heap.get(m_ref)?.fields.clone();
+    let fields = &heap.get(m_ref)?.fields;
     let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
         return Ok(None);
     };
