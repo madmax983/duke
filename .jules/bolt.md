@@ -37,3 +37,6 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+**[Avoiding O(N) Allocations in Field Retrieval]
+**Learning:** In interpreter internals, extracting specific slots out of `heap.get(m_ref)?.fields` can be an expensive O(N) operation if `fields.clone()` is used (frequently seen in java_util_regex native implementations). Replacing `.clone()` with an immutable scoped borrow `let fields = &heap.get(m_ref)?.fields;` successfully extracts `Copy` components, dropping the borrow quickly without lifetimes conflicting with subsequent mutable calls.
+**Action:** Always prefer scoped immutable borrows of heap object vectors `&heap.get(m_ref)?.fields` instead of `.clone()` for simply reading primitive fields, extracting them, and early-returning, effectively providing zero-cost abstraction for Hot Path internals.
