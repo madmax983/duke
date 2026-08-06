@@ -36,10 +36,6 @@ pub use reachability::{find_dead_blocks, find_shortest_path, get_successors};
 #[cfg(feature = "nova")]
 pub use similarity::calculate_similarity;
 pub use verifier::verify;
-#[cfg(feature = "nova")]
-pub(crate) mod visualizer;
-#[cfg(feature = "nova")]
-pub use visualizer::generate_annotated_cfg;
 
 #[cfg(test)]
 mod tests {
