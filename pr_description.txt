@@ -1,0 +1,4 @@
+📖 Chapter: The `duke-gc` and `duke-interpreter` documentation.
+🔦 Insight: Replaced private intra-doc links (which trigger unresolved link warnings) with inline code backticks. Applied large stack frame allowance to `run_execution` to pass strict clippy checks.
+🧪 Example: N/A - documentation fixes and clippy allowances.
+🖼️ Preview: N/A
