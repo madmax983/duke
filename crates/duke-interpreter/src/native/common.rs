@@ -585,7 +585,7 @@ fn jul_manager_find_logger_by_name(
     manager_ref: u64,
     name: &str,
 ) -> Result<Option<u64>> {
-    let fields = heap.get(manager_ref)?.fields.clone();
+    let fields = &heap.get(manager_ref)?.fields;
     let count = jul_manager_count(heap, manager_ref);
     for idx in 0..count {
         let name_idx = JUL_MANAGER_LOGGERS_START + idx * 2;
@@ -855,7 +855,7 @@ fn jul_publish_record_to_logger(
     if depth > 64 {
         return Ok(());
     }
-    let fields = heap.get(logger_ref)?.fields.clone();
+    let fields = &heap.get(logger_ref)?.fields;
     let handler_count = match fields.get(JUL_LOGGER_HANDLER_COUNT_FIELD) {
         Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
         _ => 0,
@@ -1151,12 +1151,11 @@ pub(crate) fn native_jul_logger_names_next_element(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let enum_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(enum_ref)?.fields.clone();
-    let index = match fields.get(JUL_ENUM_INDEX_FIELD) {
+    let index = match heap.get(enum_ref)?.fields.get(JUL_ENUM_INDEX_FIELD) {
         Some(Slot::Int(index)) => usize::try_from((*index).max(0)).unwrap_or(0),
         _ => 0,
     };
-    let count = match fields.get(JUL_ENUM_COUNT_FIELD) {
+    let count = match heap.get(enum_ref)?.fields.get(JUL_ENUM_COUNT_FIELD) {
         Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
         _ => 0,
     };
@@ -1169,7 +1168,7 @@ pub(crate) fn native_jul_logger_names_next_element(
         Slot::Int(i32::try_from(index.saturating_add(1)).unwrap_or(i32::MAX)),
     )?;
     Ok(Some(
-        fields
+        heap.get(enum_ref)?.fields
             .get(JUL_ENUM_NAMES_START + index)
             .copied()
             .unwrap_or(Slot::Reference(None)),
@@ -14419,7 +14418,7 @@ fn pattern_split_impl(args: &[Slot], heap: &mut duke_gc::Heap, limit: i32) -> Re
 
 
 fn matcher_pattern_input(heap: &duke_gc::Heap, m_ref: u64) -> Result<Option<(u64, u64)>> {
-    let fields = heap.get(m_ref)?.fields.clone();
+    let fields = &heap.get(m_ref)?.fields;
     let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
         return Ok(None);
     };
@@ -14863,7 +14862,7 @@ fn string_from_slot(heap: &duke_gc::Heap, slot: Slot) -> Option<String> {
 }
 
 fn properties_local_entries(heap: &duke_gc::Heap, props_ref: u64) -> Result<Vec<(Slot, Slot)>> {
-    let fields = heap.get(props_ref)?.fields.clone();
+    let fields = &heap.get(props_ref)?.fields;
     let mut entries = Vec::new();
     let mut idx = PROPERTIES_ENTRIES_START;
     while idx + 1 < fields.len() {
@@ -14935,8 +14934,8 @@ fn properties_get_property_slot(
     props_ref: u64,
     key: Slot,
 ) -> Result<Slot> {
-    let fields = heap.get(props_ref)?.fields.clone();
-    if let Some(idx) = properties_entry_index(&fields, &key, heap) {
+    let fields = &heap.get(props_ref)?.fields;
+    if let Some(idx) = properties_entry_index(fields, &key, heap) {
         let value = fields[idx + 1];
         if slot_is_java_string(heap, value) {
             return Ok(value);
@@ -14966,7 +14965,7 @@ fn properties_collect_name_slots(
     props_ref: u64,
     names: &mut Vec<Slot>,
 ) -> Result<()> {
-    let fields = heap.get(props_ref)?.fields.clone();
+    let fields = &heap.get(props_ref)?.fields;
     if let Some(Slot::Reference(Some(defaults_ref))) = fields.get(PROPERTIES_DEFAULTS_FIELD) {
         properties_collect_name_slots(heap, *defaults_ref, names)?;
     }
@@ -15358,7 +15357,7 @@ fn chm_non_null_arg(args: &[Slot], idx: usize) -> Result<Slot> {
 }
 
 fn chm_entry_snapshot(heap: &duke_gc::Heap, map_ref: u64) -> Result<Vec<(Slot, Slot)>> {
-    let fields = heap.get(map_ref)?.fields.clone();
+    let fields = &heap.get(map_ref)?.fields;
     let mut entries = Vec::with_capacity(fields.len().saturating_sub(1) / 2);
     let mut i = 1usize;
     while i + 1 < fields.len() {
@@ -16412,9 +16411,9 @@ pub(crate) fn native_map_of_entries(
     native_hashmap_init(&[Slot::Reference(Some(map_ref))], heap, out, control)?;
     // args[0] is the Object[] array of Map.Entry objects (anewarray layout: fields = elements)
     if let Some(Slot::Reference(Some(arr_ref))) = args.first().copied() {
-        let entries: Vec<Slot> = heap.get(arr_ref)?.fields.clone();
-        for entry_slot in entries {
-            let Slot::Reference(Some(entry_ref)) = entry_slot else {
+        let n = heap.get(arr_ref)?.fields.len();
+        for i in 0..n {
+            let Slot::Reference(Some(entry_ref)) = heap.get(arr_ref)?.fields[i] else {
                 continue;
             };
             let key = extract_first_field_arg(heap, entry_ref)?;
@@ -16460,13 +16459,13 @@ pub(crate) fn native_collections_unmodifiable_set(
 ) -> Result<Option<Slot>> {
     // Wrap the source set in a UnmodifiableSet (same field layout as HashSet).
     let src_ref = extract_ref_arg(args, 0)?;
-    let src_fields = heap.get(src_ref)?.fields.clone();
+    let n = heap.get(src_ref)?.fields.len();
     let class_name = heap.get(src_ref)?.class_name.clone();
-    let n = src_fields.len();
     let wrapper_ref = heap.allocate("java/util/UnmodifiableSet".to_string(), n);
     // Copy field layout from source set
     let _ = class_name;
-    for (i, f) in src_fields.into_iter().enumerate() {
+    for i in 0..n {
+        let f = heap.get(src_ref)?.fields[i];
         heap.get_mut(wrapper_ref)?.fields[i] = f;
     }
     Ok(Some(Slot::Reference(Some(wrapper_ref))))
