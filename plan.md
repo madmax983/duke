@@ -1,32 +1,20 @@
-1. **Refactor `format_cp_entry` in `duke/src/main.rs`**
-   - **Smell**: `format_cp_entry` takes `&ClassFile` and `&CpEntry` and returns a `String` by matching on all 17 enum variants, allocating strings and calling `format!` for every single entry, taking up 100 lines.
-   - **Solution**: Wrap `&ClassFile` and `&CpEntry` in a struct `FormattedCpEntry<'a>`. Implement `std::fmt::Display` for this struct. Use `write!` or `writeln!` instead of `format!`, completely removing the intermediate string allocations and turning a massive God-match into clean formatting logic. Change the single call site in `dump_class_file` to print using `{}` directly.
-
-2. **Refactor `cp_str` and `resolve_class_name` in `duke/src/main.rs`**
-   - **Smell**: Deeply nested `and_then` chains to safely extract `&str` from the constant pool.
-   - **Solution**: Use `let ... else` guard clauses to early return `None` and flatten the nesting.
-
-3. **Refactor `build_method_entries` in `crates/duke-interpreter/src/native/common.rs`**
-   - **Smell**: Deeply nested logic and `match` blocks when reading from `cf.constant_pool` for attributes, names, descriptors, and exception table catch types.
-   - **Solution**: Use `let ... else` guard clauses inside the iterators/filter_maps to extract the string values without heavy nesting. For example, replacing:
+1. **Optimize String concatenation in `native_string_concat`**
+   - The function currently uses `format!("{s1}{s2}")` to concatenate two strings, which allocates a new string buffer inside `format!`, formats the arguments, and returns it.
+   - We can optimize this by pre-allocating a `String` with the exact required capacity and appending the strings:
      ```rust
-     let name = match cf.constant_pool.get(m.name_index.0 as usize) {
-         Some(Some(CpEntry::Utf8(s))) => s.clone(),
-         _ => return None,
-     };
+     let mut combined = String::with_capacity(s1.len() + s2.len());
+     combined.push_str(&s1);
+     combined.push_str(&s2);
+     let r = heap.allocate_string(combined);
      ```
-     with
-     ```rust
-     let Some(Some(CpEntry::Utf8(name))) = cf.constant_pool.get(m.name_index.0 as usize) else { return None; };
-     let name = name.clone();
-     ```
-     and similar extractions to clean up the structure.
-
-4. **Run Checks & Tests**
-   - Run `cargo fmt --all`
-   - Run `cargo clippy --all-targets --all-features -- -D warnings`
-   - Run `cargo test`
-
-5. **Complete pre-commit steps to ensure proper testing, verification, review, and reflection are done.**
-
-6. **Request Code Review**
+   - This eliminates the intermediate allocation and parsing overhead of `format!`, which is a common hotspot in interpreters.
+   - Add `// ⚡ Bolt: Eliminate intermediate format! allocation` comment.
+   - Ensure the tests pass.
+1. Refactor `print_report` methods in `duke-telemetry/src/lib.rs` to handle empty states gracefully (Reduces noise from empty reports).
+   - Before: Outputs headers and empty tables for empty components.
+   - After: Outputs a concise message stating no events were recorded.
+2. Complete pre commit steps to make sure proper testing, verifications, reviews and reflections are done.
+3. Submit the change using a descriptive title.
+1. **Optimize Vector Allocations in Execution (Vec::with_capacity)**: Pre-allocate vectors in `crates/duke-interpreter/src/execution.rs` for `Multianewarray` `dims` array and lambda args `impl_args` to avoid unnecessary dynamic heap reallocations.
+2. Complete pre commit steps to ensure proper testing, verification, review, and reflection are done.
+3. **Submit the PR**: Present PR titled '⚡ Bolt: Optimize Vector Allocations in Execution & Native' detailing 💡 What, 🎯 Why, 📊 Impact, and 🔭 Measurement. I will use `run_in_bash_session` to execute `git commit` with the requested PR details.

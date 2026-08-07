@@ -546,3 +546,19 @@ fn file_output_stream_fd(
         }),
     }
 }
+
+/// Native: `jdk/internal/misc/VM.getNanoTimeAdjustment(J)J`.
+///
+/// Returns the nanosecond offset of the current time, used by `System.nanoTime()`
+/// or `System.currentTimeMillis()` implementations depending on the JVM version.
+/// For a stub, returning `0` safely indicates no sub-millisecond adjustment is needed,
+/// allowing the caller to fall back on standard millisecond precision or continue execution.
+#[allow(clippy::unnecessary_wraps)] // signature must match `NativeHandler`
+pub(crate) fn native_vm_get_nano_time_adjustment(
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(Slot::Long(0)))
+}
