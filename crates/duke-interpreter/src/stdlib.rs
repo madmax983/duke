@@ -1528,6 +1528,12 @@ fn register_vm_stdlib(registry: &mut ClassRegistry) {
         "()V",
         native_vm_initialize,
     );
+    registry.natives_mut().register(
+        "jdk/internal/misc/VM",
+        "getNanoTimeAdjustment",
+        "(J)J",
+        native_vm_get_nano_time_adjustment,
+    );
 }
 
 fn lock_interface_context(name: &str) -> ClassContext {
