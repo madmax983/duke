@@ -7,3 +7,6 @@
 **[Encapsulate `duke_classfile` Facade]**
 **Tangle:** The `duke_classfile` API exported an intermediate `types` module (`pub mod types`) merely to re-export its inner types, and `duke-telemetry` exposed internal serialization helpers via `pub mod ser_helpers`. This creates confusing, leaky abstractions and redundant paths.
 **Blueprint:** Encapsulated both modules. In `duke_classfile`, replaced `pub mod types` with direct `pub use` statements at the crate root, eliminating the `types` namespace from the public API entirely. In `duke_telemetry`, reduced `ser_helpers` visibility to `pub(crate)`.
+**[Facade Pattern for `duke-classfile`]**
+**Tangle:** The `signature` module inside `duke-classfile` was publicly exposed, leaking the internal module namespace and risking uncontrolled access to implementation details.
+**Blueprint:** Altered the `signature` visibility to `pub(crate) mod`, effectively encapsulating it as an internal module. Public access is now strictly routed through the crate's root `pub use` exports.
