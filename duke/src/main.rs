@@ -1418,7 +1418,7 @@ fn dump_class_file(cf: &ClassFile) {
         }
         match entry {
             None => println!("  #{i:3}  (phantom — occupied by preceding Long/Double)"),
-            Some(e) => println!("  #{i:3}  {}", format_cp_entry(cf, e)),
+            Some(e) => println!("  #{i:3}  {}", FormattedCpEntry(cf, e)),
         }
     }
     println!();
@@ -1477,124 +1477,125 @@ fn dump_class_file(cf: &ClassFile) {
 // ---------------------------------------------------------------------------
 
 fn cp_str(cf: &ClassFile, idx: CpIndex) -> Option<&str> {
-    cf.constant_pool
-        .get(idx.0 as usize)
-        .and_then(|slot| slot.as_ref())
-        .and_then(|entry| {
-            if let CpEntry::Utf8(s) = entry {
-                Some(s.as_str())
-            } else {
-                None
-            }
-        })
+    let Some(Some(CpEntry::Utf8(s))) = cf.constant_pool.get(idx.0 as usize) else {
+        return None;
+    };
+    Some(s.as_str())
 }
 
 fn resolve_class_name(cf: &ClassFile, idx: CpIndex) -> &str {
     if idx.0 == 0 {
         return "<none>";
     }
-    let class_entry = cf
-        .constant_pool
-        .get(idx.0 as usize)
-        .and_then(|s| s.as_ref());
-    if let Some(CpEntry::Class { name_index }) = class_entry {
-        cp_str(cf, *name_index).unwrap_or("<invalid utf8>")
-    } else {
-        "<not a class ref>"
-    }
+    let Some(Some(CpEntry::Class { name_index })) = cf.constant_pool.get(idx.0 as usize) else {
+        return "<not a class ref>";
+    };
+    cp_str(cf, *name_index).unwrap_or("<invalid utf8>")
 }
 
-fn format_cp_entry(cf: &ClassFile, entry: &CpEntry) -> String {
-    match entry {
-        CpEntry::Utf8(s) => format!("Utf8           \"{s}\""),
-        CpEntry::Integer(v) => format!("Integer         {v}"),
-        CpEntry::Float(v) => format!("Float           {v}"),
-        CpEntry::Long(v) => format!("Long            {v}L"),
-        CpEntry::Double(v) => format!("Double          {v}"),
-        CpEntry::Class { name_index } => {
-            let name = cp_str(cf, *name_index).unwrap_or("?");
-            format!("Class           #{} // {name}", name_index.0)
-        }
-        CpEntry::String { string_index } => {
-            let s = cp_str(cf, *string_index).unwrap_or("?");
-            format!("String          #{} // \"{s}\"", string_index.0)
-        }
-        CpEntry::Fieldref {
-            class_index,
-            name_and_type_index,
-        } => {
-            format!(
-                "Fieldref        #{}.#{}",
-                class_index.0, name_and_type_index.0
-            )
-        }
-        CpEntry::Methodref {
-            class_index,
-            name_and_type_index,
-        } => {
-            format!(
-                "Methodref       #{}.#{}",
-                class_index.0, name_and_type_index.0
-            )
-        }
-        CpEntry::InterfaceMethodref {
-            class_index,
-            name_and_type_index,
-        } => {
-            format!(
-                "IfaceMethodref  #{}.#{}",
-                class_index.0, name_and_type_index.0
-            )
-        }
-        CpEntry::NameAndType {
-            name_index,
-            descriptor_index,
-        } => {
-            let name = cp_str(cf, *name_index).unwrap_or("?");
-            let desc = cp_str(cf, *descriptor_index).unwrap_or("?");
-            format!(
-                "NameAndType     #{}.#{} // {name}:{desc}",
-                name_index.0, descriptor_index.0
-            )
-        }
-        CpEntry::MethodHandle {
-            reference_kind,
-            reference_index,
-        } => {
-            format!(
-                "MethodHandle    kind={reference_kind} ref=#{}",
-                reference_index.0
-            )
-        }
-        CpEntry::MethodType { descriptor_index } => {
-            let desc = cp_str(cf, *descriptor_index).unwrap_or("?");
-            format!("MethodType      #{} // {desc}", descriptor_index.0)
-        }
-        CpEntry::Dynamic {
-            bootstrap_method_attr_index,
-            name_and_type_index,
-        } => {
-            format!(
-                "Dynamic         bsm={bootstrap_method_attr_index} nat=#{}",
-                name_and_type_index.0
-            )
-        }
-        CpEntry::InvokeDynamic {
-            bootstrap_method_attr_index,
-            name_and_type_index,
-        } => {
-            format!(
-                "InvokeDynamic   bsm={bootstrap_method_attr_index} nat=#{}",
-                name_and_type_index.0
-            )
-        }
-        CpEntry::Module { name_index } => {
-            let name = cp_str(cf, *name_index).unwrap_or("?");
-            format!("Module          #{} // {name}", name_index.0)
-        }
-        CpEntry::Package { name_index } => {
-            let name = cp_str(cf, *name_index).unwrap_or("?");
-            format!("Package         #{} // {name}", name_index.0)
+struct FormattedCpEntry<'a>(&'a ClassFile, &'a CpEntry);
+
+impl std::fmt::Display for FormattedCpEntry<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let cf = self.0;
+        match self.1 {
+            CpEntry::Utf8(s) => write!(f, "Utf8           \"{s}\""),
+            CpEntry::Integer(v) => write!(f, "Integer         {v}"),
+            CpEntry::Float(v) => write!(f, "Float           {v}"),
+            CpEntry::Long(v) => write!(f, "Long            {v}L"),
+            CpEntry::Double(v) => write!(f, "Double          {v}"),
+            CpEntry::Class { name_index } => {
+                let name = cp_str(cf, *name_index).unwrap_or("?");
+                write!(f, "Class           #{} // {name}", name_index.0)
+            }
+            CpEntry::String { string_index } => {
+                let s = cp_str(cf, *string_index).unwrap_or("?");
+                write!(f, "String          #{} // \"{s}\"", string_index.0)
+            }
+            CpEntry::Fieldref {
+                class_index,
+                name_and_type_index,
+            } => {
+                write!(
+                    f,
+                    "Fieldref        #{}.#{}",
+                    class_index.0, name_and_type_index.0
+                )
+            }
+            CpEntry::Methodref {
+                class_index,
+                name_and_type_index,
+            } => {
+                write!(
+                    f,
+                    "Methodref       #{}.#{}",
+                    class_index.0, name_and_type_index.0
+                )
+            }
+            CpEntry::InterfaceMethodref {
+                class_index,
+                name_and_type_index,
+            } => {
+                write!(
+                    f,
+                    "IfaceMethodref  #{}.#{}",
+                    class_index.0, name_and_type_index.0
+                )
+            }
+            CpEntry::NameAndType {
+                name_index,
+                descriptor_index,
+            } => {
+                let name = cp_str(cf, *name_index).unwrap_or("?");
+                let desc = cp_str(cf, *descriptor_index).unwrap_or("?");
+                write!(
+                    f,
+                    "NameAndType     #{}.#{} // {name}:{desc}",
+                    name_index.0, descriptor_index.0
+                )
+            }
+            CpEntry::MethodHandle {
+                reference_kind,
+                reference_index,
+            } => {
+                write!(
+                    f,
+                    "MethodHandle    kind={reference_kind} ref=#{}",
+                    reference_index.0
+                )
+            }
+            CpEntry::MethodType { descriptor_index } => {
+                let desc = cp_str(cf, *descriptor_index).unwrap_or("?");
+                write!(f, "MethodType      #{} // {desc}", descriptor_index.0)
+            }
+            CpEntry::Dynamic {
+                bootstrap_method_attr_index,
+                name_and_type_index,
+            } => {
+                write!(
+                    f,
+                    "Dynamic         bsm={bootstrap_method_attr_index} nat=#{}",
+                    name_and_type_index.0
+                )
+            }
+            CpEntry::InvokeDynamic {
+                bootstrap_method_attr_index,
+                name_and_type_index,
+            } => {
+                write!(
+                    f,
+                    "InvokeDynamic   bsm={bootstrap_method_attr_index} nat=#{}",
+                    name_and_type_index.0
+                )
+            }
+            CpEntry::Module { name_index } => {
+                let name = cp_str(cf, *name_index).unwrap_or("?");
+                write!(f, "Module          #{} // {name}", name_index.0)
+            }
+            CpEntry::Package { name_index } => {
+                let name = cp_str(cf, *name_index).unwrap_or("?");
+                write!(f, "Package         #{} // {name}", name_index.0)
+            }
         }
     }
 }

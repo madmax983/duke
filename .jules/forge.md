@@ -85,3 +85,7 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+## 2026-08-07 - format_cp_entry & cp_str Refactor
+**Smell:** `format_cp_entry` returned a String mapping 17 enum variants with `format!` for every constant pool entry, and `cp_str` used deeply nested `and_then` blocks.
+**Solution:** Extracted logic into a `FormattedCpEntry` struct implementing `std::fmt::Display` for zero-allocation formatting, and flattened nested blocks using `let ... else` guard clauses.
+**Benefit:** Reduces cognitive load, flattens pyramid of doom, and strictly prevents string allocations by directly formatting.
