@@ -268,7 +268,7 @@ fn string_value_from_ref(heap: &duke_gc::Heap, string_ref: u64) -> Result<String
 
 /// Decodes the real `java/lang/String` heap layout — slot 0 (`value:[B`) and
 /// slot 1 (`coder:B`) — back into a Rust `String`, inverting the encoding that
-/// [`duke_gc::Heap::set_string_layout`] applies: Latin-1 when `coder == 0`,
+/// `duke_gc::Heap::set_string_layout` applies: Latin-1 when `coder == 0`,
 /// little-endian UTF-16 when `coder == 1`. Java `byte`s are signed, so the
 /// backing-array octets are recovered through [`byte_from_slot`] (via
 /// [`full_byte_array`]).
@@ -1491,7 +1491,7 @@ fn string_bytes_for_arg(
 
 /// Populate a freshly-constructed `java/lang/String` receiver on a `<init>`
 /// path. Sets the authoritative `string_value` side-channel AND mints the real
-/// 4-slot layout (`value:[B`, `coder:B`) via [`Heap::set_string_layout`], so the
+/// 4-slot layout (`value:[B`, `coder:B`) via `Heap::set_string_layout`, so the
 /// `new java/lang/String` + `<init>` mint path is coherent with the
 /// `allocate_string` mint path (both leave slot0/slot1 populated). An empty
 /// `value` still gets a valid zero-length `[B` in slot0.
@@ -1551,7 +1551,7 @@ pub(crate) fn native_string_init_bytes_default_range(
 /// copy or validation: `this.value = value; this.coder = coder;`. The incoming
 /// `value` bytes are already in the JDK compact-strings encoding, which is the
 /// same convention Duke's 4-slot layout uses (see
-/// [`duke_gc::Heap::set_string_layout`]): Latin-1 when `coder == 0`,
+/// `duke_gc::Heap::set_string_layout`): Latin-1 when `coder == 0`,
 /// little-endian UTF-16 when `coder == 1`. We decode `(value, coder)` into a Rust
 /// `String` — inverting that encoding exactly as [`read_string_bytes`] does — and
 /// mint the receiver through [`store_string_init_value`], which re-establishes

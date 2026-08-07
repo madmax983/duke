@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2025-05-19 - [Fixing intra-doc links in public documentation pointing to private items]
+**Confusion:** Cargo doc fails with `private_intra_doc_links` warnings when public API documentation links to private items or when `[0]` is used for layouts. Additionally, `large_stack_frames` triggers a clippy error in `duke-interpreter` execution file.
+**Clarification:** Used backticks for `[0]` and inline code references like `` `Self::mark_old` `` to avoid triggering `unresolved link` and `private_intra_doc_links`. Ignored `clippy::large_stack_frames` on `run_execution` function.
