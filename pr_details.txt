@@ -1,6 +1,6 @@
-Title: 🛡️ Sentry: [test coverage improvement]
-Body:
-🎯 Target: `duke_loader::ZipReader::read_entry_info`, `duke_loader::parse_central_directory`, and `duke_telemetry::ser_helpers`.
-💣 Risk: Edge cases where zip central directories have truncated entries or mismatched local header offsets, and missing telemetry map empty paths could panic or fail implicitly if refactored.
-🧪 Strategy: Added specific inline tests inside `crates/duke-loader/src/zip.rs` to reach missing branches of Zip Format errors (e.g. truncated `filename_len`, exceeded `uncompressed_size`). Added tests in `crates/duke-telemetry/src/helpers.rs` for empty map serialization. Added an empty check for `print_report`.
-🔭 Verification: `cargo test -p duke-loader` and `cargo test -p duke-telemetry`
+Title: 🗺️ Atlas: [Encapsulate Module Facades]
+
+🕸️ Tangle: The `duke_classfile` API exported an intermediate `signature` module (`pub mod signature`), and `duke-telemetry` exposed internal serialization helpers via `pub mod ser_helpers`. This creates confusing, leaky abstractions and redundant paths.
+📐 Blueprint: Encapsulated both modules. In `duke_classfile`, reduced `signature` visibility to `pub(crate)` relying on specific `pub use` exports. In `duke_telemetry`, reduced `ser_helpers` visibility to `pub(crate)`.
+🧱 Stability: Reduced coupling by encapsulating internal implementation details, enforcing cleaner API boundaries.
+🔬 Verification: Builds successfully, strict separation enforced. Tested with cargo check and test.
