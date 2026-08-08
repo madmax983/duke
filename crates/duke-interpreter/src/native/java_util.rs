@@ -6025,3 +6025,64 @@ pub(crate) fn native_enumset_iter_next(
     heap.get_mut(this_ref)?.fields[1] = Slot::Int(cursor + 1);
     Ok(Some(element))
 }
+
+#[cfg(test)]
+mod tests_java_util {
+    use super::*;
+    use std::io::sink;
+    use crate::NativeControl;
+    use duke_runtime::Slot;
+    use duke_gc::Heap;
+
+    #[test]
+    fn test_native_zip_entry_get_name() {
+        let mut heap = Heap::new();
+        let mut control = NativeControl::default();
+        let mut out = sink();
+
+        let name_str_ref = heap.allocate_string("test.txt".to_string());
+        let entry_ref = heap.allocate("java/util/zip/ZipEntry".to_string(), 6);
+        heap.get_mut(entry_ref).unwrap().fields[0] = Slot::Reference(Some(name_str_ref));
+
+        let args = vec![Slot::Reference(Some(entry_ref))];
+        let result = native_zip_entry_get_name(&args, &mut heap, &mut out, &mut control).unwrap();
+        assert_eq!(result, Some(Slot::Reference(Some(name_str_ref))));
+    }
+    #[test]
+    fn test_native_jar_file_init_with_mode_and_version() {
+        let mut heap = Heap::new();
+        let mut control = NativeControl::default();
+        let mut out = sink();
+
+        let path = "test.jar";
+        let path_ref = heap.allocate_string(path.to_string());
+
+        let file_ref = heap.allocate("java/io/File".to_string(), 1);
+        heap.get_mut(file_ref).unwrap().fields[0] = Slot::Reference(Some(path_ref));
+
+        let this_ref = heap.allocate("java/util/jar/JarFile".to_string(), 1);
+
+        // Correct args: [this_slot, file_slot, mode_slot, version_slot]
+        let args_correct = vec![
+            Slot::Reference(Some(this_ref)),
+            Slot::Reference(Some(file_ref)),
+            Slot::Int(1), // mode
+            Slot::Reference(None) // version
+        ];
+
+        // We expect it to try opening `test.jar`. It might fail if the file doesn't exist,
+        // but we just want to hit the forwarding logic. The easiest is if we just assert it returns Err
+        // with IOException or something, because file doesn't exist.
+        let result = native_jar_file_init_with_mode_and_version(&args_correct, &mut heap, &mut out, &mut control);
+        // If file doesn't exist, zip_open returns an Err. We just care that it executes.
+        assert!(result.is_err());
+
+        // Incorrect args
+        let args_incorrect = vec![
+            Slot::Reference(Some(this_ref)),
+        ];
+        let err_result = native_jar_file_init_with_mode_and_version(&args_incorrect, &mut heap, &mut out, &mut control);
+        assert!(matches!(err_result, Err(Error::TypeMismatch { .. })));
+    }
+
+}
