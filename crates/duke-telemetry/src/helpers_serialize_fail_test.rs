@@ -1,4 +1,4 @@
-use duke_telemetry::helpers::ser_helpers::*;
+use crate::helpers::ser_helpers::*;
 
 fn test() {
     // missing lines: 16, 17, 25, 33, 41, 49, 50, 51
