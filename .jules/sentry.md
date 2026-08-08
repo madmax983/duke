@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Test Execution for native methods and formatting edge cases
+**Learning:** Adding explicit test conditions for native Java integration paths is crucial to improving code coverage in `duke-interpreter` and `duke-bytecode`. We found missing coverage for basic field extractions from `java.util.zip.ZipEntry` and Java `JarFile` initialization method via their corresponding rust native definitions `native_zip_entry_get_name` and `native_jar_file_init_with_mode_and_version`.
+**Action:** When adding specific native bindings testing for Java classes we mock the heap state precisely to simulate the initialization variables to ensure the internal Rust function behaves well. Ensure test functions are strictly written under a module named `mod tests` block.

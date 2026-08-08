@@ -223,7 +223,8 @@ fn layout_coherence_check(
     clippy::single_match_else,
     clippy::float_cmp,
     clippy::items_after_statements,
-    clippy::used_underscore_binding
+    clippy::used_underscore_binding,
+    clippy::large_stack_frames
 )]
 pub fn run_execution(
     state: &mut ExecutionState,
@@ -580,7 +581,10 @@ pub fn run_execution(
         // Arms that use `continue` (branches, invokes) will skip the post-match
         // recording for that iteration — timing is approximate for those opcodes.
         #[cfg(feature = "telemetry")]
-        #[allow(clippy::used_underscore_binding)]
+        #[allow(
+            clippy::used_underscore_binding,
+            clippy::large_stack_frames
+        )]
         let (_telem_name, _telem_pc, _telem_start) = {
             let name = instr_name(instr);
             let pc_val = pc;
