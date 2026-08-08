@@ -174,6 +174,7 @@ pub fn parse_method_signature(input: &str) -> Result<MethodSignature, SignatureE
 struct Parser<'a> {
     bytes: &'a [u8],
     pos: usize,
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -181,6 +182,7 @@ impl<'a> Parser<'a> {
         Self {
             bytes: input.as_bytes(),
             pos: 0,
+            depth: 0,
         }
     }
 
@@ -351,7 +353,12 @@ impl<'a> Parser<'a> {
 
     /// `ReferenceTypeSignature`: class, type-variable, or array.
     fn parse_reference_type_signature(&mut self) -> Result<TypeSignature, SignatureError> {
-        match self.peek() {
+        if self.depth > 256 {
+            return self.err("recursion limit exceeded");
+        }
+        self.depth += 1;
+
+        let res = match self.peek() {
             Some(b'L') => Ok(TypeSignature::Class(self.parse_class_type_signature()?)),
             Some(b'T') => self.parse_type_variable_signature(),
             Some(b'[') => self.parse_array_type_signature(),
@@ -360,7 +367,10 @@ impl<'a> Parser<'a> {
                 b as char
             )),
             None => self.err("expected a reference type signature but reached end"),
-        }
+        };
+
+        self.depth -= 1;
+        res
     }
 
     fn parse_type_variable_signature(&mut self) -> Result<TypeSignature, SignatureError> {
@@ -414,18 +424,39 @@ impl<'a> Parser<'a> {
         if self.peek() != Some(b'<') {
             return Ok(Vec::new());
         }
+
+        if self.depth > 256 {
+            return self.err("recursion limit exceeded");
+        }
+        self.depth += 1;
+
         self.pos += 1; // consume '<'
         let mut args = Vec::new();
         while self.peek() != Some(b'>') {
             if self.peek().is_none() {
+                self.depth -= 1;
                 return self.err("unterminated type-argument list");
             }
-            args.push(self.parse_type_argument()?);
+            match self.parse_type_argument() {
+                Ok(arg) => args.push(arg),
+                Err(e) => {
+                    self.depth -= 1;
+                    return Err(e);
+                }
+            }
         }
-        self.expect(b'>')?;
+
+        if let Err(e) = self.expect(b'>') {
+            self.depth -= 1;
+            return Err(e);
+        }
+
         if args.is_empty() {
+            self.depth -= 1;
             return self.err("empty type-argument list");
         }
+
+        self.depth -= 1;
         Ok(args)
     }
 

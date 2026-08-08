@@ -1,6 +1,6 @@
-🛡️ Sentry: [test coverage improvement]
+👺 Havoc: Signature Parser Stack Overflow
 
-🎯 Target: native_reentrant_read_write_lock_* and native_priorityqueue_peek in crates/duke-interpreter/src/native.rs.
-💣 Risk: These native implementations lacked unit test coverage. Changes or refactors to how the internal read/write lock instances are structured or initialized could fail without being caught by basic bytecode testing, breaking concurrency features.
-🧪 Strategy: Added specific inline unit tests covering the init, read_lock, and write_lock states of ReentrantReadWriteLock as well as the empty and non-empty scenarios for PriorityQueue.peek(). Added #[allow(clippy::unnecessary_wraps)] to the newly covered, previously unlinted methods since they adhere to an API signature that requires Result<Option<Slot>>.
-🔬 Verification: cargo test -p duke-interpreter
+🧨 **The Trigger:** Generic signature strings with highly nested structures, such as 10,000 array brackets `[` or 10,000 nested generic type arguments `LList<LList<...>>` caused a stack overflow in the recursive descent parser.
+📉 **The Stack Trace:** fatal runtime error: stack overflow, aborting
+🧪 **Reproduction:** Run `cargo test -p duke-classfile --test havoc_signature_stack_overflow` without the depth limit.
+😈 **Comment:** You assumed the JVM would enforce generic signature bounds. You were wrong. If I can craft a class file, I can crash your daemon.
