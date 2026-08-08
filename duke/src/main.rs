@@ -13,6 +13,8 @@ mod cycle_detect;
 #[cfg(feature = "nova")]
 mod dead_code;
 mod deps_graph;
+#[cfg(feature = "nova")]
+mod detect_clones;
 mod histogram;
 mod html;
 #[cfg(feature = "nova")]
@@ -374,6 +376,8 @@ fn main() {
         eprintln!("       duke cycle-detect <file.jar>");
         #[cfg(feature = "nova")]
         eprintln!("       duke audit <file.jar>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke detect-clones <file.jar>");
         eprintln!("       duke deps-graph <classfile.class>");
         #[cfg(feature = "nova")]
         eprintln!("       duke purity <classfile.class>");
@@ -574,6 +578,14 @@ fn main() {
     }
 
     // Dispatch `analyze`: run static analysis on the class.
+
+    if args.len() >= 3 && args[1] == "detect-clones" {
+        #[cfg(feature = "nova")]
+        detect_clones::dump_clones(&args[2]);
+        #[cfg(not(feature = "nova"))]
+        eprintln!("duke: 'detect-clones' command requires the 'nova' feature flag.");
+        return;
+    }
 
     if args.len() >= 3 && args[1] == "histogram" {
         histogram::dump_histogram(&args[2]);
