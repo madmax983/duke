@@ -155,6 +155,21 @@ mod tests {
     }
 
     #[test]
+    fn field_out_of_bounds_error_message() {
+        let e = Error::FieldOutOfBounds {
+            index: 5,
+            length: 3,
+        };
+        assert_eq!(e.to_string(), "field index 5 out of bounds (length=3)");
+    }
+
+    #[test]
+    fn out_of_memory_error_message() {
+        let e = Error::OutOfMemory;
+        assert_eq!(e.to_string(), "out of memory");
+    }
+
+    #[test]
     #[allow(clippy::too_many_lines)]
     fn vm_error_display_messages() {
         let cases = vec![

@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Uncovered Runtime Errors Display Implementation
+**Learning:** Some enum variants in `Error` (`OutOfMemory` and `FieldOutOfBounds`) lacked corresponding tests for their string formatting/`Display` implementations in `crates/duke-runtime/src/lib.rs`. The code functioned but failed coverage analysis since these variants weren't explicitly covered by display testing.
+**Action:** Always check the exhaustive bounds of error/enum display lists and manually append tests for formatting missing edge cases.
