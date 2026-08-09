@@ -33,20 +33,24 @@ pub fn dump_histogram(jar_path: &str) {
             continue;
         }
         let class_name_internal = entry_name.strip_suffix(".class").unwrap();
-        if let Ok(bytes) = loader.find_class(class_name_internal) {
-            if let Ok(cf) = parse(&bytes) {
-                for method in &cf.methods {
-                    for attr in &method.attributes {
-                        if let AttributeData::Code(code) = &attr.data {
-                            if let Ok(instructions) = decode(&code.code) {
-                                for (_, instr) in instructions {
-                                    let name = instr.mnemonic();
-                                    *histogram.entry(name).or_insert(0) += 1;
-                                    total_instructions += 1;
-                                }
-                            }
-                        }
-                    }
+        let Ok(bytes) = loader.find_class(class_name_internal) else {
+            continue;
+        };
+        let Ok(cf) = parse(&bytes) else {
+            continue;
+        };
+        for method in &cf.methods {
+            for attr in &method.attributes {
+                let AttributeData::Code(code) = &attr.data else {
+                    continue;
+                };
+                let Ok(instructions) = decode(&code.code) else {
+                    continue;
+                };
+                for (_, instr) in instructions {
+                    let name = instr.mnemonic();
+                    *histogram.entry(name).or_insert(0) += 1;
+                    total_instructions += 1;
                 }
             }
         }
