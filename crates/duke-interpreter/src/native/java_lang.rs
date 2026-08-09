@@ -246,26 +246,34 @@ fn char_to_lower_single(c: char) -> char {
 /// `java.lang.String.CaseInsensitiveComparator.compare`: for each position, if the
 /// chars differ, fold both to upper- then lower-case (JDK two-step) before comparing;
 /// ties fall through to the length difference.
+///
+/// ⚡ Bolt optimization: This function previously used `s.chars().collect::<Vec<char>>()`
+/// which created unnecessary intermediate heap allocations for both strings.
+/// It now iterates dynamically, eliminating two O(N) memory allocations per comparison.
 #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
 fn compare_ignore_case(s1: &str, s2: &str) -> i32 {
-    let v1: Vec<char> = s1.chars().collect();
-    let v2: Vec<char> = s2.chars().collect();
-    let min = v1.len().min(v2.len());
-    for i in 0..min {
-        let (mut c1, mut c2) = (v1[i], v2[i]);
-        if c1 != c2 {
-            c1 = char_to_upper_single(c1);
-            c2 = char_to_upper_single(c2);
-            if c1 != c2 {
-                c1 = char_to_lower_single(c1);
-                c2 = char_to_lower_single(c2);
+    let mut it1 = s1.chars();
+    let mut it2 = s2.chars();
+    loop {
+        match (it1.next(), it2.next()) {
+            (Some(mut c1), Some(mut c2)) => {
                 if c1 != c2 {
-                    return c1 as i32 - c2 as i32;
+                    c1 = char_to_upper_single(c1);
+                    c2 = char_to_upper_single(c2);
+                    if c1 != c2 {
+                        c1 = char_to_lower_single(c1);
+                        c2 = char_to_lower_single(c2);
+                        if c1 != c2 {
+                            return c1 as i32 - c2 as i32;
+                        }
+                    }
                 }
             }
+            (Some(_), None) => return (1 + it1.count()) as i32,
+            (None, Some(_)) => return -((1 + it2.count()) as i32),
+            (None, None) => return 0,
         }
     }
-    v1.len() as i32 - v2.len() as i32
 }
 /// Native: `String$CaseInsensitiveComparator.compare(Object, Object)I` (and its
 /// `(String, String)I` sibling). `this` (arg 0) is the singleton comparator; the two
