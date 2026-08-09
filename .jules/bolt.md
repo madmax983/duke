@@ -37,3 +37,6 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+**Remove intermediate Vec allocations on String parallel iterations**
+**Learning:** `s.chars().collect::<Vec<char>>()` unnecessarily forces a heap allocation for the entire string length which kills performance in tight loops (e.g. `compare_ignore_case`).
+**Action:** Replace intermediate `.collect::<Vec<char>>()` calls with direct iterator matching (using `loop` and `.next()` on both `Chars` iterators) to perform a zero-cost abstraction without intermediate heap allocations. When calculating length differences at the end of the loop, cast to a signed integer first (e.g., `(1 + it1.count()) as i32`) to avoid overflow panics.
