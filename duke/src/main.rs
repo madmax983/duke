@@ -30,6 +30,8 @@ mod purity;
 mod scan;
 mod search;
 #[cfg(feature = "nova")]
+mod similar;
+#[cfg(feature = "nova")]
 mod simulate;
 mod uml;
 
@@ -399,6 +401,8 @@ fn main() {
         eprintln!("       duke jar-dead-code <file.jar>");
         #[cfg(feature = "nova")]
         eprintln!("       duke jar-search <file.jar> <query>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke similar <file.jar> <target_class> <target_method>");
         eprintln!("       duke -jar <file.jar> [string-arg...]");
         eprintln!("Options: --telemetry[=path]  dump telemetry JSON after execution");
         eprintln!("         --telemetry-md[=p]  dump telemetry Markdown report after execution");
@@ -456,6 +460,23 @@ fn main() {
         #[cfg(not(feature = "nova"))]
         {
             eprintln!("duke: unknown subcommand 'jar-search'");
+            std::process::exit(1);
+        }
+    }
+
+    if args.len() > 1 && args[1] == "similar" {
+        if args.len() < 5 {
+            eprintln!("Usage: duke similar <file.jar> <target_class> <target_method>");
+            std::process::exit(1);
+        }
+        #[cfg(feature = "nova")]
+        {
+            similar::dump_similar(&args[2], &args[3], &args[4]);
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: unknown subcommand 'similar'");
             std::process::exit(1);
         }
     }
