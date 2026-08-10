@@ -424,7 +424,8 @@ pub(crate) fn native_jul_logger_remove_handler(
 ) -> Result<Option<Slot>> {
     let logger_ref = extract_ref_arg(args, 0)?;
     let target = extract_slot_arg(args, 1);
-    let fields = heap.get(logger_ref)?.fields.clone();
+    // Bolt Optimization: Avoids O(N) heap allocations for Logger field extraction.
+    let fields = &heap.get(logger_ref)?.fields;
     let count = match fields.get(JUL_LOGGER_HANDLER_COUNT_FIELD) {
         Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
         _ => 0,
@@ -462,7 +463,8 @@ pub(crate) fn native_jul_logger_get_handlers(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let logger_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(logger_ref)?.fields.clone();
+    // Bolt Optimization: Avoids O(N) heap allocations for Logger field extraction.
+    let fields = &heap.get(logger_ref)?.fields;
     let count = match fields.get(JUL_LOGGER_HANDLER_COUNT_FIELD) {
         Some(Slot::Int(count)) => usize::try_from((*count).max(0)).unwrap_or(0),
         _ => 0,
@@ -558,7 +560,8 @@ pub(crate) fn native_jul_log_manager_get_logger_names(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let manager_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(manager_ref)?.fields.clone();
+    // Bolt Optimization: Avoids O(N) heap allocations for Manager field extraction.
+    let fields = &heap.get(manager_ref)?.fields;
     let count = jul_manager_count(heap, manager_ref);
     let names: Vec<Slot> = (0..count)
         .map(|idx| {
