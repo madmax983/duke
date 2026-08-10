@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2026-06-12 - Testing Formatter Methods IO Errors Individually
+**Learning:** In telemetry reports with multiple sub-formatters (like `print_report` calling `print_bytecode_cost`, `print_object_lineage`), testing only the top-level method with a failing `Write` implementation may only hit the error case in the first sub-formatter, leaving error propagation uncovered in subsequent ones.
+**Action:** When testing chained I/O writing methods for full coverage, write targeted tests that execute each underlying formatter (e.g. `print_object_lineage`, `print_class_init_dag`) directly with a mock failing writer.

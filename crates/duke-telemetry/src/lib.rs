@@ -599,3 +599,80 @@ mod tests {
         assert!(s.contains("java/lang/Exception"));
     }
 }
+
+#[cfg(test)]
+mod io_error_tests {
+    use super::*;
+
+    struct FailingWriter;
+    impl std::io::Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("disk full"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_print_bytecode_cost_io_error() {
+        let store = TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_bytecode_cost(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_object_lineage_io_error() {
+        let store = TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_object_lineage(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_class_init_dag_io_error() {
+        let store = TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_class_init_dag(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_class_init_dag_io_error_populated() {
+        let mut store = TelemetryStore::default();
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        let mut w = FailingWriter;
+        assert!(store.print_class_init_dag(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_exception_flow_io_error() {
+        let store = TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_exception_flow(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_exception_flow_io_error_populated() {
+        let mut store = TelemetryStore::default();
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        let mut w = FailingWriter;
+        assert!(store.print_exception_flow(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_dispatch_resolution_io_error() {
+        let store = TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_dispatch_resolution(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_native_boundary_io_error() {
+        let store = TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_native_boundary(&mut w).is_err());
+    }
+}
