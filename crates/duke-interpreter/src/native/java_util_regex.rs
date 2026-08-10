@@ -85,7 +85,8 @@ pub(crate) fn native_matcher_find(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(m_ref)?.fields.clone();
+    // Bolt Optimization: Avoids O(N) heap allocations for Matcher field extraction.
+    let fields = &heap.get(m_ref)?.fields;
     let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
         return Ok(Some(Slot::Int(0)));
     };
@@ -119,7 +120,8 @@ pub(crate) fn native_matcher_matches(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
-    let fields = heap.get(m_ref)?.fields.clone();
+    // Bolt Optimization: Avoids O(N) heap allocations for Matcher field extraction.
+    let fields = &heap.get(m_ref)?.fields;
     let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
         return Ok(Some(Slot::Int(0)));
     };
@@ -358,7 +360,8 @@ pub(crate) fn native_matcher_replace_all(
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let repl_ref = extract_ref_arg(args, 1)?;
-    let fields = heap.get(m_ref)?.fields.clone();
+    // Bolt Optimization: Avoids O(N) heap allocations for Matcher field extraction.
+    let fields = &heap.get(m_ref)?.fields;
     let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
         return Ok(Some(Slot::Reference(None)));
     };
@@ -382,7 +385,8 @@ pub(crate) fn native_matcher_replace_first(
 ) -> Result<Option<Slot>> {
     let m_ref = extract_ref_arg(args, 0)?;
     let repl_ref = extract_ref_arg(args, 1)?;
-    let fields = heap.get(m_ref)?.fields.clone();
+    // Bolt Optimization: Avoids O(N) heap allocations for Matcher field extraction.
+    let fields = &heap.get(m_ref)?.fields;
     let Some(Slot::Reference(Some(pat_ref))) = fields.get(MATCHER_PATTERN_FIELD).copied() else {
         return Ok(Some(Slot::Reference(None)));
     };
