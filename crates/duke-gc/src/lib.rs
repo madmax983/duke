@@ -1559,7 +1559,7 @@ impl Heap {
 
     /// Lisp-2 sliding mark-compact of the old generation.
     ///
-    /// 1. **Mark** live old objects reachable from `roots` (reuses [`mark_old`]).
+    /// 1. **Mark** live old objects reachable from `roots` (reuses `` `Self::mark_old` ``).
     /// 2. **Forward** — assign each live object a new, densely-packed old index
     ///    in ascending (stable, sliding) order; record old→new in an
     ///    `old_forward` map (only for objects that actually move).
@@ -1575,8 +1575,6 @@ impl Heap {
     ///
     /// `identity_hash` and `atomic_payload` ride along with each moved object,
     /// preserving the [`HeapObject`] invariant across relocation.
-    ///
-    /// [`mark_old`]: Self::mark_old
     pub fn compact_old(&mut self, roots: &[Slot]) {
         // Snapshot executor shared state up front: their task queues hold bare
         // OLD refs the mutator never sees, so we both (a) treat them as extra
