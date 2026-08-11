@@ -193,24 +193,26 @@ pub fn dump_jar_scan(jar_path: &str) {
             continue;
         }
         let class_name_internal = entry_name.strip_suffix(".class").unwrap();
-        #[allow(clippy::collapsible_if)]
-        if let Ok(bytes) = loader.find_class(class_name_internal) {
-            if let Ok(cf) = parse(&bytes) {
-                total_classes += 1;
-                let matches = scan_classfile(&cf);
-                if !matches.is_empty() {
-                    total_matches += matches.len();
-                    println!("⚠️  In class '{class_name_internal}':");
-                    for m in matches {
-                        println!(
-                            "    [{}] {}::{} ({})",
-                            m.rule.severity, m.rule.class_name, m.rule.method_name, m.location
-                        );
-                        println!("      Reason: {}", m.rule.description);
-                    }
-                    println!();
-                }
+        let Ok(bytes) = loader.find_class(class_name_internal) else {
+            continue;
+        };
+        let Ok(cf) = parse(&bytes) else {
+            continue;
+        };
+
+        total_classes += 1;
+        let matches = scan_classfile(&cf);
+        if !matches.is_empty() {
+            total_matches += matches.len();
+            println!("⚠️  In class '{class_name_internal}':");
+            for m in matches {
+                println!(
+                    "    [{}] {}::{} ({})",
+                    m.rule.severity, m.rule.class_name, m.rule.method_name, m.location
+                );
+                println!("      Reason: {}", m.rule.description);
             }
+            println!();
         }
     }
 
