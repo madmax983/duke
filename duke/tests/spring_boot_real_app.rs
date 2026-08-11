@@ -328,12 +328,14 @@ const LADDER_JAR: &str = "duke-spring-boot-ladder-3.5.12.jar";
 // `class not found: [`, and `class not found: $$Lambda$` are deliberately ABSENT: all three
 // walls are cleared (generics, array-class, and lambda-reflection lanes respectively) and none
 // must reappear.
-const APP_BLOCKERS: [&str; 2] = [
+const APP_BLOCKERS: [&str; 3] = [
     // Loader-qualified class-key dedup (ApplicationListener) — now the deterministic first
     // blocker (20/20 runs on the rebased binary; class-identity lane, still OPEN).
     "ambiguous class name",
     // Reflective main.invoke wrapping a ClassCastException from the same loader-key root.
     "java exception: java/lang/reflect/InvocationTargetException",
+    // Missing native method for VM.getNanoTimeAdjustment
+    "method not found: jdk/internal/misc/VM.getNanoTimeAdjustment(J)J",
 ];
 // LADDER now boots END-TO-END (2026-07-15, same-class-reflection lane, trunk): main
 // climbs into `LadderApplication.main`, clears Properties.load + the BufferedReader
