@@ -37,3 +37,7 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+
+**[ASCII Vec<u8> to String Conversion]**
+**Learning:** Using `into_iter().map(char::from).collect()` to convert a `Vec<u8>` containing known ASCII data into a `String` causes unnecessary O(N) heap allocations.
+**Action:** Use `String::from_utf8(vec).unwrap()` instead, which seamlessly reuses the existing vector allocation in O(1) space.
