@@ -517,7 +517,9 @@ mod tests {
         assert!(json.contains("\"java/lang/String::intern\""));
     }
 
+    #[cfg(feature = "telemetry")]
     struct FailingWriter;
+    #[cfg(feature = "telemetry")]
     impl std::io::Write for FailingWriter {
         fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
             Err(std::io::Error::other("disk full"))
