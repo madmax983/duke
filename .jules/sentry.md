@@ -47,3 +47,10 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2023-10-27 - Test I/O Error Propagation for Chained Formatters
+**Learning:** When testing a system of chained output formatters (where a top-level `print_report` calls multiple sub-formatters using `?`), testing only the top-level method with a failing writer masks untested error paths. The first sub-formatter that fails will return early, leaving all subsequent formatters unexercised in the error condition.
+**Action:** When I identify chained I/O writing methods, I will write isolated tests using a mock failing `std::io::Write` implementation for *each individual* sub-formatter to ensure 100% path coverage for error propagation.
+
+## 2023-10-27 - Triggering I/O Errors on Formatters
+**Learning:** To trigger an I/O error on a formatting method, it is often not necessary to populate the underlying data structure if the method unconditionally writes a header immediately. Passing an unmodified `Default::default()` instance to the formatter with a mock failing writer is sufficient to hit the `Err` case.
+**Action:** I will verify if a formatting method has unconditional initial writes before investing time in discovering or hallucinating data population methods.

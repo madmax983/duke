@@ -598,4 +598,80 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    struct TestFailingWriter;
+    impl std::io::Write for TestFailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("disk full"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_print_bytecode_cost_io_error() {
+        let mut store = crate::TelemetryStore::default();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        let res = store.print_bytecode_cost(&mut TestFailingWriter);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_print_object_lineage_io_error() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        let res = store.print_object_lineage(&mut TestFailingWriter);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_print_class_init_dag_io_error() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        let res = store.print_class_init_dag(&mut TestFailingWriter);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_print_class_init_dag_empty_io_error() {
+        let store = crate::TelemetryStore::default();
+        let res = store.print_class_init_dag(&mut TestFailingWriter);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_print_exception_flow_io_error() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        let res = store.print_exception_flow(&mut TestFailingWriter);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_print_exception_flow_empty_io_error() {
+        let store = crate::TelemetryStore::default();
+        let res = store.print_exception_flow(&mut TestFailingWriter);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_print_dispatch_resolution_io_error() {
+        let store = crate::TelemetryStore::default();
+        let res = store.print_dispatch_resolution(&mut TestFailingWriter);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_print_native_boundary_io_error() {
+        let store = crate::TelemetryStore::default();
+        let res = store.print_native_boundary(&mut TestFailingWriter);
+        assert!(res.is_err());
+    }
 }
