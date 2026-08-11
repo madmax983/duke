@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 #![allow(clippy::unreadable_literal)]
 #![allow(clippy::needless_borrows_for_generic_args)]
 #![allow(clippy::uninlined_format_args)]
