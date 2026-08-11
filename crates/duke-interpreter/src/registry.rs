@@ -841,6 +841,8 @@ impl ClassRegistry {
     /// [`KEEP_SYNTHETIC`] allowlist and whose real classfile is resolvable via `loader`
     /// will be skipped by [`Self::register`], letting a later `ensure_loaded` load the
     /// real JDK bytecode. Must be called *before* `bootstrap_stdlib` runs to take effect.
+    ///
+    /// [`KEEP_SYNTHETIC`]: KEEP_SYNTHETIC
     pub fn enable_real_jdk_shadow(&mut self, loader: Arc<dyn ClassLoader + Send + Sync>) {
         self.real_jdk_shadow = true;
         self.shadow_loader = Some(loader);

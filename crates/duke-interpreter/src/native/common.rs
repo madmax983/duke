@@ -1495,6 +1495,8 @@ fn string_bytes_for_arg(
 /// `new java/lang/String` + `<init>` mint path is coherent with the
 /// `allocate_string` mint path (both leave slot0/slot1 populated). An empty
 /// `value` still gets a valid zero-length `[B` in slot0.
+///
+/// [`Heap::set_string_layout`]: duke_gc::Heap::set_string_layout
 fn store_string_init_value(heap: &mut duke_gc::Heap, this_ref: u64, value: String) -> Result<()> {
     heap.set_string_layout(this_ref, &value);
     heap.get_mut(this_ref)?.string_value = Some(value);
