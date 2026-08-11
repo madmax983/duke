@@ -85,3 +85,7 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+
+**[Extract NotFound Error Handling]
+**Learning:** `ZipLoader` in `crates/duke-loader/src/zip.rs` contained 13 identical inline 5-line `match` blocks to ignore `Error::NotFound` while propagating other I/O errors or successes. This created a visual "Pyramid of Doom" and obscured the simple fallback logic.
+**Action:** Extract error propagation logic into a generic helper function `ignore_not_found<T>(Result<T, Error>) -> Option<Result<T, Error>>` and use `if let Some(res) = ignore_not_found(...)` to cleanly flatten the control flow and remove boilerplate.
