@@ -517,19 +517,19 @@ mod tests {
         assert!(json.contains("\"java/lang/String::intern\""));
     }
 
+    struct FailingWriter;
+    impl std::io::Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("disk full"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     #[cfg(feature = "telemetry")]
     fn test_print_report_io_error() {
-        struct FailingWriter;
-        impl std::io::Write for FailingWriter {
-            fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
-                Err(std::io::Error::other("disk full"))
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-
         let mut store = TelemetryStore::default();
         store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
         store
@@ -551,6 +551,85 @@ mod tests {
         let mut w = FailingWriter;
         let res = store.print_report(&mut w);
         assert!(res.is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_bytecode_cost_io_error() {
+        let store = TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_bytecode_cost(&mut w).is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_object_lineage_io_error() {
+        let store = TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_object_lineage(&mut w).is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_class_init_dag_io_error() {
+        let store = TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_class_init_dag(&mut w).is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_exception_flow_io_error() {
+        let store = TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_exception_flow(&mut w).is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_dispatch_resolution_io_error() {
+        let store = TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_dispatch_resolution(&mut w).is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_native_boundary_io_error() {
+        let store = TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_native_boundary(&mut w).is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn should_generate_markdown_report_with_all_data_populated() {
+        let mut store = TelemetryStore::default();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+
+        let md = store.to_markdown_report();
+        assert!(md.contains("# Duke VM Telemetry Report"));
+        assert!(md.contains("| `iadd` | 1 | 100 |"));
+        assert!(md.contains("| `java/lang/String::Foo` @10 | `bar` | 1 |"));
+        assert!(md.contains("\"java/lang/System\" -->|500ns| \"java/lang/String\";"));
+        assert!(md.contains("| `java/lang/Exception` | `Foo::bar @10` | `uncaught` |"));
+        assert!(md.contains("| `Foo`[cp42] | 1 | 1 | 1 |"));
+        assert!(md.contains("| `java/lang/String.intern` | 1 | 1 | 100 |"));
     }
 
     #[test]
