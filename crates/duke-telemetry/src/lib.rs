@@ -598,4 +598,82 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    fn test_print_dispatch_resolution_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .dispatch_resolution
+            .record("java/lang/String", 10, "java/lang/String", false);
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("java/lang/String"));
+    }
+
+    #[test]
+    fn test_print_native_boundary_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .native_boundary
+            .record_call("java/lang/System", "currentTimeMillis", 1000, false);
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("java/lang/System"));
+    }
+
+    struct FailingWriter;
+    impl std::io::Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("disk full"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_print_bytecode_cost_io_error() {
+        let store = crate::TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_bytecode_cost(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_object_lineage_io_error() {
+        let store = crate::TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_object_lineage(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_class_init_dag_io_error() {
+        let store = crate::TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_class_init_dag(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_exception_flow_io_error() {
+        let mut store = crate::TelemetryStore::default();
+        // Needs an event so it doesn't return early
+        store.exception_flow.record_throw("Ex", "M", "T", 0);
+        let mut w = FailingWriter;
+        assert!(store.print_exception_flow(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_dispatch_resolution_io_error() {
+        let store = crate::TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_dispatch_resolution(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_native_boundary_io_error() {
+        let store = crate::TelemetryStore::default();
+        let mut w = FailingWriter;
+        assert!(store.print_native_boundary(&mut w).is_err());
+    }
 }

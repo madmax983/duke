@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-08-12 - [duke-telemetry: I/O and Markdown Edge Cases Tested]
+**Learning:** Chained writers and top-level reporting functions can hide errors in their dependencies if they aren't fully covered. Empty state logic in markdown reports can also slip by unnoticed.
+**Action:** Use a `FailingWriter` mock to assert sequential write errors, and comprehensively write integration tests asserting the generated strings (Markdown/Print) include specific content under both empty and populated paths.
