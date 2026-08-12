@@ -12,6 +12,18 @@
 //!
 //! [`Heap::get`] and [`Heap::get_mut`] are generation-agnostic; callers never
 //! need to know which gen an object lives in.
+//!
+//! ## Examples
+//!
+//! ```rust
+//! use duke_gc::Heap;
+//! use duke_runtime::Slot;
+//!
+//! let mut heap = Heap::new();
+//! let string_ref = heap.allocate_string("Duke".to_string());
+//! let obj = heap.get(string_ref).unwrap();
+//! assert_eq!(obj.string_value.as_deref(), Some("Duke"));
+//! ```
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, Ordering};
@@ -1559,7 +1571,7 @@ impl Heap {
 
     /// Lisp-2 sliding mark-compact of the old generation.
     ///
-    /// 1. **Mark** live old objects reachable from `roots` (reuses [`mark_old`]).
+    /// 1. **Mark** live old objects reachable from `roots` (reuses `` `mark_old` ``).
     /// 2. **Forward** — assign each live object a new, densely-packed old index
     ///    in ascending (stable, sliding) order; record old→new in an
     ///    `old_forward` map (only for objects that actually move).
@@ -1575,8 +1587,6 @@ impl Heap {
     ///
     /// `identity_hash` and `atomic_payload` ride along with each moved object,
     /// preserving the [`HeapObject`] invariant across relocation.
-    ///
-    /// [`mark_old`]: Self::mark_old
     pub fn compact_old(&mut self, roots: &[Slot]) {
         // Snapshot executor shared state up front: their task queues hold bare
         // OLD refs the mutator never sees, so we both (a) treat them as extra
