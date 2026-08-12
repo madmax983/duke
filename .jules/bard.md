@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-25 - [Private Intra-Doc Links]
+**Confusion:** The public documentation for `compact_old` and `enable_real_jdk_shadow` attempted to use intra-doc links for private items (`mark_old` and `KEEP_SYNTHETIC`), causing `rustdoc` warnings.
+**Clarification:** Changed the bracketed intra-doc links to backticked code literals and removed their explicit link definitions. Public docs should not link to private implementations, as this creates a confusing reading experience and generates warnings.
