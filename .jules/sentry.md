@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Testing Telemetry Map Helper Formats
+**Learning:** Formatting logic for maps and sets via `serde` helper wrappers (like `site3`, `site2_u16`, `pair_str`, `sorted_set`) could regress unobserved because tests only cover `serde` errors/failures or empty instances, not the structured JSON output of valid populated maps.
+**Action:** Adding specific inline unit tests mocking simple data to assert exact JSON serialization.
