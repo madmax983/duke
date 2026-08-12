@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2026-08-12 - [Resolving broken rustdoc intra-doc links]
+**Confusion:** Resolving intra-doc links to private items like `mark_old` and `KEEP_SYNTHETIC` fails when building documentation for public items under strict warnings (e.g. `clippy` or `cargo doc` complaining about private items being publicly linked), and rustdoc attempts to parse bracket layouts like `[0]` as links.
+**Clarification:** Changed references to private items to inline code wrappers (`` `KEEP_SYNTHETIC` ``), removed explicit broken link definitions, added full crate paths for cross-crate documentation (`duke_gc::Heap::set_string_layout`), and escaped bracket layouts with inline code. Added `## Examples` to module level documentation for `duke-gc` and `duke-interpreter` to enrich the API story.
