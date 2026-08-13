@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2023-10-27 - Fixing rustdoc Unresolved and Private Links
+**Confusion:** Linking to private items (like `mark_old` or `KEEP_SYNTHETIC`) causes `rustdoc::private_intra_doc_links` warnings under `-D warnings`. Also, bracketed text intended for array/field layouts (like `[0]`) triggers `unresolved link` warnings.
+**Clarification:** Private item links must be converted to plain backticked code (e.g., `` `mark_old` ``). Bracketed text for layouts must also be wrapped in backticks (e.g., `` `[0]` ``). Ensure to remove orphaned reference link definitions.
