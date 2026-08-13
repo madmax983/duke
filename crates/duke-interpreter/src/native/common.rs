@@ -13530,6 +13530,7 @@ fn base64_variant_arg(args: &[Slot], heap: &duke_gc::Heap) -> Result<Base64Varia
     Base64Variant::from_field(*value).ok_or_else(invalid_base64_error)
 }
 
+/// Bolt Optimization: Avoids O(N) heap allocations by converting a known ASCII `Vec<u8>` directly to a `String` using `from_utf8`, reusing the existing vector allocation in O(1) space.
 fn encode_base64(input: &[u8], variant: Base64Variant) -> String {
     let alphabet = variant.alphabet();
     let mut out = Vec::with_capacity(input.len().div_ceil(3) * 4);
@@ -13565,7 +13566,7 @@ fn encode_base64(input: &[u8], variant: Base64Variant) -> String {
         }
     }
 
-    out.into_iter().map(char::from).collect()
+    String::from_utf8(out).unwrap()
 }
 
 fn base64_decode_value(byte: u8, variant: Base64Variant) -> Option<u8> {
