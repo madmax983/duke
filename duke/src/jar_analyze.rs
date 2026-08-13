@@ -94,34 +94,37 @@ pub fn dump_jar_analyze(jar_path: &str) {
             continue;
         }
         let class_name_internal = entry_name.strip_suffix(".class").unwrap();
-        if let Ok(bytes) = loader.find_class(class_name_internal) {
-            if let Ok(cf) = parse(&bytes) {
-                total_classes += 1;
-                let class_name = resolve_class_name(&cf, cf.this_class);
+        let Ok(bytes) = loader.find_class(class_name_internal) else {
+            continue;
+        };
+        let Ok(cf) = parse(&bytes) else {
+            continue;
+        };
 
-                for method in &cf.methods {
-                    total_methods += 1;
-                    let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
-                    let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
-                    let full_name = format!("{name_str}{desc_str}");
+        total_classes += 1;
+        let class_name = resolve_class_name(&cf, cf.this_class);
 
-                    let mut complexity = 0;
-                    for attr in &method.attributes {
-                        if let AttributeData::Code(code) = &attr.data {
-                            total_bytecode_bytes += code.code.len();
-                            if let Ok(instructions) = decode(&code.code) {
-                                complexity = cyclomatic_complexity(&instructions);
-                            }
-                        }
+        for method in &cf.methods {
+            total_methods += 1;
+            let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
+            let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
+            let full_name = format!("{name_str}{desc_str}");
+
+            let mut complexity = 0;
+            for attr in &method.attributes {
+                if let AttributeData::Code(code) = &attr.data {
+                    total_bytecode_bytes += code.code.len();
+                    if let Ok(instructions) = decode(&code.code) {
+                        complexity = cyclomatic_complexity(&instructions);
                     }
-
-                    all_methods.push(MethodRecord {
-                        class_name: class_name.clone(),
-                        method_name: full_name,
-                        complexity,
-                    });
                 }
             }
+
+            all_methods.push(MethodRecord {
+                class_name: class_name.clone(),
+                method_name: full_name,
+                complexity,
+            });
         }
     }
 
