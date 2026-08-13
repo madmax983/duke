@@ -57,7 +57,7 @@ fn resolve_class_name(cf: &duke_classfile::ClassFile, idx: CpIndex) -> String {
 )]
 pub fn dump_jar_clone_detect(jar_path: &str, threshold: f64) {
     let Ok(loader) = ZipLoader::open(Path::new(jar_path)) else {
-        eprintln!("duke: warning: failed to open JAR '{}'", jar_path);
+        eprintln!("duke: warning: failed to open JAR '{jar_path}'");
         return; // Avoid abrupt exit in tests
     };
 
@@ -79,7 +79,7 @@ pub fn dump_jar_clone_detect(jar_path: &str, threshold: f64) {
                 for method in &cf.methods {
                     let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
                     let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
-                    let full_name = format!("{}::{}{}", class_name, name_str, desc_str);
+                    let full_name = format!("{class_name}::{name_str}{desc_str}");
 
                     for attr in &method.attributes {
                         if let AttributeData::Code(code) = &attr.data {
@@ -104,11 +104,11 @@ pub fn dump_jar_clone_detect(jar_path: &str, threshold: f64) {
             if sim >= threshold {
                 if !found {
                     println!("======================================");
-                    println!(" JAR Structural Clones Detected (Threshold: {:.2})", threshold);
+                    println!(" JAR Structural Clones Detected (Threshold: {threshold:.2})");
                     println!("======================================");
                     found = true;
                 }
-                println!("Similarity: {:.2}", sim);
+                println!("Similarity: {sim:.2}");
                 println!("  - {}", methods_data[i].0);
                 println!("  - {}", methods_data[j].0);
                 println!();
@@ -117,7 +117,7 @@ pub fn dump_jar_clone_detect(jar_path: &str, threshold: f64) {
     }
 
     if !found {
-        println!("No structural clones found with similarity >= {:.2}", threshold);
+        println!("No structural clones found with similarity >= {threshold:.2}");
     }
 }
 

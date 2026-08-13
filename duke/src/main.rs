@@ -454,7 +454,10 @@ fn main() {
         }
         #[cfg(feature = "nova")]
         {
-            let threshold = args.get(3).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.9);
+            let threshold = args
+                .get(3)
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.9);
             jar_clone_detect::dump_jar_clone_detect(&args[2], threshold);
             return;
         }
