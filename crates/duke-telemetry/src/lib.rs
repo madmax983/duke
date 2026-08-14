@@ -429,6 +429,42 @@ mod tests {
 
     #[test]
     #[cfg(feature = "telemetry")]
+    fn test_markdown_bytecode_cost_empty() {
+        let store = TelemetryStore::default();
+        let mut md = String::new();
+        store.markdown_bytecode_cost(&mut md);
+        assert!(md.contains("## Bytecode Cost (Top 10)"));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_markdown_object_lineage_empty() {
+        let store = TelemetryStore::default();
+        let mut md = String::new();
+        store.markdown_object_lineage(&mut md);
+        assert!(md.contains("## Object Lineage (Top 10 Allocation Sites)"));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_markdown_dispatch_resolution_empty() {
+        let store = TelemetryStore::default();
+        let mut md = String::new();
+        store.markdown_dispatch_resolution(&mut md);
+        assert!(md.contains("## Dispatch Resolution (Top 10 Virtual Call Sites)"));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_markdown_native_boundary_empty() {
+        let store = TelemetryStore::default();
+        let mut md = String::new();
+        store.markdown_native_boundary(&mut md);
+        assert!(md.contains("## Native Boundary (Top 10 by Call Count)"));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
     fn test_print_report_empty() {
         let store = TelemetryStore::default();
         let mut buf = Vec::new();
@@ -597,5 +633,33 @@ mod tests {
         store.print_exception_flow(&mut buf).unwrap();
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_dispatch_resolution_populated() -> std::io::Result<()> {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf)?;
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("Foo[cp42] calls=1 targets=1 walks=1"));
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_native_boundary_populated() -> std::io::Result<()> {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf)?;
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("java/lang/String.intern calls=1 errors=1"));
+        Ok(())
     }
 }
