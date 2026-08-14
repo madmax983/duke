@@ -9,6 +9,8 @@ mod analyze;
 #[cfg(feature = "nova")]
 mod audit;
 #[cfg(feature = "nova")]
+mod complexity;
+#[cfg(feature = "nova")]
 mod cycle_detect;
 #[cfg(feature = "nova")]
 mod dead_code;
@@ -371,6 +373,10 @@ fn main() {
         #[cfg(feature = "nova")]
         eprintln!("       duke html-jar <file.jar> <output_dir>");
         #[cfg(feature = "nova")]
+        eprintln!("       duke complexity <classfile.class>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke jar-complexity <file.jar>");
+        #[cfg(feature = "nova")]
         eprintln!("       duke cycle-detect <file.jar>");
         #[cfg(feature = "nova")]
         eprintln!("       duke audit <file.jar>");
@@ -425,6 +431,43 @@ fn main() {
         #[cfg(not(feature = "nova"))]
         {
             eprintln!("duke: unknown subcommand 'jar-dead-code'");
+            std::process::exit(1);
+        }
+    }
+
+    // Dispatch `jar-complexity`
+    if args.len() > 1 && args[1] == "jar-complexity" {
+        if args.len() < 3 {
+            eprintln!("Usage: duke jar-complexity <file.jar>");
+            std::process::exit(1);
+        }
+        #[cfg(feature = "nova")]
+        {
+            if let Err(e) = complexity::dump_jar_complexity(&args[2]) {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: unknown subcommand 'jar-complexity'");
+            std::process::exit(1);
+        }
+    }
+
+    if args.len() >= 3 && args[1] == "complexity" {
+        #[cfg(feature = "nova")]
+        {
+            if let Err(e) = complexity::dump_complexity(&args[2]) {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: unknown subcommand 'complexity'");
             std::process::exit(1);
         }
     }
