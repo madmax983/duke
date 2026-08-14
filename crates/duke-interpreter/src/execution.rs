@@ -211,6 +211,7 @@ fn layout_coherence_check(
 /// let result = run_execution(&mut state, &mut registry, &loader, &mut heap, &mut stdout);
 /// ```
 #[allow(
+    clippy::large_stack_frames,
     clippy::cast_sign_loss,
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
