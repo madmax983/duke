@@ -36,3 +36,7 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+
+## 2024-08-14 - Private Intra-Doc Links
+**Confusion:** Using intra-doc links (`[item]`) for private items triggers a `rustdoc::private_intra_doc_links` error under strict warning checks.
+**Clarification:** Replace private intra-doc links with plain backticked code (e.g., `` `item` ``) and remove the trailing link definition if applicable.
