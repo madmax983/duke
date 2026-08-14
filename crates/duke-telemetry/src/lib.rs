@@ -588,14 +588,105 @@ mod tests {
     }
 
     #[test]
-    fn test_print_exception_flow_populated() {
+    fn test_print_exception_flow_populated() -> Result<(), Box<dyn std::error::Error>> {
         let mut store = crate::TelemetryStore::default();
         store
             .exception_flow
             .record_throw("java/lang/Exception", "Foo", "bar", 10);
         let mut buf = Vec::new();
-        store.print_exception_flow(&mut buf).unwrap();
-        let s = String::from_utf8(buf).unwrap();
+        store.print_exception_flow(&mut buf)?;
+        let s = String::from_utf8(buf)?;
         assert!(s.contains("java/lang/Exception"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_print_dispatch_resolution_populated() -> Result<(), Box<dyn std::error::Error>> {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf)?;
+        let s = String::from_utf8(buf)?;
+        assert!(s.contains("Foo[cp42] calls=1 targets=1 walks=1"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_print_native_boundary_populated() -> Result<(), Box<dyn std::error::Error>> {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf)?;
+        let s = String::from_utf8(buf)?;
+        assert!(s.contains("java/lang/String.intern calls=1 errors=1"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_markdown_bytecode_cost_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        let mut s = String::new();
+        store.markdown_bytecode_cost(&mut s);
+        assert!(s.contains("| `iadd` | 1 | 100 |"));
+    }
+
+    #[test]
+    fn test_markdown_object_lineage_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        let mut s = String::new();
+        store.markdown_object_lineage(&mut s);
+        assert!(s.contains("| `java/lang/String::Foo` @10 | `bar` | 1 |"));
+    }
+
+    #[test]
+    fn test_markdown_class_init_dag_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        let mut s = String::new();
+        store.markdown_class_init_dag(&mut s);
+        assert!(s.contains("\"java/lang/System\" -->|500ns| \"java/lang/String\";"));
+    }
+
+    #[test]
+    fn test_markdown_exception_flow_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        let mut s = String::new();
+        store.markdown_exception_flow(&mut s);
+        assert!(s.contains("| `java/lang/Exception` | `Foo::bar @10` | `uncaught` |"));
+    }
+
+    #[test]
+    fn test_markdown_dispatch_resolution_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        let mut s = String::new();
+        store.markdown_dispatch_resolution(&mut s);
+        assert!(s.contains("| `Foo`[cp42] | 1 | 1 | 1 |"));
+    }
+
+    #[test]
+    fn test_markdown_native_boundary_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+        let mut s = String::new();
+        store.markdown_native_boundary(&mut s);
+        assert!(s.contains("| `java/lang/String.intern` | 1 | 1 | 100 |"));
     }
 }

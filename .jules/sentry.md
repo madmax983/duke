@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Duke Telemetry Missing Output Coverage
+**Learning:** Found multiple untested internal print and markdown formatting boundary methods in `duke-telemetry` (e.g. `print_dispatch_resolution`, `markdown_bytecode_cost`). The formatter functions output basic metrics string formatting for `print` and markdown generation, but were not directly covered by tests and their specific data structures were omitted from coverage tests.
+**Action:** Add isolated tests for formatting specific channels with mock payload populations instead of relying only on overarching tests.
