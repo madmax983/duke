@@ -38,44 +38,39 @@ pub fn inspect_jar(path: &str) {
     names.sort_unstable(); // For deterministic parsing in tests
 
     for name in names {
-        if name.ends_with(".class") {
-            if let Ok(class_bytes) = zip.read_entry(name) {
-                if let Ok(cf) = parse(&class_bytes) {
-                    total_classes += 1;
-                    total_fields += cf.fields.len();
-                    total_methods += cf.methods.len();
+        if !name.ends_with(".class") { continue; }
 
-                    let class_name = name.replace(".class", "").replace('/', ".");
+        let Ok(class_bytes) = zip.read_entry(name) else { continue; };
+        let Ok(cf) = parse(&class_bytes) else { continue; };
 
-                    for method in &cf.methods {
-                        let method_name = cf
-                            .constant_pool
-                            .get(method.name_index.0 as usize)
-                            .and_then(|e| e.as_ref())
-                            .and_then(|e| {
-                                if let duke_classfile::CpEntry::Utf8(s) = e {
-                                    Some(s)
-                                } else {
-                                    None
-                                }
-                            })
-                            .map_or("<unknown>", std::string::String::as_str);
+        total_classes += 1;
+        total_fields += cf.fields.len();
+        total_methods += cf.methods.len();
 
-                        for attr in &method.attributes {
-                            if let AttributeData::Code(code) = &attr.data {
-                                if let Ok(instructions) = decode(&code.code) {
-                                    total_instructions += instructions.len();
-                                    let comp = cyclomatic_complexity(&instructions);
-                                    total_complexity += comp;
+        let class_name = name.replace(".class", "").replace('/', ".");
 
-                                    if comp > max_complexity {
-                                        max_complexity = comp;
-                                        max_complex_method = format!("{class_name}::{method_name}");
-                                    }
-                                }
-                            }
-                        }
-                    }
+        for method in &cf.methods {
+            let method_name = cf
+                .constant_pool
+                .get(method.name_index.0 as usize)
+                .and_then(|e| e.as_ref())
+                .and_then(|e| {
+                    let duke_classfile::CpEntry::Utf8(s) = e else { return None; };
+                    Some(s)
+                })
+                .map_or("<unknown>", std::string::String::as_str);
+
+            for attr in &method.attributes {
+                let AttributeData::Code(code) = &attr.data else { continue; };
+                let Ok(instructions) = decode(&code.code) else { continue; };
+
+                total_instructions += instructions.len();
+                let comp = cyclomatic_complexity(&instructions);
+                total_complexity += comp;
+
+                if comp > max_complexity {
+                    max_complexity = comp;
+                    max_complex_method = format!("{class_name}::{method_name}");
                 }
             }
         }
