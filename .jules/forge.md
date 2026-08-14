@@ -85,3 +85,6 @@
 **Extract Bounds-Checking Pre-Allocations**
 **Learning:** `crates/duke-classfile/src/parser.rs` contained 14+ instances of manual `Vec::with_capacity((count as usize).min(c.remaining() / bytes_per_item))` math. This mixed control-flow iteration with low-level raw byte arithmetic and bounds checking across the parsing domain, creating duplicated visual noise.
 **Action:** Extract raw byte heuristics for `Vec` pre-allocation bounds-checking into a reusable, named helper method on the reader/cursor object (e.g., `Cursor::safe_capacity`). Use this single source of truth across all parsing sites to strictly delineate parsing intent from anti-OOM arithmetic.
+**Pyramid of Doom in JAR tools**
+**Learning:** The JAR analysis tools frequently use deeply nested `if let Ok(...)` and `if let AttributeData::Code(...)` constructs inside processing loops, leading to significant rightward drift and reduced readability.
+**Action:** Used `let Ok(...) = ... else { continue; }` idiomatic guard clauses early in the loops to flatten the nesting.

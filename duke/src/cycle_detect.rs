@@ -73,24 +73,27 @@ pub fn dump_cycle_detect(jar_path: &str) {
             continue;
         }
         let class_name_internal = entry_name.strip_suffix(".class").unwrap();
-        if let Ok(bytes) = loader.find_class(class_name_internal) {
-            if let Ok(cf) = parse(&bytes) {
-                let this_name = resolve_class_name(&cf, cf.this_class);
-                let deps = graph.entry(this_name.clone()).or_default();
+        let Ok(bytes) = loader.find_class(class_name_internal) else {
+            continue;
+        };
+        let Ok(cf) = parse(&bytes) else {
+            continue;
+        };
+        let this_name = resolve_class_name(&cf, cf.this_class);
+        let deps = graph.entry(this_name.clone()).or_default();
 
-                for (i, entry) in cf.constant_pool.iter().enumerate() {
-                    if let Some(CpEntry::Class { .. }) = entry {
-                        let idx = CpIndex(u16::try_from(i).unwrap_or(u16::MAX));
-                        if idx != cf.this_class {
-                            let ref_name = resolve_class_name(&cf, idx);
-                            if ref_name != "<invalid utf8>"
-                                && ref_name != "<not a class ref>"
-                                && ref_name != "<none>"
-                            {
-                                deps.insert(ref_name);
-                            }
-                        }
-                    }
+        for (i, entry) in cf.constant_pool.iter().enumerate() {
+            let Some(CpEntry::Class { .. }) = entry else {
+                continue;
+            };
+            let idx = CpIndex(u16::try_from(i).unwrap_or(u16::MAX));
+            if idx != cf.this_class {
+                let ref_name = resolve_class_name(&cf, idx);
+                if ref_name != "<invalid utf8>"
+                    && ref_name != "<not a class ref>"
+                    && ref_name != "<none>"
+                {
+                    deps.insert(ref_name);
                 }
             }
         }

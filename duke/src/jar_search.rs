@@ -56,34 +56,38 @@ pub fn dump_jar_search(jar_path: &str, query: &str) {
 
     for entry_name in class_entries {
         let class_name_internal = entry_name.strip_suffix(".class").unwrap();
-        if let Ok(bytes) = loader.find_class(class_name_internal) {
-            if let Ok(cf) = parse(&bytes) {
-                for method in &cf.methods {
-                    let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
-                    let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
-                    let full_name = format!("{class_name_internal}.{name_str}{desc_str}");
+        let Ok(bytes) = loader.find_class(class_name_internal) else {
+            continue;
+        };
+        let Ok(cf) = parse(&bytes) else {
+            continue;
+        };
+        for method in &cf.methods {
+            let name_str = cp_str(&cf, method.name_index).unwrap_or("<invalid>");
+            let desc_str = cp_str(&cf, method.descriptor_index).unwrap_or("<invalid>");
+            let full_name = format!("{class_name_internal}.{name_str}{desc_str}");
 
-                    for attr in &method.attributes {
-                        if let AttributeData::Code(code) = &attr.data {
-                            if let Ok(instructions) = decode(&code.code) {
-                                let mut found_in_method = false;
-                                for (pc, instr) in instructions {
-                                    let mnemonic = instr.mnemonic().to_lowercase();
-                                    if mnemonic.contains(&query_lower) {
-                                        if !found_in_method {
-                                            println!("Method: {full_name}");
-                                            found_in_method = true;
-                                            found_any = true;
-                                        }
-                                        println!("  {pc:>4}: {mnemonic}");
-                                    }
-                                }
-                                if found_in_method {
-                                    println!();
-                                }
-                            }
+            for attr in &method.attributes {
+                let AttributeData::Code(code) = &attr.data else {
+                    continue;
+                };
+                let Ok(instructions) = decode(&code.code) else {
+                    continue;
+                };
+                let mut found_in_method = false;
+                for (pc, instr) in instructions {
+                    let mnemonic = instr.mnemonic().to_lowercase();
+                    if mnemonic.contains(&query_lower) {
+                        if !found_in_method {
+                            println!("Method: {full_name}");
+                            found_in_method = true;
+                            found_any = true;
                         }
+                        println!("  {pc:>4}: {mnemonic}");
                     }
+                }
+                if found_in_method {
+                    println!();
                 }
             }
         }
