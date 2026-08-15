@@ -515,7 +515,7 @@ impl AtomicPayload {
     }
 
     /// Rewrite an OLD-gen reference payload through the old-gen compaction map
-    /// `old_forward` (old ref → new old ref). Used by [`Heap::compact_old`] so
+    /// `old_forward` (old ref → new old ref). Used by `Heap::compact_old` so
     /// an `AtomicReference` pointing at a relocated old-gen object stays valid.
     fn patch_old_forwarded_reference(&self, old_forward: &HashMap<u64, u64>) {
         let Self::Reference(cell) = self else {
@@ -1559,7 +1559,7 @@ impl Heap {
 
     /// Lisp-2 sliding mark-compact of the old generation.
     ///
-    /// 1. **Mark** live old objects reachable from `roots` (reuses [`mark_old`]).
+    /// 1. **Mark** live old objects reachable from `roots` (reuses `mark_old`).
     /// 2. **Forward** — assign each live object a new, densely-packed old index
     ///    in ascending (stable, sliding) order; record old→new in an
     ///    `old_forward` map (only for objects that actually move).
@@ -1576,7 +1576,6 @@ impl Heap {
     /// `identity_hash` and `atomic_payload` ride along with each moved object,
     /// preserving the [`HeapObject`] invariant across relocation.
     ///
-    /// [`mark_old`]: Self::mark_old
     pub fn compact_old(&mut self, roots: &[Slot]) {
         // Snapshot executor shared state up front: their task queues hold bare
         // OLD refs the mutator never sees, so we both (a) treat them as extra

@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-25 - [Private Intra-Doc Links]
+**Confusion:** `cargo doc` warns when public items use intra-doc links to reference private functions or constants (like `mark_old` or `KEEP_SYNTHETIC`).
+**Clarification:** Converted these links to plain backticked text (e.g., `` `KEEP_SYNTHETIC` ``) to prevent `rustdoc::private_intra_doc_links` errors while keeping the docs readable.
