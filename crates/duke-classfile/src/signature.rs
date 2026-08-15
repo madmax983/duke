@@ -171,9 +171,12 @@ pub fn parse_method_signature(input: &str) -> Result<MethodSignature, SignatureE
 /// and the type tags) is a 7-bit ASCII character, and UTF-8 continuation bytes of a
 /// multi-byte identifier character are always `>= 0x80`, so they can never be
 /// mistaken for a delimiter.
+const MAX_DEPTH: usize = 256;
+
 struct Parser<'a> {
     bytes: &'a [u8],
     pos: usize,
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -181,7 +184,20 @@ impl<'a> Parser<'a> {
         Self {
             bytes: input.as_bytes(),
             pos: 0,
+            depth: 0,
         }
+    }
+
+    fn enter(&mut self) -> Result<(), SignatureError> {
+        self.depth += 1;
+        if self.depth > MAX_DEPTH {
+            return self.err("signature too deep");
+        }
+        Ok(())
+    }
+
+    const fn leave(&mut self) {
+        self.depth -= 1;
     }
 
     fn err<T>(&self, message: impl Into<String>) -> Result<T, SignatureError> {
@@ -371,12 +387,22 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_array_type_signature(&mut self) -> Result<TypeSignature, SignatureError> {
+        self.enter()?;
         self.expect(b'[')?;
-        let component = self.parse_type_signature()?;
+        let component = self.parse_type_signature();
+        self.leave();
+        let component = component?;
         Ok(TypeSignature::Array(Box::new(component)))
     }
 
     fn parse_class_type_signature(&mut self) -> Result<ClassTypeSignature, SignatureError> {
+        self.enter()?;
+        let result = self.parse_class_type_signature_inner();
+        self.leave();
+        result
+    }
+
+    fn parse_class_type_signature_inner(&mut self) -> Result<ClassTypeSignature, SignatureError> {
         self.expect(b'L')?;
         // PackageSpecifier* SimpleClassTypeSignature: read identifiers separated by
         // '/', where the final identifier carries the (optional) type arguments.
