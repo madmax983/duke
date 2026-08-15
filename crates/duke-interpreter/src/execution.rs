@@ -218,6 +218,7 @@ fn layout_coherence_check(
     clippy::too_many_lines,
     clippy::too_many_arguments,
     clippy::cognitive_complexity,
+    clippy::large_stack_frames,
     clippy::manual_let_else,
     clippy::single_match,
     clippy::single_match_else,
