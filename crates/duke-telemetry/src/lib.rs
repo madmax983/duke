@@ -598,4 +598,112 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    struct MockFailingWriter;
+    impl std::io::Write for MockFailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("mock error"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_print_bytecode_cost_io_error() {
+        let store = crate::TelemetryStore::default();
+        let mut w = MockFailingWriter;
+        assert!(store.print_bytecode_cost(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_object_lineage_io_error() {
+        let store = crate::TelemetryStore::default();
+        let mut w = MockFailingWriter;
+        assert!(store.print_object_lineage(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_class_init_dag_io_error_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut w = MockFailingWriter;
+        assert!(store.print_class_init_dag(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_class_init_dag_io_error_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        let mut w = MockFailingWriter;
+        assert!(store.print_class_init_dag(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_exception_flow_io_error_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut w = MockFailingWriter;
+        assert!(store.print_exception_flow(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_exception_flow_io_error_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        let mut w = MockFailingWriter;
+        assert!(store.print_exception_flow(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_dispatch_resolution_io_error() {
+        let store = crate::TelemetryStore::default();
+        let mut w = MockFailingWriter;
+        assert!(store.print_dispatch_resolution(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_native_boundary_io_error() {
+        let store = crate::TelemetryStore::default();
+        let mut w = MockFailingWriter;
+        assert!(store.print_native_boundary(&mut w).is_err());
+    }
+
+    #[test]
+    fn test_print_bytecode_cost_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_bytecode_cost(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("-- bytecode_cost"));
+    }
+
+    #[test]
+    fn test_print_object_lineage_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_object_lineage(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("-- object_lineage"));
+    }
+
+    #[test]
+    fn test_print_dispatch_resolution_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("-- dispatch_resolution"));
+    }
+
+    #[test]
+    fn test_print_native_boundary_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("-- native_boundary"));
+    }
 }
