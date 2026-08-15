@@ -212,6 +212,7 @@ fn layout_coherence_check(
 /// ```
 #[allow(
     clippy::cast_sign_loss,
+    clippy::large_stack_frames,
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
     clippy::cast_precision_loss,
