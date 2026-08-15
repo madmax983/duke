@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-18 - Isolated Path Coverage for Sequential Formatters
+**Learning:** Testing I/O error propagation on sequential/chained I/O formatters only on the top-level method leaves subsequent sub-formatters untested, because execution halts on the first error.
+**Action:** Write targeted, isolated unit tests with a mock failing `std::io::Write` implementation for each individual sub-formatter to ensure 100% path coverage on I/O error handling.
