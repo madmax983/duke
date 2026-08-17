@@ -13565,7 +13565,9 @@ fn encode_base64(input: &[u8], variant: Base64Variant) -> String {
         }
     }
 
-    out.into_iter().map(char::from).collect()
+    // ⚡ Bolt: Base64 encoding exclusively outputs valid ASCII characters.
+    // We use `String::from_utf8` to reuse the existing `out` vector allocation instead of mapping over it and allocating a new `String`.
+    String::from_utf8(out).expect("Base64 alphabet is always valid UTF-8")
 }
 
 fn base64_decode_value(byte: u8, variant: Base64Variant) -> Option<u8> {
