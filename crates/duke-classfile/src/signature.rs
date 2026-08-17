@@ -174,6 +174,7 @@ pub fn parse_method_signature(input: &str) -> Result<MethodSignature, SignatureE
 struct Parser<'a> {
     bytes: &'a [u8],
     pos: usize,
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -181,7 +182,21 @@ impl<'a> Parser<'a> {
         Self {
             bytes: input.as_bytes(),
             pos: 0,
+            depth: 0,
         }
+    }
+
+    fn check_depth<T, F>(&mut self, f: F) -> Result<T, SignatureError>
+    where
+        F: FnOnce(&mut Self) -> Result<T, SignatureError>,
+    {
+        if self.depth >= 256 {
+            return self.err("signature recursion depth limit exceeded");
+        }
+        self.depth += 1;
+        let res = f(self);
+        self.depth -= 1;
+        res
     }
 
     fn err<T>(&self, message: impl Into<String>) -> Result<T, SignatureError> {
@@ -351,16 +366,16 @@ impl<'a> Parser<'a> {
 
     /// `ReferenceTypeSignature`: class, type-variable, or array.
     fn parse_reference_type_signature(&mut self) -> Result<TypeSignature, SignatureError> {
-        match self.peek() {
-            Some(b'L') => Ok(TypeSignature::Class(self.parse_class_type_signature()?)),
-            Some(b'T') => self.parse_type_variable_signature(),
-            Some(b'[') => self.parse_array_type_signature(),
-            Some(b) => self.err(format!(
+        self.check_depth(|this| match this.peek() {
+            Some(b'L') => Ok(TypeSignature::Class(this.parse_class_type_signature()?)),
+            Some(b'T') => this.parse_type_variable_signature(),
+            Some(b'[') => this.parse_array_type_signature(),
+            Some(b) => this.err(format!(
                 "expected a reference type signature but found '{}'",
                 b as char
             )),
-            None => self.err("expected a reference type signature but reached end"),
-        }
+            None => this.err("expected a reference type signature but reached end"),
+        })
     }
 
     fn parse_type_variable_signature(&mut self) -> Result<TypeSignature, SignatureError> {
