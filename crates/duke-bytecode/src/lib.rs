@@ -15,6 +15,8 @@ pub(crate) mod cfg;
 pub(crate) mod decoder;
 pub(crate) mod error;
 pub(crate) mod instruction;
+#[cfg(feature = "nova")]
+pub(crate) mod metrics;
 pub(crate) mod opcodes;
 #[cfg(feature = "nova")]
 pub(crate) mod reachability;
@@ -31,6 +33,8 @@ pub use cfg::{cyclomatic_complexity, generate_mermaid_cfg};
 pub use decoder::decode;
 pub use error::{DecodeError, Error, Result, VerifyError};
 pub use instruction::{ArrayType, Instruction};
+#[cfg(feature = "nova")]
+pub use metrics::{MethodMetrics, analyze_method_metrics};
 #[cfg(feature = "nova")]
 pub use reachability::{find_dead_blocks, find_shortest_path, get_successors};
 #[cfg(feature = "nova")]
