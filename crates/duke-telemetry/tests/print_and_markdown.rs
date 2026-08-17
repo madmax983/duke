@@ -25,3 +25,38 @@ fn test_markdown_bytecode_cost_empty() {
     let output = store.to_markdown_report();
     assert!(output.contains("## Bytecode Cost (Top 10)"));
 }
+
+#[test]
+fn test_print_and_markdown_populated() {
+    let mut store = TelemetryStore::new();
+    store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+    store
+        .object_lineage
+        .record("java/lang/String", "Foo", 10, "bar");
+    store
+        .class_init_dag
+        .record("java/lang/String", "java/lang/System", 500);
+    let idx = store
+        .exception_flow
+        .record_throw("java/lang/Exception", "Foo", "bar", 10);
+    store.exception_flow.record_catch(idx, "Foo", "bar", 20);
+    store
+        .dispatch_resolution
+        .record("java/lang/String", 42, "java/lang/String", true);
+    store
+        .native_boundary
+        .record_call("java/lang/String", "intern", 100, true);
+
+    let mut buf = Vec::new();
+    store.print_report(&mut buf).unwrap();
+    let s = String::from_utf8(buf).unwrap();
+
+    assert!(s.contains("=== Duke VM Telemetry Report ==="));
+    assert!(s.contains("iadd"));
+    assert!(s.contains("java/lang/String"));
+
+    let md = store.to_markdown_report();
+    assert!(md.contains("# Duke VM Telemetry Report"));
+    assert!(md.contains("iadd"));
+    assert!(md.contains("java/lang/String"));
+}

@@ -47,3 +47,7 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+
+## 2024-05-20 - Unchecked Writer Failures
+**Learning:** `std::io::Write` methods can fail at any point (e.g. disk full, broken pipe), and large formatting routines often ignore intermediate `Result::Err` returns from formatting macros, risking swallowed errors or silent panics.
+**Action:** Write tests that pass a mock `std::io::Write` which deterministically fails after N bytes to verify `Err` propagation at all intermediate points of the formatting logic.
