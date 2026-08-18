@@ -22,6 +22,8 @@ mod jar_analyze;
 mod jar_diff;
 #[cfg(feature = "nova")]
 mod jar_search;
+#[cfg(feature = "nova")]
+mod jar_strings;
 mod jdwp;
 #[cfg(feature = "nova")]
 mod pathfinding;
@@ -399,6 +401,8 @@ fn main() {
         eprintln!("       duke jar-dead-code <file.jar>");
         #[cfg(feature = "nova")]
         eprintln!("       duke jar-search <file.jar> <query>");
+        #[cfg(feature = "nova")]
+        eprintln!("       duke jar-strings <file.jar> [min_length]");
         eprintln!("       duke -jar <file.jar> [string-arg...]");
         eprintln!("Options: --telemetry[=path]  dump telemetry JSON after execution");
         eprintln!("         --telemetry-md[=p]  dump telemetry Markdown report after execution");
@@ -440,6 +444,28 @@ fn main() {
         #[cfg(not(feature = "nova"))]
         eprintln!("duke: 'jar-diff' command requires the 'nova' feature flag.");
         return;
+    }
+
+    // Dispatch `jar-strings`
+    if args.len() > 1 && args[1] == "jar-strings" {
+        if args.len() < 3 {
+            eprintln!("Usage: duke jar-strings <file.jar> [min_length]");
+            std::process::exit(1);
+        }
+        #[cfg(feature = "nova")]
+        {
+            let min_length = args
+                .get(3)
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(0);
+            jar_strings::dump_jar_strings(&args[2], min_length);
+            return;
+        }
+        #[cfg(not(feature = "nova"))]
+        {
+            eprintln!("duke: unknown subcommand 'jar-strings'");
+            std::process::exit(1);
+        }
     }
 
     // Dispatch `jar-search`
