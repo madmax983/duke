@@ -598,4 +598,25 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    fn test_print_dispatch_resolution_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert_eq!(
+            s,
+            "\n-- dispatch_resolution (top 10 virtual call sites) --\n"
+        );
+    }
+
+    #[test]
+    fn test_print_native_boundary_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert_eq!(s, "\n-- native_boundary (top 10 by call count) --\n");
+    }
 }
