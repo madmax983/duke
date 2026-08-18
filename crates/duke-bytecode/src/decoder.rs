@@ -61,6 +61,14 @@ impl<'a> Cursor<'a> {
     const fn has_remaining(&self) -> bool {
         self.pos < self.data.len()
     }
+    const fn remaining(&self) -> usize {
+        self.data.len().saturating_sub(self.pos)
+    }
+    /// Calculates a safe pre-allocation capacity that will not exceed the remaining
+    /// available bytes in the buffer, preventing OOM attacks from maliciously large counts.
+    fn safe_capacity(&self, requested: usize, bytes_per_item: usize) -> usize {
+        requested.min(self.remaining() / bytes_per_item)
+    }
     fn read_u8(&mut self) -> Result<u8> {
         if self.pos >= self.data.len() {
             return Err(crate::Error::Decode(DecodeError::UnexpectedEof {
@@ -443,7 +451,7 @@ fn decode_tableswitch(c: &mut Cursor<'_>, pc: usize) -> Result<Instruction> {
     // Use i64 to avoid i32 overflow when low is very negative.
     let count_i64 = i64::from(high) - i64::from(low) + 1;
     // Sanity cap: each entry needs 4 bytes; reject if more than remaining data.
-    let max_possible = c.data.len().saturating_sub(c.pos) / 4;
+    let max_possible = c.remaining() / 4;
     if count_i64 < 0 || usize::try_from(count_i64).unwrap_or(usize::MAX) > max_possible {
         return Err(crate::Error::Decode(DecodeError::InvalidTableswitch {
             pc,
@@ -452,7 +460,7 @@ fn decode_tableswitch(c: &mut Cursor<'_>, pc: usize) -> Result<Instruction> {
         }));
     }
     let count = usize::try_from(count_i64).unwrap_or(0);
-    let mut offsets = Vec::with_capacity(count.min(c.data.len().saturating_sub(c.pos) / 4));
+    let mut offsets = Vec::with_capacity(c.safe_capacity(count, 4));
     for _ in 0..count {
         offsets.push(c.read_i32()?);
     }
@@ -473,7 +481,7 @@ fn decode_lookupswitch(c: &mut Cursor<'_>, pc: usize) -> Result<Instruction> {
             npairs,
         }));
     }
-    let remaining_pairs = c.data.len().saturating_sub(c.pos) / 8;
+    let remaining_pairs = c.remaining() / 8;
     if usize::try_from(npairs).unwrap_or(usize::MAX) > remaining_pairs {
         return Err(crate::Error::Decode(DecodeError::InvalidLookupswitch {
             pc,
@@ -481,7 +489,7 @@ fn decode_lookupswitch(c: &mut Cursor<'_>, pc: usize) -> Result<Instruction> {
         }));
     }
     let npairs_usize = usize::try_from(npairs).unwrap_or(0);
-    let mut pairs = Vec::with_capacity(npairs_usize.min(c.data.len().saturating_sub(c.pos) / 8));
+    let mut pairs = Vec::with_capacity(c.safe_capacity(npairs_usize, 8));
     for _ in 0..npairs_usize {
         let match_val = c.read_i32()?;
         let offset = c.read_i32()?;
