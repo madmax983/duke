@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2026-08-18 - Fixing Intra-Doc Links and Layout Backticks
+**Confusion:** Bracketed syntax like `[0]` was causing rustdoc warnings about unresolved links instead of rendering as plain text. Furthermore, private intra-doc links like `[`mark_old`]` triggered warnings with `-D warnings`.
+**Clarification:** Updated bracketed items to use backticks (e.g. `` `[0]` ``) for proper rendering. Fixed private intra-doc links to use pure backticks without the link definition, to satisfy rustdoc rules.
