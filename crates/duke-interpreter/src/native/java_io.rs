@@ -370,11 +370,11 @@ pub(crate) fn native_resource_input_stream_close(
 //   * `readLine` recognises `\n`, `\r`, and `\r\n` terminators (java.io
 //     semantics) and returns null at end-of-input.
 
-/// `InputStreamReader` field layout: [0] underlying `InputStream` ref, [1]
+/// `InputStreamReader` field layout: `[0]` underlying `InputStream` ref, `[1]`
 /// charset name String ref (nullable → UTF-8).
 const INPUT_STREAM_READER_STREAM_FIELD: usize = 0;
 const INPUT_STREAM_READER_CHARSET_FIELD: usize = 1;
-/// `BufferedReader` field layout: [0] fully-decoded content String ref, [1] read
+/// `BufferedReader` field layout: `[0]` fully-decoded content String ref, `[1]` read
 /// cursor (char offset) Int.
 const BUFFERED_READER_CONTENT_FIELD: usize = 0;
 const BUFFERED_READER_CURSOR_FIELD: usize = 1;
@@ -383,7 +383,7 @@ const BUFFERED_READER_CURSOR_FIELD: usize = 1;
 ///
 /// Handles the synthetic `duke/io/ResourceInputStream` (backing byte-array with
 /// a read cursor, produced by `getResourceAsStream`) and host-file-backed
-/// streams (`fields[0]` = positive fd). Advances the stream to end-of-input,
+/// streams (``fields[0]`` = positive fd). Advances the stream to end-of-input,
 /// matching real `readAllBytes`/drain semantics.
 fn input_stream_drain_all_bytes(stream_ref: u64, heap: &mut duke_gc::Heap) -> Result<Vec<u8>> {
     if heap.get(stream_ref)?.class_name == "duke/io/ResourceInputStream" {
@@ -405,7 +405,7 @@ fn input_stream_drain_all_bytes(stream_ref: u64, heap: &mut duke_gc::Heap) -> Re
         return Ok(bytes);
     }
 
-    // Host-file-backed stream: fields[0] is a positive fd.
+    // Host-file-backed stream: `fields[0]` is a positive fd.
     let file_id = match heap.get(stream_ref)?.fields.first() {
         Some(Slot::Int(id)) if *id > 0 => *id,
         _ => {
