@@ -37,3 +37,6 @@
 **Trust the Iterator: .collect() is Optimized**
 **Learning:** In Rust, `.collect::<Vec<_>>()` called on an `ExactSizeIterator` (which `slice.iter().map()` implements) already knows the exact number of elements. The standard library heavily optimizes this via the `TrustedLen` trait to allocate the precise capacity upfront and completely bypass bounds checks during insertion.
 **Action:** Do not manually replace `.collect::<Vec<_>>()` with `Vec::with_capacity` and a `for` loop, as it re-introduces bounds checks on every push, making the "optimization" unidiomatic and a micro-regression.
+**[compare_ignore_case allocations]**
+**Learning:** `compare_ignore_case` in `java_lang.rs` was unnecessarily allocating vectors for both strings using `.collect::<Vec<char>>()`. This forced the entire string to be iterated over and allocated on the heap before the actual comparison occurred. By converting it to use lazy evaluation via `.chars()`, we were able to skip both heap allocations and safely short circuit if the two strings mismatched early.
+**Action:** When working with comparing strings or collections in Rust, always strive to use zero-cost Iterators to lazily evaluate the comparison without performing costly intermediate allocations. Look closely for `.collect()` calls, especially before `for` loops.
