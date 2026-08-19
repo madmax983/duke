@@ -581,6 +581,48 @@ mod tests {
         assert!(
             matches!(heap.write_host_file_byte(999, 10), Err(duke_runtime::Error::JavaException { class_name }) if class_name == "java/io/IOException")
         );
+
+        let mut buf = [0_u8; 10];
+        assert!(
+            matches!(heap.read_host_file_bytes(999, &mut buf), Err(duke_runtime::Error::JavaException { class_name }) if class_name == "java/io/IOException")
+        );
+    }
+
+    #[test]
+    fn read_host_file_bytes_from_writer_should_return_error() {
+        let mut heap = Heap::new();
+        let dummy_path = std::env::temp_dir().join("test_read_host_bytes_writer.txt");
+        let fd = heap.open_host_output_file(&dummy_path).unwrap();
+        let mut buf = [0_u8; 10];
+        assert!(
+            matches!(heap.read_host_file_bytes(fd, &mut buf), Err(duke_runtime::Error::JavaException { class_name }) if class_name == "java/io/IOException")
+        );
+        heap.close_host_file(fd);
+        std::fs::remove_file(dummy_path).unwrap();
+    }
+
+    #[test]
+    fn read_host_file_bytes_valid_file() {
+        let mut heap = Heap::new();
+        let dummy_path = std::env::temp_dir().join("test_read_host_bytes_valid.txt");
+        std::fs::write(&dummy_path, b"test1234").unwrap();
+
+        let fd = heap.open_host_input_file(&dummy_path).unwrap();
+        let mut buf = [0_u8; 4];
+        let bytes_read = heap.read_host_file_bytes(fd, &mut buf).unwrap();
+        assert_eq!(bytes_read, 4);
+        assert_eq!(&buf, b"test");
+
+        let mut buf_end = [0_u8; 10];
+        let bytes_read_end = heap.read_host_file_bytes(fd, &mut buf_end).unwrap();
+        assert_eq!(bytes_read_end, 4);
+        assert_eq!(&buf_end[..4], b"1234");
+
+        let eof_read = heap.read_host_file_bytes(fd, &mut buf_end).unwrap();
+        assert_eq!(eof_read, -1);
+
+        heap.close_host_file(fd);
+        std::fs::remove_file(dummy_path).unwrap();
     }
 
     #[test]
