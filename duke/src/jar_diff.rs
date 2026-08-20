@@ -60,24 +60,24 @@ pub fn dump_jar_diff(jar1_path: &str, jar2_path: &str) {
     let keys1: HashSet<_> = map1.keys().collect();
     let keys2: HashSet<_> = map2.keys().collect();
 
-    let mut added = Vec::new();
-    let mut removed = Vec::new();
-    let mut modified = Vec::new();
+    let mut added: Vec<&str> = Vec::new();
+    let mut removed: Vec<&str> = Vec::new();
+    let mut modified: Vec<&str> = Vec::new();
     let mut unchanged = 0;
 
     for k in keys2.difference(&keys1) {
-        added.push((*k).clone());
+        added.push((*k).as_str());
     }
 
     for k in keys1.difference(&keys2) {
-        removed.push((*k).clone());
+        removed.push((*k).as_str());
     }
 
     for k in keys1.intersection(&keys2) {
         if map1.get(*k) == map2.get(*k) {
             unchanged += 1;
         } else {
-            modified.push((*k).clone());
+            modified.push((*k).as_str());
         }
     }
 

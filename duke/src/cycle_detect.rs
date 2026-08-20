@@ -76,7 +76,7 @@ pub fn dump_cycle_detect(jar_path: &str) {
         if let Ok(bytes) = loader.find_class(class_name_internal) {
             if let Ok(cf) = parse(&bytes) {
                 let this_name = resolve_class_name(&cf, cf.this_class);
-                let deps = graph.entry(this_name.clone()).or_default();
+                let deps = graph.entry(this_name).or_default();
 
                 for (i, entry) in cf.constant_pool.iter().enumerate() {
                     if let Some(CpEntry::Class { .. }) = entry {
@@ -145,8 +145,9 @@ pub fn dump_cycle_detect(jar_path: &str) {
             loop {
                 let w = stack.pop().unwrap();
                 on_stack.remove(&w);
-                scc.push(w.clone());
-                if w == v {
+                let done = w == v;
+                scc.push(w);
+                if done {
                     break;
                 }
             }
