@@ -598,4 +598,57 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    fn test_print_dispatch_resolution_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        let mut buf = Vec::new();
+        store.print_report(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("Foo[cp42]"));
+    }
+
+    #[test]
+    fn test_print_native_boundary_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+        let mut buf = Vec::new();
+        store.print_report(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("java/lang/String.intern"));
+    }
+
+    #[test]
+    fn test_markdown_populated() {
+        let mut store = crate::TelemetryStore::default();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+
+        let s = store.to_markdown_report();
+        assert!(s.contains("iadd"));
+        assert!(s.contains("java/lang/String::Foo"));
+        assert!(s.contains("java/lang/String"));
+        assert!(s.contains("java/lang/Exception"));
+        assert!(s.contains("Foo`[cp42]"));
+        assert!(s.contains("java/lang/String.intern"));
+    }
 }
