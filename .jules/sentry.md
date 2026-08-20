@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2026-08-20 - Adhering to Strict Clippy Pedantic Rules on Decoders
+**Learning:** Adding test coverage or modifying files in crates enforcing pedantic clippy lints like `missing-const-for-fn` may require converting simple accessors (e.g., `read_u8` or `read_u16_le`) into `const fn` to pass CI.
+**Action:** When working on parser utilities, always test `cargo clippy --workspace --all-targets -- -D warnings -W clippy::pedantic -W clippy::nursery` to catch these regressions early, modifying the signature to `const fn` as instructed by the compiler.

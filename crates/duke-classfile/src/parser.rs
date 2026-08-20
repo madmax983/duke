@@ -53,7 +53,7 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    const fn read_u8(&mut self) -> Result<u8> {
+    fn read_u8(&mut self) -> Result<u8> {
         if self.pos >= self.data.len() {
             return Err(Error::UnexpectedEof { offset: self.pos });
         }

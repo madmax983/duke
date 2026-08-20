@@ -645,12 +645,12 @@ fn is_nested_boot_inf_lib_archive(entry_name: &str) -> bool {
 // ───────────────────────────────────────────────────────────────────────────
 
 /// Little-endian u16 read.
-const fn read_u16_le(data: &[u8], offset: usize) -> u16 {
+fn read_u16_le(data: &[u8], offset: usize) -> u16 {
     u16::from_le_bytes([data[offset], data[offset + 1]])
 }
 
 /// Little-endian u32 read.
-const fn read_u32_le(data: &[u8], offset: usize) -> u32 {
+fn read_u32_le(data: &[u8], offset: usize) -> u32 {
     u32::from_le_bytes([
         data[offset],
         data[offset + 1],
