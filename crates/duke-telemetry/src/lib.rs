@@ -598,4 +598,116 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    struct LimitWriter {
+        pub limit: usize,
+        pub written: usize,
+    }
+
+    impl std::io::Write for LimitWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if self.written + buf.len() > self.limit {
+                let allowed = self.limit - self.written;
+                self.written += allowed;
+                if allowed == 0 {
+                    return Err(std::io::Error::other("Limit reached"));
+                }
+                return Ok(allowed);
+            }
+            self.written += buf.len();
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn should_propagate_io_errors_at_every_byte_limit() {
+        let mut store = crate::TelemetryStore::default();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+
+        // Get the length of a successful print
+        let mut buf = Vec::new();
+        store.print_report(&mut buf).unwrap();
+        let total_len = buf.len();
+
+        for limit in 0..total_len {
+            let mut writer = LimitWriter { limit, written: 0 };
+            let res = store.print_report(&mut writer);
+            assert!(
+                res.is_err(),
+                "Failed to propagate IO error at limit {limit}"
+            );
+        }
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn should_truncate_reports_to_top_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            store.bytecode_cost.record(
+                Box::leak(format!("op{i}").into_boxed_str()),
+                "Foo",
+                "bar",
+                10,
+                100,
+            );
+            store.object_lineage.record(
+                "java/lang/String",
+                Box::leak(format!("m{i}").into_boxed_str()),
+                10,
+                "bar",
+            );
+            store
+                .dispatch_resolution
+                .record("Foo", i as u16, "java/lang/String", true);
+            store.native_boundary.record_call(
+                "java/lang/String",
+                Box::leak(format!("n{i}").into_boxed_str()),
+                100,
+                true,
+            );
+        }
+
+        let mut buf = Vec::new();
+        store.print_report(&mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+
+        let count_op = s.matches("  op").count();
+        assert_eq!(
+            count_op, 10,
+            "Should only print top 10 ops, printed {count_op}"
+        );
+
+        let count_m = s.matches("::m").count();
+        assert_eq!(
+            count_m, 10,
+            "Should only print top 10 alloc sites, printed {count_m}"
+        );
+
+        let md = store.to_markdown_report();
+        let md_count_op = md.matches("| `op").count();
+        assert_eq!(
+            md_count_op, 10,
+            "Should only print top 10 ops in MD, printed {md_count_op}"
+        );
+    }
 }
