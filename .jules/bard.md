@@ -36,3 +36,6 @@
 ## 2024-05-24 - [Instruction Enum Documentation]
 **Confusion:** The massive `Instruction` enum lacked documentation for its variants and contained a global `#[allow(missing_docs)]` suppression, creating a gap in understanding JVM opcodes.
 **Clarification:** Removed the suppression and documented all ~200 variants. Learned that while narrative documentation is usually preferred, for massive, standardized enums like opcodes, concise descriptions (e.g., `/// Push null.`) are better for maintainability.
+## 2024-05-24 - [Broken Intra-Doc Links]
+**Confusion:** Several public documentation links pointed to private items (e.g. `Heap::set_string_layout`, `Self::mark_old`, `KEEP_SYNTHETIC`) and used bracketed text (e.g. `[0]`) which triggered `rustdoc::private_intra_doc_links` and `rustdoc::broken_intra_doc_links` warnings.
+**Clarification:** Downgraded intra-doc links to standard inline code formatting (e.g., replaced `[`private_item`]` with `` `private_item` ``) and fully qualified paths for public items (e.g. `duke_gc::Heap::set_string_layout`) to resolve the warnings properly.
