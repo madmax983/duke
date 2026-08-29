@@ -843,6 +843,19 @@ fn exec_method(
 // Run
 // ---------------------------------------------------------------------------
 
+fn allocate_string_array_args(heap: &mut Heap, string_args: &[&str]) -> Vec<Slot> {
+    let mut arg_refs: Vec<Slot> = Vec::new();
+    for arg in string_args {
+        let r = heap.allocate_string((*arg).to_string());
+        arg_refs.push(Slot::Reference(Some(r)));
+    }
+    let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), string_args.len());
+    for (i, slot) in arg_refs.into_iter().enumerate() {
+        heap.get_mut(arr_ref).unwrap().fields[i] = slot;
+    }
+    vec![Slot::Reference(Some(arr_ref))]
+}
+
 /// `duke run <classfile.class> [string-arg...]`
 ///
 /// Executes `public static void main(String[])`, passing string arguments.
@@ -884,17 +897,7 @@ fn run_main(
     maybe_run_layout_audit(&registry);
 
     // Build String[] args array on the heap.
-    let mut arg_refs: Vec<Slot> = Vec::new();
-    for arg in &string_args {
-        let r = heap.allocate_string((*arg).to_string());
-        arg_refs.push(Slot::Reference(Some(r)));
-    }
-    let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), string_args.len());
-    for (i, slot) in arg_refs.into_iter().enumerate() {
-        heap.get_mut(arr_ref).unwrap().fields[i] = slot;
-    }
-
-    let main_args = vec![Slot::Reference(Some(arr_ref))];
+    let main_args = allocate_string_array_args(&mut heap, &string_args);
 
     let mut stdout = std::io::stdout();
     let exit_code = match execute_class_to_completion(
@@ -1009,16 +1012,7 @@ fn run_jar(
     }
 
     // Build String[] args array on the heap.
-    let mut arg_refs: Vec<Slot> = Vec::new();
-    for arg in string_args {
-        let r = heap.allocate_string((*arg).to_string());
-        arg_refs.push(Slot::Reference(Some(r)));
-    }
-    let arr_ref = heap.allocate("[Ljava/lang/String;".to_string(), string_args.len());
-    for (i, slot) in arg_refs.into_iter().enumerate() {
-        heap.get_mut(arr_ref).unwrap().fields[i] = slot;
-    }
-    let main_args = vec![Slot::Reference(Some(arr_ref))];
+    let main_args = allocate_string_array_args(&mut heap, string_args);
 
     let mut stdout = std::io::stdout();
     let exit_code = match execute_class_to_completion(
