@@ -598,4 +598,121 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    #[cfg(feature = "telemetry")]
+    fn test_print_report_io_error_all_limits() {
+        struct LimitWriter {
+            limit: usize,
+            written: usize,
+        }
+        impl std::io::Write for LimitWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                if self.written >= self.limit {
+                    return Err(std::io::Error::other("disk full"));
+                }
+                let allowed = (self.limit - self.written).min(buf.len());
+                self.written += allowed;
+                Ok(allowed)
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut store = crate::TelemetryStore::default();
+        store.bytecode_cost.record("iadd", "Foo", "bar", 10, 100);
+        store
+            .object_lineage
+            .record("java/lang/String", "Foo", 10, "bar");
+        store
+            .class_init_dag
+            .record("java/lang/String", "java/lang/System", 500);
+        store
+            .exception_flow
+            .record_throw("java/lang/Exception", "Foo", "bar", 10);
+        store
+            .dispatch_resolution
+            .record("Foo", 42, "java/lang/String", true);
+        store
+            .native_boundary
+            .record_call("java/lang/String", "intern", 100, true);
+
+        let mut full_buf = Vec::new();
+        store.print_report(&mut full_buf).unwrap();
+        let total_len = full_buf.len();
+
+        for limit in 0..total_len {
+            let mut w = LimitWriter { limit, written: 0 };
+            let res = store.print_report(&mut w);
+            assert!(res.is_err(), "Expected error for limit {limit}");
+        }
+    }
+
+    #[test]
+    fn test_print_bytecode_cost_truncates_at_10() {
+        let mut store = crate::TelemetryStore::default();
+        store.bytecode_cost.record("op0", "Foo", "bar", 10, 100);
+        store.bytecode_cost.record("op1", "Foo", "bar", 10, 100);
+        store.bytecode_cost.record("op2", "Foo", "bar", 10, 100);
+        store.bytecode_cost.record("op3", "Foo", "bar", 10, 100);
+        store.bytecode_cost.record("op4", "Foo", "bar", 10, 100);
+        store.bytecode_cost.record("op5", "Foo", "bar", 10, 100);
+        store.bytecode_cost.record("op6", "Foo", "bar", 10, 100);
+        store.bytecode_cost.record("op7", "Foo", "bar", 10, 100);
+        store.bytecode_cost.record("op8", "Foo", "bar", 10, 100);
+        store.bytecode_cost.record("op9", "Foo", "bar", 10, 100);
+        store.bytecode_cost.record("op10", "Foo", "bar", 10, 100);
+        store.bytecode_cost.record("op11", "Foo", "bar", 10, 100);
+
+        let mut buf = Vec::new();
+        store.print_bytecode_cost(&mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        // The word "op" appears once in the header ("-- bytecode_cost (t[op] 10 by count) --")
+        // Plus 10 times for the printed elements. So total matches should be 11.
+        assert_eq!(output.matches("op").count(), 11);
+    }
+
+    #[test]
+    fn test_print_object_lineage_truncates_at_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            store
+                .object_lineage
+                .record(&format!("class{i}"), "Foo", 10, "bar");
+        }
+        let mut buf = Vec::new();
+        store.print_object_lineage(&mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert_eq!(output.matches("class").count(), 10);
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn test_print_dispatch_resolution_truncates_at_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15_i32 {
+            store
+                .dispatch_resolution
+                .record(&format!("class{i}"), i as u16, "bar", true);
+        }
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert_eq!(output.matches("class").count(), 10);
+    }
+
+    #[test]
+    fn test_print_native_boundary_truncates_at_10() {
+        let mut store = crate::TelemetryStore::default();
+        for i in 0..15 {
+            store
+                .native_boundary
+                .record_call(&format!("class{i}"), "method", 100, true);
+        }
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert_eq!(output.matches("class").count(), 10);
+    }
 }
