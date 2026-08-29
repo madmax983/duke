@@ -144,6 +144,32 @@ fn extract_io_fd(heap: &duke_gc::Heap, obj_ref: u64) -> Result<i32> {
 }
 
 #[inline]
+fn extract_int_or_zero(args: &[Slot], idx: usize) -> i32 {
+    match args.get(idx) {
+        Some(Slot::Int(v)) => *v,
+        _ => 0,
+    }
+}
+
+#[inline]
+fn extract_long_or_zero(args: &[Slot], idx: usize) -> i64 {
+    match args.get(idx) {
+        Some(Slot::Long(v)) => *v,
+        Some(Slot::Int(v)) => i64::from(*v),
+        _ => 0,
+    }
+}
+
+#[inline]
+fn extract_double_or_zero(args: &[Slot], idx: usize) -> f64 {
+    match args.get(idx) {
+        Some(Slot::Double(v)) => *v,
+        Some(Slot::Float(v)) => f64::from(*v),
+        _ => 0.0,
+    }
+}
+
+#[inline]
 fn extract_io_fd_at(heap: &duke_gc::Heap, obj_ref: u64, idx: usize) -> Result<i32> {
     match heap.get(obj_ref)?.fields.get(idx) {
         Some(Slot::Int(id)) => Ok(*id),
@@ -16935,14 +16961,8 @@ pub(crate) fn native_integer_compare(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
-    let b = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let a = extract_int_or_zero(args, 0);
+    let b = extract_int_or_zero(args, 1);
     Ok(Some(Slot::Int(a.cmp(&b) as i32)))
 }
 
@@ -16954,14 +16974,8 @@ pub(crate) fn native_integer_max(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
-    let b = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let a = extract_int_or_zero(args, 0);
+    let b = extract_int_or_zero(args, 1);
     Ok(Some(Slot::Int(a.max(b))))
 }
 
@@ -16973,14 +16987,8 @@ pub(crate) fn native_integer_min(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
-    let b = match args.get(1) {
-        Some(Slot::Int(v)) => *v,
-        _ => 0,
-    };
+    let a = extract_int_or_zero(args, 0);
+    let b = extract_int_or_zero(args, 1);
     Ok(Some(Slot::Int(a.min(b))))
 }
 
@@ -16992,16 +17000,8 @@ pub(crate) fn native_long_compare(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        Some(Slot::Int(v)) => i64::from(*v),
-        _ => 0,
-    };
-    let b = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        Some(Slot::Int(v)) => i64::from(*v),
-        _ => 0,
-    };
+    let a = extract_long_or_zero(args, 0);
+    let b = extract_long_or_zero(args, 1);
     Ok(Some(Slot::Int(a.cmp(&b) as i32)))
 }
 
@@ -17013,16 +17013,8 @@ pub(crate) fn native_long_max(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        Some(Slot::Int(v)) => i64::from(*v),
-        _ => 0,
-    };
-    let b = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        Some(Slot::Int(v)) => i64::from(*v),
-        _ => 0,
-    };
+    let a = extract_long_or_zero(args, 0);
+    let b = extract_long_or_zero(args, 1);
     Ok(Some(Slot::Long(a.max(b))))
 }
 
@@ -17034,16 +17026,8 @@ pub(crate) fn native_long_min(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Long(v)) => *v,
-        Some(Slot::Int(v)) => i64::from(*v),
-        _ => 0,
-    };
-    let b = match args.get(1) {
-        Some(Slot::Long(v)) => *v,
-        Some(Slot::Int(v)) => i64::from(*v),
-        _ => 0,
-    };
+    let a = extract_long_or_zero(args, 0);
+    let b = extract_long_or_zero(args, 1);
     Ok(Some(Slot::Long(a.min(b))))
 }
 
@@ -17055,16 +17039,8 @@ pub(crate) fn native_double_compare(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        Some(Slot::Float(v)) => f64::from(*v),
-        _ => 0.0,
-    };
-    let b = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        Some(Slot::Float(v)) => f64::from(*v),
-        _ => 0.0,
-    };
+    let a = extract_double_or_zero(args, 0);
+    let b = extract_double_or_zero(args, 1);
     Ok(Some(Slot::Int(a.total_cmp(&b) as i32)))
 }
 
@@ -17076,16 +17052,8 @@ pub(crate) fn native_double_max(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        Some(Slot::Float(v)) => f64::from(*v),
-        _ => 0.0,
-    };
-    let b = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        Some(Slot::Float(v)) => f64::from(*v),
-        _ => 0.0,
-    };
+    let a = extract_double_or_zero(args, 0);
+    let b = extract_double_or_zero(args, 1);
     Ok(Some(Slot::Double(a.max(b))))
 }
 
@@ -17097,16 +17065,8 @@ pub(crate) fn native_double_min(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let a = match args.first() {
-        Some(Slot::Double(v)) => *v,
-        Some(Slot::Float(v)) => f64::from(*v),
-        _ => 0.0,
-    };
-    let b = match args.get(1) {
-        Some(Slot::Double(v)) => *v,
-        Some(Slot::Float(v)) => f64::from(*v),
-        _ => 0.0,
-    };
+    let a = extract_double_or_zero(args, 0);
+    let b = extract_double_or_zero(args, 1);
     Ok(Some(Slot::Double(a.min(b))))
 }
 
