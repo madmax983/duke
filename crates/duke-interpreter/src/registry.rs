@@ -431,6 +431,23 @@ pub struct ReflectedClassInfo {
     pub signature: Option<String>,
 }
 /// A registry managing loaded classes, their initialization state, and associated native methods.
+///
+/// The `ClassRegistry` is the central librarian of the JVM. It is responsible for bridging
+/// the gap between static `.class` files parsed by the loader and dynamic, executable
+/// state in the runtime. Whenever a class is requested, the registry ensures it is loaded
+/// only once per code source, tracks whether its static `<clinit>` block has been executed,
+/// and maps its Java `native` methods to their Rust implementations.
+///
+/// ## Examples
+///
+/// ```
+/// use duke_interpreter::ClassRegistry;
+///
+/// let mut registry = ClassRegistry::new();
+/// assert!(!registry.is_initialized("java/lang/Object"));
+/// registry.mark_initialized("java/lang/Object");
+/// assert!(registry.is_initialized("java/lang/Object"));
+/// ```
 pub struct ClassRegistry {
     /// Loaded classes keyed by their provenance-qualified identity key. The key is an
     /// interned [`Arc<str>`] so registry keys and cached class names on the dispatch hot
@@ -838,7 +855,7 @@ impl ClassRegistry {
     }
 
     /// Enable "real JDK shadow" mode: synthetic stdlib classes that are not on the
-    /// [`KEEP_SYNTHETIC`] allowlist and whose real classfile is resolvable via `loader`
+    /// `KEEP_SYNTHETIC` allowlist and whose real classfile is resolvable via `loader`
     /// will be skipped by [`Self::register`], letting a later `ensure_loaded` load the
     /// real JDK bytecode. Must be called *before* `bootstrap_stdlib` runs to take effect.
     pub fn enable_real_jdk_shadow(&mut self, loader: Arc<dyn ClassLoader + Send + Sync>) {
