@@ -1,3 +1,4 @@
+#![allow(clippy::large_stack_frames)]
 //! The Core JVM Execution Engine.
 //!
 //! This module contains the main interpretation loop for the JVM.
