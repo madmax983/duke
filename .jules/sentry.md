@@ -47,3 +47,6 @@
 ## 2024-05-24 - Testing ReentrantReadWriteLock Native Operations
 **Learning:** Found several native functions implementing `ReentrantReadWriteLock` and `PriorityQueue` operations missing test coverage in `duke-interpreter`. Adding dummy tests correctly executes these logic branches without needing fully mocked multi-threading scenarios.
 **Action:** Add inline unit tests using a mocked heap and manually setting up the `obj_ref` payload.
+## 2024-05-24 - Duke Telemetry Formatting Missing Paths
+**Learning:** Functions that print telemetry representations with boundary truncations (e.g. `take(10)`) or formatting over empty maps (`HashMap::new()`) are surprisingly easy to miss because they are only executed via manual print/markdown routines instead of telemetry tracking core functionality.
+**Action:** When working on formatting output modules, write specific assertions for completely empty stores (like `test_print_dispatch_resolution_empty()`) to force traversal over the `if is_empty()` fast paths or loop initializations of all tracked map datasets.

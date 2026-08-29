@@ -1,0 +1,8 @@
+🛡️ Sentry: [test coverage improvement] empty formatting logic
+
+Added tests covering empty telemetry report generation for various metrics to ensure edge-case bounds don't panic. Fix CI test failure for spring boot real jdk where a pin needed updating.
+
+* 🎯 Target: `duke-telemetry::TelemetryStore` formatting methods (`to_markdown_report`, `print_report` component fns).
+* 💣 Risk: Boundary logic truncations or map iterations could panic or return unintended errors on completely empty data stores if fast paths are skipped.
+* 🧪 Strategy: Instantiated default stores and verified outputs contained proper headers / no-data messages.
+* 🔬 Verification: `cargo test -p duke-telemetry --all-features`

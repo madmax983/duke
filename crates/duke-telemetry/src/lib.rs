@@ -598,4 +598,60 @@ mod tests {
         let s = String::from_utf8(buf).unwrap();
         assert!(s.contains("java/lang/Exception"));
     }
+
+    #[test]
+    fn test_markdown_object_lineage_empty() {
+        let store = crate::TelemetryStore::default();
+        let md = store.to_markdown_report();
+        assert!(md.contains("## Object Lineage"));
+    }
+
+    #[test]
+    fn test_print_dispatch_resolution_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_dispatch_resolution(&mut buf).unwrap();
+    }
+
+    #[test]
+    fn test_print_native_boundary_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_native_boundary(&mut buf).unwrap();
+    }
+
+    #[test]
+    fn test_markdown_native_boundary_empty() {
+        let store = crate::TelemetryStore::default();
+        let md = store.to_markdown_report();
+        assert!(md.contains("## Native Boundary"));
+    }
+
+    #[test]
+    fn test_markdown_dispatch_resolution_empty() {
+        let store = crate::TelemetryStore::default();
+        let md = store.to_markdown_report();
+        assert!(md.contains("## Dispatch Resolution"));
+    }
+
+    #[test]
+    fn test_markdown_exception_flow_empty() {
+        let store = crate::TelemetryStore::default();
+        let md = store.to_markdown_report();
+        assert!(md.contains("## Exception Flow"));
+    }
+
+    #[test]
+    fn test_print_exception_flow_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_exception_flow(&mut buf).unwrap();
+    }
+
+    #[test]
+    fn test_print_class_init_dag_empty() {
+        let store = crate::TelemetryStore::default();
+        let mut buf = Vec::new();
+        store.print_class_init_dag(&mut buf).unwrap();
+    }
 }
