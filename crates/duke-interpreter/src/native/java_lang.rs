@@ -1862,7 +1862,8 @@ pub(crate) const MAIN_THREAD_FIELD: &str = "$dukeMainThread";
 /// `Thread.interrupt()` writes this object's field and `isInterrupted()` reads it,
 /// while host-thread interruption is still observed via `THREAD_HOST_KEY_SLOT`.
 fn allocate_main_thread(heap: &mut duke_gc::Heap) -> Result<u64> {
-    let thread_ref = heap.allocate("java/lang/Thread".to_string(), 5);
+    let thread_ref = heap.allocate("java/lang/Thread".to_string(), 8);
+    let name_ref = heap.allocate_string("main".to_string());
     let thread = heap.get_mut(thread_ref)?;
     thread.fields[THREAD_TARGET_SLOT] = Slot::Reference(None);
     thread.fields[THREAD_ID_SLOT] = Slot::Int(-1);
@@ -1870,6 +1871,9 @@ fn allocate_main_thread(heap: &mut duke_gc::Heap) -> Result<u64> {
         Slot::Int(i32::from(current_host_thread_is_interrupted()));
     thread.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(java_host_key_for_current_host().unwrap_or(-1));
     thread.fields[THREAD_CONTEXT_CLASS_LOADER_SLOT] = Slot::Reference(None);
+    thread.fields[THREAD_NAME_SLOT] = Slot::Reference(Some(name_ref));
+    thread.fields[THREAD_IS_VIRTUAL_SLOT] = Slot::Int(0);
+    thread.fields[THREAD_ALIVE_SLOT] = Slot::Int(1);
     Ok(thread_ref)
 }
 
@@ -1910,6 +1914,13 @@ pub(crate) fn native_thread_current_thread(
     _control: &mut NativeControl,
     ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
+    // If this host thread is running a spawned Java thread, return its Thread object.
+    if let Some(thread_ref) = current_java_thread() {
+        // Defensive: the ref may be stale if the heap was rebuilt.
+        if heap.get(thread_ref).is_ok() {
+            return Ok(Some(Slot::Reference(Some(thread_ref))));
+        }
+    }
     // Return the process-stable main-thread identity so successive calls yield the
     // SAME heap object (see MAIN_THREAD_FIELD). Seeded once at bootstrap; the block
     // below is a defensive lazy re-seed for the case where the static field is
@@ -1930,13 +1941,49 @@ pub(crate) fn native_thread_current_thread(
 }
 #[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
 pub(crate) fn native_thread_get_name(
-    _args: &[Slot],
+    args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let name_ref = heap.allocate_string("main".to_string());
-    Ok(Some(Slot::Reference(Some(name_ref))))
+    let this_ref = extract_ref_arg(args, 0)?;
+    let name_slot = heap.get(this_ref)?.fields.get(THREAD_NAME_SLOT).copied();
+    match name_slot {
+        Some(Slot::Reference(Some(name_ref))) => Ok(Some(Slot::Reference(Some(name_ref)))),
+        _ => {
+            let fallback = heap.allocate_string("main".to_string());
+            Ok(Some(Slot::Reference(Some(fallback))))
+        }
+    }
+}
+/// `Thread.isAlive()Z` — true once started and not yet terminated.
+pub(crate) fn native_thread_is_alive(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let alive = matches!(
+        heap.get(this_ref)?.fields.get(THREAD_ALIVE_SLOT),
+        Some(Slot::Int(n)) if *n != 0
+    );
+    Ok(Some(Slot::Int(i32::from(alive))))
+}
+
+/// `Thread.isVirtual()Z` — true for threads created via `Thread.ofVirtual()`.
+pub(crate) fn native_thread_is_virtual(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let is_virtual = matches!(
+        heap.get(this_ref)?.fields.get(THREAD_IS_VIRTUAL_SLOT),
+        Some(Slot::Int(n)) if *n != 0
+    );
+    Ok(Some(Slot::Int(i32::from(is_virtual))))
 }
 pub(crate) fn native_thread_init(
     args: &[Slot],
@@ -1951,6 +1998,9 @@ pub(crate) fn native_thread_init(
     this.fields[THREAD_INTERRUPTED_SLOT] = Slot::Int(0);
     this.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(-1);
     this.fields[THREAD_CONTEXT_CLASS_LOADER_SLOT] = Slot::Reference(None);
+    this.fields[THREAD_NAME_SLOT] = Slot::Reference(None);
+    this.fields[THREAD_IS_VIRTUAL_SLOT] = Slot::Int(0);
+    this.fields[THREAD_ALIVE_SLOT] = Slot::Int(0);
     Ok(None)
 }
 pub(crate) fn native_thread_init_runnable(
@@ -1967,15 +2017,25 @@ pub(crate) fn native_thread_init_runnable(
     this.fields[THREAD_INTERRUPTED_SLOT] = Slot::Int(0);
     this.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(-1);
     this.fields[THREAD_CONTEXT_CLASS_LOADER_SLOT] = Slot::Reference(None);
+    this.fields[THREAD_NAME_SLOT] = Slot::Reference(None);
+    this.fields[THREAD_IS_VIRTUAL_SLOT] = Slot::Int(0);
+    this.fields[THREAD_ALIVE_SLOT] = Slot::Int(0);
     Ok(None)
 }
 pub(crate) fn native_thread_start(
     args: &[Slot],
-    _heap: &mut duke_gc::Heap,
+    heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let thread_ref = extract_ref_arg(args, 0)?;
+    // Mark alive immediately: the spawn action is processed asynchronously,
+    // but `isAlive()` must be true as soon as `start()` returns.
+    if let Ok(thread) = heap.get_mut(thread_ref) {
+        if let Some(slot) = thread.fields.get_mut(THREAD_ALIVE_SLOT) {
+            *slot = Slot::Int(1);
+        }
+    }
     control.request(NativeThreadAction::Start { thread_ref });
     Ok(None)
 }
@@ -2510,6 +2570,26 @@ pub(crate) fn native_integer_intvalue(
     let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
 }
+/// Native: `Integer.toString()` — instance, converts the boxed value to String.
+pub(crate) fn native_integer_tostring(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let val = match heap.get(this_ref)?.fields[0] {
+        Slot::Int(n) => n,
+        _ => {
+            return Err(Error::TypeMismatch {
+                expected: "int",
+                got: "other",
+            })
+        }
+    };
+    let r = heap.allocate_string(val.to_string());
+    Ok(Some(Slot::Reference(Some(r))))
+}
 /// Native: `Integer.toString(int)` — static, converts int to String.
 pub(crate) fn native_integer_tostring_static(
     args: &[Slot],
@@ -3033,24 +3113,42 @@ pub(crate) fn native_string_value_of_char(
 pub(crate) fn native_string_value_of_object(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
+    out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    match args.first() {
+    // JDK: null → "null", else `obj.toString()`.
+    let text = match args.first() {
         Some(Slot::Reference(Some(r))) => {
-            let s = heap_object_to_string_ref(heap, *r)?;
-            let r = heap.allocate_string(s);
-            Ok(Some(Slot::Reference(Some(r))))
+            let obj_ref = *r;
+            let class_name = heap.get(obj_ref)?.class_name.clone();
+            if class_name == "java/lang/String" {
+                heap_object_to_string_ref(heap, obj_ref)?
+            } else {
+                let result = ops.invoke(
+                    heap,
+                    out,
+                    &class_name,
+                    "toString",
+                    "()Ljava/lang/String;",
+                    vec![Slot::Reference(Some(obj_ref))],
+                )?;
+                match result {
+                    Some(Slot::Reference(Some(s))) => heap_object_to_string_ref(heap, s)?,
+                    _ => heap_object_to_string_ref(heap, obj_ref)?,
+                }
+            }
         }
-        Some(Slot::Reference(None)) => {
-            let r = heap.allocate_string("null".to_string());
-            Ok(Some(Slot::Reference(Some(r))))
+        Some(Slot::Reference(None)) => "null".to_string(),
+        _ => {
+            return Err(Error::TypeMismatch {
+                expected: "Reference",
+                got: "other",
+            });
         }
-        _ => Err(Error::TypeMismatch {
-            expected: "Reference",
-            got: "other",
-        }),
-    }
+    };
+    let r = heap.allocate_string(text);
+    Ok(Some(Slot::Reference(Some(r))))
 }
 /// Native: `String.concat(String)` — concatenates two strings.
 pub(crate) fn native_string_concat(
@@ -5549,60 +5647,67 @@ pub(crate) fn native_stringbuilder_set_char_at(
 }
 
 // ---------------------------------------------------------------------------
-// java/lang/ThreadLocal — synthetic single-slot holder.
+// java/lang/ThreadLocal — per-host-thread storage.
 //
-// The real JDK ThreadLocal routes through `Thread.threadLocals`, which Duke's
-// synthetic `java/lang/Thread` stub does not carry. For the single-host-thread
-// interpreter, storing the value directly on the ThreadLocal instance (field 0)
-// is observationally equivalent to per-thread storage.
+// The real JDK ThreadLocal routes through `Thread.threadLocals`. Duke's
+// interpreter runs each Java thread on its own host thread, so Rust's
+// `thread_local!` gives true per-thread isolation: a value set on one Java
+// thread is invisible to every other thread, including the main thread.
 // ---------------------------------------------------------------------------
 
-/// `ThreadLocal.<init>()V` — initialise the value slot to null.
+thread_local! {
+    static THREAD_LOCAL_VALUES: std::cell::RefCell<std::collections::HashMap<u64, Slot>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// `ThreadLocal.<init>()V` — no per-instance state; values live in the thread-local map.
 pub(crate) fn native_thread_local_init(
-    args: &[Slot],
-    heap: &mut duke_gc::Heap,
+    _args: &[Slot],
+    _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
-    let this_ref = extract_ref_arg(args, 0)?;
-    heap.get_mut(this_ref)?.fields[0] = Slot::Reference(None);
     Ok(None)
 }
 
-/// `ThreadLocal.get()Ljava/lang/Object;` — return the stored value (null until set).
+/// `ThreadLocal.get()Ljava/lang/Object;` — this thread's value, or null.
 pub(crate) fn native_thread_local_get(
     args: &[Slot],
-    heap: &mut duke_gc::Heap,
+    _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    Ok(Some(extract_field_arg(heap, this_ref, 0)?))
+    let value = THREAD_LOCAL_VALUES.with(|map| map.borrow().get(&this_ref).copied());
+    Ok(Some(value.unwrap_or(Slot::Reference(None))))
 }
 
-/// `ThreadLocal.set(Ljava/lang/Object;)V` — store the value in the slot.
+/// `ThreadLocal.set(Ljava/lang/Object;)V` — store the value for this thread only.
 pub(crate) fn native_thread_local_set(
     args: &[Slot],
-    heap: &mut duke_gc::Heap,
+    _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let value = extract_slot_arg(args, 1);
-    heap.get_mut(this_ref)?.fields[0] = value;
-    heap.remember_reference_write(this_ref, value);
+    THREAD_LOCAL_VALUES.with(|map| {
+        map.borrow_mut().insert(this_ref, value);
+    });
     Ok(None)
 }
 
-/// `ThreadLocal.remove()V` — clear the slot back to null.
+/// `ThreadLocal.remove()V` — clear this thread's value back to null.
 pub(crate) fn native_thread_local_remove(
     args: &[Slot],
-    heap: &mut duke_gc::Heap,
+    _heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    heap.get_mut(this_ref)?.fields[0] = Slot::Reference(None);
+    THREAD_LOCAL_VALUES.with(|map| {
+        map.borrow_mut().remove(&this_ref);
+    });
     Ok(None)
 }
 
@@ -5982,4 +6087,370 @@ mod string_get_bytes_copy_tests {
             "writing past the dst array must error, not silently truncate"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// java/lang/Thread$Builder — Java 21 virtual/platform thread builders.
+//
+// `Thread.ofVirtual()` / `Thread.ofPlatform()` return a builder object
+// (synthetic class `java/lang/Thread$Builder`) carrying the naming config and
+// the virtual flag. `start`/`unstarted` materialize a `java/lang/Thread`,
+// wire the target `Runnable`, and (for `start`) request the spawn action.
+// ---------------------------------------------------------------------------
+
+/// Builder field slots on `java/lang/Thread$Builder`.
+const BUILDER_NAME_SLOT: usize = 0;
+const BUILDER_NAME_PREFIX_SLOT: usize = 1;
+const BUILDER_NAME_START_SLOT: usize = 2;
+const BUILDER_IS_VIRTUAL_SLOT: usize = 3;
+const BUILDER_COUNTER_SLOT: usize = 4;
+
+static NEXT_THREAD_NAME_ID: std::sync::atomic::AtomicI32 =
+    std::sync::atomic::AtomicI32::new(0);
+
+fn allocate_thread_builder(
+    heap: &mut duke_gc::Heap,
+    is_virtual: bool,
+) -> Result<u64> {
+    let builder_ref = heap.allocate("java/lang/Thread$Builder".to_string(), 5);
+    let builder = heap.get_mut(builder_ref)?;
+    builder.fields[BUILDER_NAME_SLOT] = Slot::Reference(None);
+    builder.fields[BUILDER_NAME_PREFIX_SLOT] = Slot::Reference(None);
+    builder.fields[BUILDER_NAME_START_SLOT] = Slot::Long(0);
+    builder.fields[BUILDER_IS_VIRTUAL_SLOT] = Slot::Int(i32::from(is_virtual));
+    builder.fields[BUILDER_COUNTER_SLOT] = Slot::Long(0);
+    Ok(builder_ref)
+}
+
+/// `Thread.ofVirtual()Ljava/lang/Thread$Builder;`
+pub(crate) fn native_thread_of_virtual(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let b = allocate_thread_builder(heap, true)?;
+    Ok(Some(Slot::Reference(Some(b))))
+}
+
+/// `Thread.ofPlatform()Ljava/lang/Thread$Builder;`
+pub(crate) fn native_thread_of_platform(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let b = allocate_thread_builder(heap, false)?;
+    Ok(Some(Slot::Reference(Some(b))))
+}
+
+/// Resolve the thread name for a new thread from the builder config.
+fn builder_thread_name(heap: &mut duke_gc::Heap, builder_ref: u64) -> Result<u64> {
+    let builder = heap.get(builder_ref)?;
+    let name_slot = builder.fields.get(BUILDER_NAME_SLOT).copied();
+    let prefix_slot = builder.fields.get(BUILDER_NAME_PREFIX_SLOT).copied();
+    let start = match builder.fields.get(BUILDER_NAME_START_SLOT) {
+        Some(Slot::Long(n)) => *n,
+        _ => 0,
+    };
+    let counter = match builder.fields.get(BUILDER_COUNTER_SLOT) {
+        Some(Slot::Long(n)) => *n,
+        _ => 0,
+    };
+    let is_virtual = matches!(
+        builder.fields.get(BUILDER_IS_VIRTUAL_SLOT),
+        Some(Slot::Int(n)) if *n != 0
+    );
+    drop(builder);
+
+    if let Some(Slot::Reference(Some(name_ref))) = name_slot {
+        return Ok(name_ref);
+    }
+    if let Some(Slot::Reference(Some(prefix_ref))) = prefix_slot {
+        let prefix = heap_object_to_string_ref(heap, prefix_ref)?;
+        // Bump the builder's counter for the next thread.
+        if let Ok(b) = heap.get_mut(builder_ref) {
+            b.fields[BUILDER_COUNTER_SLOT] = Slot::Long(counter + 1);
+        }
+        let name = format!("{}{}", prefix, start + counter);
+        return Ok(heap.allocate_string(name));
+    }
+    let id = NEXT_THREAD_NAME_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let default_prefix = if is_virtual { "VirtualThread-" } else { "Thread-" };
+    Ok(heap.allocate_string(format!("{default_prefix}{id}")))
+}
+
+/// Materialize a `java/lang/Thread` from a builder + Runnable.
+fn builder_new_thread(
+    heap: &mut duke_gc::Heap,
+    builder_ref: u64,
+    target: Slot,
+) -> Result<u64> {
+    let is_virtual = matches!(
+        heap.get(builder_ref)?.fields.get(BUILDER_IS_VIRTUAL_SLOT),
+        Some(Slot::Int(n)) if *n != 0
+    );
+    let name_ref = builder_thread_name(heap, builder_ref)?;
+    let thread_ref = heap.allocate("java/lang/Thread".to_string(), 8);
+    let thread = heap.get_mut(thread_ref)?;
+    thread.fields[THREAD_TARGET_SLOT] = target;
+    thread.fields[THREAD_ID_SLOT] = Slot::Int(-1);
+    thread.fields[THREAD_INTERRUPTED_SLOT] = Slot::Int(0);
+    thread.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(-1);
+    thread.fields[THREAD_CONTEXT_CLASS_LOADER_SLOT] = Slot::Reference(None);
+    thread.fields[THREAD_NAME_SLOT] = Slot::Reference(Some(name_ref));
+    thread.fields[THREAD_IS_VIRTUAL_SLOT] = Slot::Int(i32::from(is_virtual));
+    thread.fields[THREAD_ALIVE_SLOT] = Slot::Int(0);
+    Ok(thread_ref)
+}
+
+/// `Thread$Builder.name(String)Thread$Builder;`
+pub(crate) fn native_thread_builder_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let builder_ref = extract_ref_arg(args, 0)?;
+    let name = extract_slot_arg(args, 1);
+    heap.get_mut(builder_ref)?.fields[BUILDER_NAME_SLOT] = name;
+    heap.remember_reference_write(builder_ref, name);
+    Ok(Some(Slot::Reference(Some(builder_ref))))
+}
+
+/// `Thread$Builder.name(String,J)Thread$Builder;`
+pub(crate) fn native_thread_builder_name_prefix(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let builder_ref = extract_ref_arg(args, 0)?;
+    let prefix = extract_slot_arg(args, 1);
+    let start = extract_slot_arg(args, 2);
+    {
+        let builder = heap.get_mut(builder_ref)?;
+        builder.fields[BUILDER_NAME_PREFIX_SLOT] = prefix;
+        builder.fields[BUILDER_NAME_START_SLOT] = start;
+        // An explicit prefix clears any exact name.
+        builder.fields[BUILDER_NAME_SLOT] = Slot::Reference(None);
+    }
+    heap.remember_reference_write(builder_ref, prefix);
+    Ok(Some(Slot::Reference(Some(builder_ref))))
+}
+
+/// `Thread$Builder.start(Runnable)Thread;`
+pub(crate) fn native_thread_builder_start(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let builder_ref = extract_ref_arg(args, 0)?;
+    let target = extract_slot_arg(args, 1);
+    let thread_ref = builder_new_thread(heap, builder_ref, target)?;
+    // Mark alive immediately (see native_thread_start).
+    if let Ok(thread) = heap.get_mut(thread_ref) {
+        if let Some(slot) = thread.fields.get_mut(THREAD_ALIVE_SLOT) {
+            *slot = Slot::Int(1);
+        }
+    }
+    control.request(NativeThreadAction::Start { thread_ref });
+    Ok(Some(Slot::Reference(Some(thread_ref))))
+}
+
+/// `Thread$Builder.unstarted(Runnable)Thread;`
+pub(crate) fn native_thread_builder_unstarted(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let builder_ref = extract_ref_arg(args, 0)?;
+    let target = extract_slot_arg(args, 1);
+    let thread_ref = builder_new_thread(heap, builder_ref, target)?;
+    Ok(Some(Slot::Reference(Some(thread_ref))))
+}
+
+/// `Thread$Builder.factory()ThreadFactory;` — the builder itself serves as the factory.
+pub(crate) fn native_thread_builder_factory(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let builder_ref = extract_ref_arg(args, 0)?;
+    Ok(Some(Slot::Reference(Some(builder_ref))))
+}
+
+/// `Thread$Builder.newThread(Runnable)Thread;` — `ThreadFactory` entrypoint.
+pub(crate) fn native_thread_builder_new_thread(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let builder_ref = extract_ref_arg(args, 0)?;
+    let target = extract_slot_arg(args, 1);
+    let thread_ref = builder_new_thread(heap, builder_ref, target)?;
+    Ok(Some(Slot::Reference(Some(thread_ref))))
+}
+
+/// `String.transform(Function)` — applies the function to this string.
+pub(crate) fn native_string_transform(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let func_slot = extract_slot_arg(args, 1);
+    let Slot::Reference(Some(func_ref)) = func_slot else {
+        return Err(Error::NullPointerException);
+    };
+    let func_class = heap.get(func_ref)?.class_name.clone();
+    let result = ops.invoke(
+        heap,
+        out,
+        &func_class,
+        "apply",
+        "(Ljava/lang/Object;)Ljava/lang/Object;",
+        vec![Slot::Reference(Some(func_ref)), Slot::Reference(Some(this_ref))],
+    )?;
+    Ok(result)
+}
+
+/// `String.translateEscapes()` — processes `\t`, `\n`, `\\`, `\uXXXX`, etc.
+pub(crate) fn native_string_translate_escapes(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let s = heap_object_to_string_ref(heap, this_ref)?;
+    let chars: Vec<char> = s.chars().collect();
+    let mut out_str = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] != '\\' {
+            out_str.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        i += 1;
+        if i >= chars.len() {
+            break;
+        }
+        match chars[i] {
+            'b' => out_str.push('\u{0008}'),
+            't' => out_str.push('\t'),
+            'n' => out_str.push('\n'),
+            'f' => out_str.push('\u{000C}'),
+            'r' => out_str.push('\r'),
+            '"' => out_str.push('"'),
+            '\'' => out_str.push('\''),
+            '\\' => out_str.push('\\'),
+            '0'..='7' => {
+                // Octal escape: up to 3 digits.
+                let mut val = chars[i].to_digit(8).unwrap_or(0);
+                let mut count = 1;
+                while count < 3 && i + 1 < chars.len() && matches!(chars[i + 1], '0'..='7') {
+                    i += 1;
+                    val = val * 8 + chars[i].to_digit(8).unwrap_or(0);
+                    count += 1;
+                }
+                out_str.push(char::from_u32(val).unwrap_or('\u{FFFD}'));
+            }
+            'u' => {
+                // Unicode escape: exactly 4 hex digits.
+                if i + 4 < chars.len() {
+                    let hex: String = chars[i + 1..i + 5].iter().collect();
+                    if let Ok(val) = u32::from_str_radix(&hex, 16) {
+                        out_str.push(char::from_u32(val).unwrap_or('\u{FFFD}'));
+                        i += 4;
+                    } else {
+                        out_str.push('\\');
+                        out_str.push('u');
+                    }
+                } else {
+                    out_str.push('\\');
+                    out_str.push('u');
+                }
+            }
+            c => {
+                out_str.push('\\');
+                out_str.push(c);
+            }
+        }
+        i += 1;
+    }
+    let r = heap.allocate_string(out_str);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// `String.stripIndent()` — removes incidental indentation from a text block.
+pub(crate) fn native_string_strip_indent(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let s = heap_object_to_string_ref(heap, this_ref)?;
+    if s.is_empty() {
+        let r = heap.allocate_string(String::new());
+        return Ok(Some(Slot::Reference(Some(r))));
+    }
+    let lines: Vec<&str> = s.split('\n').collect();
+    // Minimal indent over non-blank lines.
+    let mut min_indent = usize::MAX;
+    for line in &lines {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
+        if indent < min_indent {
+            min_indent = indent;
+        }
+    }
+    if min_indent == usize::MAX {
+        min_indent = 0;
+    }
+    let mut out_lines: Vec<&str> = Vec::with_capacity(lines.len());
+    for line in &lines {
+        if line.trim().is_empty() {
+            out_lines.push("");
+        } else {
+            // Strip min_indent chars (safe: indent >= min_indent for non-blank).
+            let indent = line.len() - line.trim_start_matches([' ', '\t']).len();
+            let strip = min_indent.min(indent);
+            out_lines.push(&line[strip..]);
+        }
+    }
+    // Drop the trailing empty line that a final newline produces.
+    if s.ends_with('\n') && out_lines.last().is_some_and(|l| l.is_empty()) {
+        out_lines.pop();
+    }
+    let out_str = out_lines.join("\n");
+    let r = heap.allocate_string(out_str);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Class.isAnnotationPresent(Class)Z`
+pub(crate) fn native_class_is_annotation_present(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let annotation_type_ref = extract_ref_arg(args, 1)?;
+    let class_key = class_key_from_ref(heap, class_ref)?;
+    let requested_type = class_key_from_ref(heap, annotation_type_ref)?;
+    let reflected = ops.inspect_class(&class_key)?;
+    let present = find_annotation(&reflected.annotations, &requested_type).is_some();
+    Ok(Some(Slot::Int(if present { 1 } else { 0 })))
 }

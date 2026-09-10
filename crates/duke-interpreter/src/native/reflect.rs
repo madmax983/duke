@@ -664,17 +664,21 @@ pub(crate) fn native_class_is_local_class(
     Ok(Some(Slot::Int(0)))
 }
 
-/// Native: `Class.isRecord()Z` — Duke does not model record classes, so this is
-/// always false (gson uses it to decide between record and reflective adapters).
-#[allow(clippy::unnecessary_wraps)] // must match NativeHandler signature
+/// Native: `Class.isRecord()Z` — true when the class declares record
+/// components (has a `Record` attribute, JVMS §4.7.30).
 pub(crate) fn native_class_is_record(
     args: &[Slot],
-    _heap: &mut duke_gc::Heap,
+    heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let _ = extract_ref_arg(args, 0)?;
-    Ok(Some(Slot::Int(0)))
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let info = ops.inspect_class(&internal_name)?;
+    Ok(Some(Slot::Int(i32::from(
+        !info.record_components.is_empty(),
+    ))))
 }
 
 /// Native: `Class.isPrimitive()Z` — true when the mirror represents a primitive.
@@ -1680,4 +1684,452 @@ pub(crate) fn native_class_get_enum_constants(
     let array_class_name = format!("[L{internal_name};");
     let array_ref = allocate_reference_array(heap, &array_class_name, &universe)?;
     Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+/// JLS §6.2 simple name of a class given its internal slash-form name.
+///
+/// Mirrors the JDK: arrays append `"[]"` to the component's simple name;
+/// member/local classes use the part after the last `'$'` (anonymous classes,
+/// whose tail is all digits, yield `""`); otherwise the name after the last
+/// package separator.
+fn simple_name_of_internal(internal: &str) -> String {
+    if let Some(rest) = internal.strip_prefix('[') {
+        let component = rest
+            .strip_prefix('L')
+            .and_then(|s| s.strip_suffix(';'))
+            .unwrap_or(rest);
+        let base = match component {
+            "B" => "byte".to_string(),
+            "C" => "char".to_string(),
+            "D" => "double".to_string(),
+            "F" => "float".to_string(),
+            "I" => "int".to_string(),
+            "J" => "long".to_string(),
+            "S" => "short".to_string(),
+            "Z" => "boolean".to_string(),
+            _ => simple_name_of_internal(component),
+        };
+        return format!("{base}[]");
+    }
+    // Bare primitive descriptor (`int.class` etc.): the JDK reports the keyword.
+    match internal {
+        "B" => return "byte".to_string(),
+        "C" => return "char".to_string(),
+        "D" => return "double".to_string(),
+        "F" => return "float".to_string(),
+        "I" => return "int".to_string(),
+        "J" => return "long".to_string(),
+        "S" => return "short".to_string(),
+        "Z" => return "boolean".to_string(),
+        "V" => return "void".to_string(),
+        _ => {}
+    }
+    let name = internal.rsplit('/').next().unwrap_or(internal);
+    match name.rfind('$') {
+        Some(idx) => name[idx + 1..]
+            .trim_start_matches(|c: char| c.is_ascii_digit())
+            .to_string(),
+        None => name.to_string(),
+    }
+}
+
+/// Native: `Class.getSimpleName()Ljava/lang/String;`.
+pub(crate) fn native_class_get_simple_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let simple_ref = heap.allocate_string(simple_name_of_internal(&internal_name));
+    Ok(Some(Slot::Reference(Some(simple_ref))))
+}
+
+/// Native: `Class.isSealed()Z` — true when the class carries a
+/// `PermittedSubclasses` attribute (JVMS §4.7.31).
+pub(crate) fn native_class_is_sealed(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let sealed = ops
+        .inspect_class(&internal_name)
+        .is_ok_and(|info| !info.permitted_subclasses.is_empty());
+    Ok(Some(Slot::Int(i32::from(sealed))))
+}
+
+/// Native: `Class.getPermittedSubclasses()[Ljava/lang/Class;` — `null` when
+/// the class is not sealed, mirroring the JDK.
+pub(crate) fn native_class_get_permitted_subclasses(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let info = ops.inspect_class(&internal_name)?;
+    if info.permitted_subclasses.is_empty() {
+        return Ok(Some(Slot::Reference(None)));
+    }
+    let mut refs = Vec::with_capacity(info.permitted_subclasses.len());
+    for sub in &info.permitted_subclasses {
+        refs.push(allocate_class_object(heap, sub)?);
+    }
+    let array_ref = allocate_reference_array(heap, "[Ljava/lang/Class;", &refs)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+/// Allocate a `java/lang/reflect/RecordComponent` mirror for one record
+/// component: declaring record `Class`, name, type `Class`, and the public
+/// accessor `Method`.
+fn allocate_record_component_object(
+    heap: &mut duke_gc::Heap,
+    ops: &mut dyn CallbackOps,
+    declaring_internal_name: &str,
+    name: &str,
+    descriptor: &str,
+) -> Result<u64> {
+    let component_ref = heap.allocate("java/lang/reflect/RecordComponent".to_string(), 4);
+    let declaring_class_ref = allocate_class_object(heap, declaring_internal_name)?;
+    let name_ref = heap.allocate_string(name.to_string());
+    let type_slot =
+        descriptor_class_slot_from_source(heap, ops, descriptor, Some(declaring_internal_name))?;
+    let accessor_ref = allocate_reflection_member_object(
+        heap,
+        "java/lang/reflect/Method",
+        declaring_internal_name,
+        name,
+        &format!("(){descriptor}"),
+        true,
+        false,
+    )?;
+    heap.write_field(
+        component_ref,
+        RECORD_COMPONENT_DECLARING_RECORD_FIELD,
+        Slot::Reference(Some(declaring_class_ref)),
+    )?;
+    heap.write_field(
+        component_ref,
+        RECORD_COMPONENT_NAME_FIELD,
+        Slot::Reference(Some(name_ref)),
+    )?;
+    heap.write_field(component_ref, RECORD_COMPONENT_TYPE_FIELD, type_slot)?;
+    heap.write_field(
+        component_ref,
+        RECORD_COMPONENT_ACCESSOR_FIELD,
+        Slot::Reference(Some(accessor_ref)),
+    )?;
+    Ok(component_ref)
+}
+
+fn record_component_field(heap: &duke_gc::Heap, component_ref: u64, field: usize) -> Result<Slot> {
+    heap.get(component_ref)?
+        .fields
+        .get(field)
+        .copied()
+        .ok_or(Error::InvalidRef {
+            address: component_ref,
+        })
+}
+
+/// Native: `Class.getRecordComponents()[Ljava/lang/reflect/RecordComponent;`
+/// — the record components in declaration order, or an empty array when the
+/// class is not a record.
+pub(crate) fn native_class_get_record_components(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let info = ops.inspect_class(&internal_name)?;
+    let mut refs = Vec::with_capacity(info.record_components.len());
+    for component in &info.record_components {
+        refs.push(allocate_record_component_object(
+            heap,
+            ops,
+            &internal_name,
+            &component.name,
+            &component.descriptor,
+        )?);
+    }
+    let array_ref =
+        allocate_reference_array(heap, "[Ljava/lang/reflect/RecordComponent;", &refs)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+/// Native: `RecordComponent.getName()Ljava/lang/String;`
+pub(crate) fn native_record_component_get_name(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let component_ref = extract_ref_arg(args, 0)?;
+    let name = record_component_field(heap, component_ref, RECORD_COMPONENT_NAME_FIELD)?;
+    Ok(Some(name))
+}
+
+/// Native: `RecordComponent.getType()Ljava/lang/Class;`
+pub(crate) fn native_record_component_get_type(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let component_ref = extract_ref_arg(args, 0)?;
+    let ty = record_component_field(heap, component_ref, RECORD_COMPONENT_TYPE_FIELD)?;
+    Ok(Some(ty))
+}
+
+/// Native: `RecordComponent.getAccessor()Ljava/lang/reflect/Method;`
+pub(crate) fn native_record_component_get_accessor(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let component_ref = extract_ref_arg(args, 0)?;
+    let accessor = record_component_field(heap, component_ref, RECORD_COMPONENT_ACCESSOR_FIELD)?;
+    Ok(Some(accessor))
+}
+
+/// Native: `RecordComponent.getDeclaringRecord()Ljava/lang/Class;`
+pub(crate) fn native_record_component_get_declaring_record(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let component_ref = extract_ref_arg(args, 0)?;
+    let declaring = record_component_field(
+        heap,
+        component_ref,
+        RECORD_COMPONENT_DECLARING_RECORD_FIELD,
+    )?;
+    Ok(Some(declaring))
+}
+
+/// Native: `RecordComponent.toString()Ljava/lang/String;` — the JDK renders
+/// `declaringRecord.getTypeName() + "." + getName()`.
+pub(crate) fn native_record_component_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let component_ref = extract_ref_arg(args, 0)?;
+    let declaring = record_component_field(
+        heap,
+        component_ref,
+        RECORD_COMPONENT_DECLARING_RECORD_FIELD,
+    )?;
+    let name = record_component_field(heap, component_ref, RECORD_COMPONENT_NAME_FIELD)?;
+    let Slot::Reference(Some(class_ref)) = declaring else {
+        return Err(Error::TypeMismatch {
+            expected: "Reference",
+            got: "other",
+        });
+    };
+    let Slot::Reference(Some(name_ref)) = name else {
+        return Err(Error::TypeMismatch {
+            expected: "Reference",
+            got: "other",
+        });
+    };
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let binary_name = internal_name_to_binary_name(&internal_name);
+    let component_name = heap_object_to_string_ref(heap, name_ref)?;
+    let text = format!("{binary_name}.{component_name}");
+    let text_ref = heap.allocate_string(text);
+    Ok(Some(Slot::Reference(Some(text_ref))))
+}
+
+/// Native: `Class.isNestmateOf(Ljava/lang/Class;)Z` — true when both classes
+/// share the same nest host (JVMS §4.7.30).
+pub(crate) fn native_class_is_nestmate_of(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let other_ref = extract_ref_arg(args, 1)?;
+    let a = class_internal_name_from_ref(heap, class_ref)?;
+    let b = class_internal_name_from_ref(heap, other_ref)?;
+    let mut nest_host_of = |name: &str| -> Result<String> {
+        let info = ops.inspect_class(name)?;
+        Ok(info.nest_host.unwrap_or_else(|| name.to_string()))
+    };
+    let result = nest_host_of(&a)? == nest_host_of(&b)?;
+    Ok(Some(Slot::Int(i32::from(result))))
+}
+
+/// Native: `Class.getNestHost()Ljava/lang/Class;` — the nest host, or the
+/// class itself when it has no `NestHost` attribute (JVMS §4.7.30).
+pub(crate) fn native_class_get_nest_host(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let host = ops
+        .inspect_class(&internal_name)?
+        .nest_host
+        .unwrap_or(internal_name);
+    let host_ref = allocate_class_object(heap, &host)?;
+    Ok(Some(Slot::Reference(Some(host_ref))))
+}
+
+/// Native: `Class.getNestMembers()[Ljava/lang/Class;` — the members of the
+/// nest this class belongs to (JVMS §4.7.30).
+pub(crate) fn native_class_get_nest_members(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let info = ops.inspect_class(&internal_name)?;
+    // The nest host heads the array, mirroring the JDK (the NestMembers
+    // attribute itself lists only the non-host members).
+    let host = info.nest_host.clone().unwrap_or_else(|| internal_name.clone());
+    let members = if !info.nest_members.is_empty() {
+        info.nest_members
+    } else if info.nest_host.is_some() {
+        // Not the host: ask the host for its members.
+        ops.inspect_class(&host)?.nest_members
+    } else {
+        // A lone class is the sole member of its own nest.
+        Vec::new()
+    };
+    let mut refs = Vec::with_capacity(members.len() + 1);
+    refs.push(allocate_class_object(heap, &host)?);
+    for member in &members {
+        if *member != host {
+            refs.push(allocate_class_object(heap, member)?);
+        }
+    }
+    let array_ref = allocate_reference_array(heap, "[Ljava/lang/Class;", &refs)?;
+    Ok(Some(Slot::Reference(Some(array_ref))))
+}
+
+pub(crate) fn native_reflect_method_get_parameter_annotations(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let method_ref = extract_ref_arg(args, 0)?;
+    let method = reflected_method_handle(heap, method_ref)?;
+    let param_annotations = ops
+        .inspect_class(&method.declaring_class_key)?
+        .methods
+        .into_iter()
+        .find(|candidate| {
+            candidate.name == method.method_name && candidate.descriptor == method.descriptor
+        })
+        .map_or_else(Vec::new, |m| m.parameter_annotations);
+    // Build Annotation[][] — outer array of Annotation[] per parameter
+    let mut outer: Vec<u64> = Vec::with_capacity(param_annotations.len());
+    for param in &param_annotations {
+        let refs = param
+            .iter()
+            .map(|a| allocate_annotation_proxy(heap, out, ops, a))
+            .collect::<Result<Vec<_>>>()?;
+        let inner = allocate_reference_array(heap, "[Ljava/lang/annotation/Annotation;", &refs)?;
+        outer.push(inner);
+    }
+    let outer_ref = allocate_reference_array(heap, "[[Ljava/lang/annotation/Annotation;", &outer)?;
+    Ok(Some(Slot::Reference(Some(outer_ref))))
+}
+
+/// Native: `RecordComponent.getAnnotation(Class)Annotation`
+pub(crate) fn native_record_component_get_annotation(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let component_ref = extract_ref_arg(args, 0)?;
+    let annotation_type_ref = extract_ref_arg(args, 1)?;
+    let requested_type = class_key_from_ref(heap, annotation_type_ref)?;
+    let annotations = annotations_for_record_component(heap, component_ref, ops)?;
+    match find_annotation(&annotations, &requested_type) {
+        Some(annotation) => {
+            let annotation_ref = allocate_annotation_proxy(heap, out, ops, annotation)?;
+            Ok(Some(Slot::Reference(Some(annotation_ref))))
+        }
+        None => Ok(Some(Slot::Reference(None))),
+    }
+}
+
+/// Native: `RecordComponent.getAnnotations()[Annotation;`
+pub(crate) fn native_record_component_get_annotations(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let component_ref = extract_ref_arg(args, 0)?;
+    let annotations = annotations_for_record_component(heap, component_ref, ops)?;
+    allocate_annotation_array(heap, out, ops, &annotations)
+}
+
+/// Native: `RecordComponent.isAnnotationPresent(Class)Z`
+pub(crate) fn native_record_component_is_annotation_present(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let component_ref = extract_ref_arg(args, 0)?;
+    let annotation_type_ref = extract_ref_arg(args, 1)?;
+    let requested_type = class_key_from_ref(heap, annotation_type_ref)?;
+    let annotations = annotations_for_record_component(heap, component_ref, ops)?;
+    let present = find_annotation(&annotations, &requested_type).is_some();
+    Ok(Some(Slot::Int(if present { 1 } else { 0 })))
+}
+
+fn annotations_for_record_component(
+    heap: &duke_gc::Heap,
+    component_ref: u64,
+    ops: &mut dyn CallbackOps,
+) -> Result<Vec<crate::ReflectedAnnotation>> {
+    // Get declaring class and component name from the object
+    let declaring_class_ref = match record_component_field(heap, component_ref, RECORD_COMPONENT_DECLARING_RECORD_FIELD)? {
+        Slot::Reference(Some(r)) => r,
+        _ => return Ok(Vec::new()),
+    };
+    let name_ref = match record_component_field(heap, component_ref, RECORD_COMPONENT_NAME_FIELD)? {
+        Slot::Reference(Some(r)) => r,
+        _ => return Ok(Vec::new()),
+    };
+    let internal_name = class_internal_name_from_ref(heap, declaring_class_ref)?;
+    let name = heap.get(name_ref).ok().and_then(|o| o.string_value.clone()).unwrap_or_default();
+    let info = ops.inspect_class(&internal_name)?;
+    Ok(info
+        .record_components
+        .into_iter()
+        .find(|c| c.name == name)
+        .map_or_else(Vec::new, |c| c.annotations))
 }

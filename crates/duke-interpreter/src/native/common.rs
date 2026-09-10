@@ -4060,7 +4060,7 @@ pub(crate) fn annotation_proxy_type(class_name: &str) -> Option<&str> {
     class_name.strip_prefix(ANNOTATION_PROXY_PREFIX)
 }
 
-fn find_annotation<'a>(
+pub(crate) fn find_annotation<'a>(
     annotations: &'a [ReflectedAnnotation],
     requested_type: &str,
 ) -> Option<&'a ReflectedAnnotation> {
@@ -4168,7 +4168,7 @@ fn materialize_annotation_value(
     }
 }
 
-fn allocate_annotation_proxy(
+pub(crate) fn allocate_annotation_proxy(
     heap: &mut duke_gc::Heap,
     output: &mut dyn Write,
     ops: &mut dyn CallbackOps,
@@ -4479,6 +4479,26 @@ const THREAD_ID_SLOT: usize = 1;
 const THREAD_INTERRUPTED_SLOT: usize = 2;
 const THREAD_HOST_KEY_SLOT: usize = 3;
 const THREAD_CONTEXT_CLASS_LOADER_SLOT: usize = 4;
+const THREAD_NAME_SLOT: usize = 5;
+const THREAD_IS_VIRTUAL_SLOT: usize = 6;
+const THREAD_ALIVE_SLOT: usize = 7;
+
+/// The `java/lang/Thread` heap ref for the Java thread running on this host
+/// thread. Set when a Java thread spawns; the main thread leaves it unset and
+/// falls back to the main-thread identity.
+thread_local! {
+    static CURRENT_JAVA_THREAD: std::cell::Cell<Option<u64>> = std::cell::Cell::new(None);
+}
+
+/// Record the Java thread ref for the current host thread.
+pub(crate) fn set_current_java_thread(thread_ref: u64) {
+    CURRENT_JAVA_THREAD.with(|c| c.set(Some(thread_ref)));
+}
+
+/// The Java thread ref for the current host thread, if one was recorded.
+pub(crate) fn current_java_thread() -> Option<u64> {
+    CURRENT_JAVA_THREAD.with(|c| c.get())
+}
 
 static NEXT_THREAD_HOST_KEY: AtomicI32 = AtomicI32::new(1);
 
@@ -4733,6 +4753,28 @@ pub(crate) fn native_executor_shutdown(
     _out: &mut dyn Write,
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
+    executor_shutdown_nowait(args, heap)?;
+    Ok(None)
+}
+
+/// `ExecutorService.close()` — shuts down and waits for submitted tasks to finish,
+/// matching the JDK's `AutoCloseable` executor semantics.
+pub(crate) fn native_executor_close(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let executor_ref = extract_ref_arg(args, 0)?;
+    executor_shutdown_nowait(args, heap)?;
+    // Wait for termination (no timeout — mirrors try-with-resources close).
+    while !executor_is_terminated(heap, executor_ref)? {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    Ok(None)
+}
+
+fn executor_shutdown_nowait(args: &[Slot], heap: &mut duke_gc::Heap) -> Result<()> {
     let executor_ref = extract_ref_arg(args, 0)?;
     let executor = executor_shared(heap, executor_ref)?;
     {
@@ -4745,7 +4787,7 @@ pub(crate) fn native_executor_shutdown(
     }
     executor.available.notify_all();
     heap.write_field(executor_ref, EXECUTOR_SHUTDOWN_FIELD, Slot::Int(1))?;
-    Ok(None)
+    Ok(())
 }
 
 fn executor_is_shutdown(heap: &duke_gc::Heap, executor_ref: u64) -> Result<bool> {
@@ -6456,6 +6498,9 @@ fn execute_string_concat_recipe(
     arg_types: &[char],
     constants: &[String],
     heap: &mut duke_gc::Heap,
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    stdout: &mut dyn Write,
 ) -> Result<Slot> {
     let mut result = String::new();
     let mut dyn_idx = 0;
@@ -6466,7 +6511,15 @@ fn execute_string_concat_recipe(
             '\u{1}' => {
                 if dyn_idx < dynamic_args.len() {
                     let type_hint = arg_types.get(dyn_idx).copied().unwrap_or('I');
-                    stringify_slot(&dynamic_args[dyn_idx], type_hint, heap, &mut result)?;
+                    stringify_slot(
+                        &dynamic_args[dyn_idx],
+                        type_hint,
+                        heap,
+                        registry,
+                        loader,
+                        stdout,
+                        &mut result,
+                    )?;
                     dyn_idx += 1;
                 }
             }
@@ -6484,12 +6537,47 @@ fn execute_string_concat_recipe(
     Ok(Slot::Reference(Some(r)))
 }
 
+/// `String.valueOf(Object)` semantics: null is handled by callers; a non-null
+/// object goes through its `toString()`, like the JDK.
+fn object_to_string_via_tostring(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    stdout: &mut dyn Write,
+    obj_ref: u64,
+) -> Result<String> {
+    let class_name = heap.get(obj_ref)?.class_name.clone();
+    if class_name == "java/lang/String" {
+        return heap_object_to_string_ref(heap, obj_ref);
+    }
+    let mut ops = InterpreterCallbackOps { registry, loader };
+    let result = ops.invoke(
+        heap,
+        stdout,
+        &class_name,
+        "toString",
+        "()Ljava/lang/String;",
+        vec![Slot::Reference(Some(obj_ref))],
+    )?;
+    match result {
+        Some(Slot::Reference(Some(s))) => heap_object_to_string_ref(heap, s),
+        // toString misbehaved; fall back to the Object.toString form.
+        _ => heap_object_to_string_ref(heap, obj_ref),
+    }
+}
+
 /// Convert a Slot to its string representation (like Java's String.valueOf).
 /// `type_hint` is the JVM type descriptor char: 'Z' for boolean, 'I' for int, etc.
+/// Non-`String` references go through `toString()` like the JDK's
+/// `String.valueOf(Object)`.
+#[allow(clippy::too_many_arguments)]
 fn stringify_slot(
     slot: &Slot,
     type_hint: char,
-    heap: &duke_gc::Heap,
+    heap: &mut duke_gc::Heap,
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    stdout: &mut dyn Write,
     out: &mut String,
 ) -> Result<()> {
     match slot {
@@ -6513,7 +6601,9 @@ fn stringify_slot(
         Slot::Double(v) => out.push_str(&format_java_double(*v)),
         Slot::Reference(None) => out.push_str("null"),
         Slot::Reference(Some(r)) => {
-            out.push_str(&heap_object_to_string_ref(heap, *r)?);
+            out.push_str(&object_to_string_via_tostring(
+                registry, loader, heap, stdout, *r,
+            )?);
         }
         Slot::ReturnAddress(v) => out.push_str(&v.to_string()),
     }
@@ -8233,7 +8323,29 @@ fn callback_invoke_registered_lambda(
         5 | 9 => match impl_args.first().copied() {
             Some(Slot::Reference(Some(receiver_ref))) => {
                 let receiver_class = heap.get(receiver_ref)?.class_name.clone();
-                if has_registered_native_override(
+                // If the receiver is itself a lambda, its SAM isn't in the method
+                // hierarchy — dispatch through the lambda fallback recursively.
+                if registry.get_lambda(&receiver_class).is_some() {
+                    if let Some(inner) = callback_invoke_registered_lambda(
+                        registry,
+                        loader,
+                        heap,
+                        output,
+                        &receiver_class,
+                        &lambda_info.impl_method,
+                        &lambda_info.impl_desc,
+                        &impl_args,
+                    )? {
+                        let result = autobox_if_needed(
+                            inner,
+                            &lambda_info.impl_desc,
+                            &lambda_info.sam_desc,
+                            heap,
+                        )?;
+                        return Ok(Some(result));
+                    }
+                    receiver_class
+                } else if has_registered_native_override(
                     registry,
                     &receiver_class,
                     &lambda_info.impl_method,
@@ -9088,6 +9200,36 @@ fn resolve_thread_entry(
         _ => return Ok(None),
     };
     let target_class = heap.get(target_ref)?.class_name.clone();
+    // Lambda targets (`$$Lambda$N`) don't carry a real `run` method; they
+    // dispatch through the metafactory's impl method. Resolve the impl
+    // directly so `new Thread(lambda).start()` works.
+    if let Some(lambda_info) = registry.get_lambda(&target_class).cloned() {
+        let lambda_object = heap.get(target_ref)?;
+        let mut impl_args = Vec::with_capacity(lambda_info.captured_count + 1);
+        for capture_index in 0..lambda_info.captured_count {
+            let slot = lambda_object
+                .fields
+                .get(capture_index)
+                .copied()
+                .ok_or(Error::Unimplemented {
+                    mnemonic: "lambda capture missing",
+                })?;
+            impl_args.push(slot);
+        }
+        drop(lambda_object);
+        let (dispatch_class, method_idx) = resolve_method_in_hierarchy(
+            registry,
+            loader,
+            &lambda_info.impl_class,
+            &lambda_info.impl_method,
+            &lambda_info.impl_desc,
+        )
+        .ok_or_else(|| Error::AbstractMethodError {
+            class_name: lambda_info.impl_class.clone(),
+            method_name: lambda_info.impl_method.clone(),
+        })?;
+        return Ok(Some((dispatch_class, method_idx, impl_args)));
+    }
     let (dispatch_class, method_idx) =
         resolve_method_in_hierarchy(registry, loader, &target_class, "run", "()V").ok_or_else(
             || Error::AbstractMethodError {
@@ -9714,6 +9856,7 @@ fn spawn_java_thread(
             let thread = shared_guard.heap.get_mut(thread_ref)?;
             thread.fields[THREAD_ID_SLOT] = Slot::Int(thread_id);
             thread.fields[THREAD_HOST_KEY_SLOT] = Slot::Int(host_key);
+            thread.fields[THREAD_ALIVE_SLOT] = Slot::Int(1);
         }
         let CompletionVm {
             registry,
@@ -9744,6 +9887,7 @@ fn spawn_java_thread(
     let handle = std::thread::spawn(move || {
         let host_thread_id = std::thread::current().id();
         register_java_host_thread(host_key, host_thread_id);
+        set_current_java_thread(thread_ref);
         let interrupted_before_start = {
             let shared = shared_clone
                 .lock()
@@ -9765,6 +9909,12 @@ fn spawn_java_thread(
         {
             let mut shared = shared_clone.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             shared.live_workers = shared.live_workers.saturating_sub(1);
+            // Mark the Java thread object not-alive so `Thread.isAlive()` observes termination.
+            if let Ok(thread) = shared.heap.get_mut(thread_ref) {
+                if let Some(slot) = thread.fields.get_mut(THREAD_ALIVE_SLOT) {
+                    *slot = Slot::Int(0);
+                }
+            }
         }
         let _ = runtime_clone
             .lock()
@@ -10344,6 +10494,12 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
         })
         .unwrap_or_default();
 
+    // Extract PermittedSubclasses / NestHost / NestMembers (§4.7.30, §4.7.31),
+    // resolving class indices to internal slash-form names up front.
+    let (permitted_subclasses, nest_host, nest_members) =
+        sealed_nest_info_from_attrs(&cf.constant_pool, &cf.attributes);
+    let record_components = record_components_from_attrs(&cf.constant_pool, &cf.attributes);
+
     ClassContext {
         class_name,
         super_class,
@@ -10354,6 +10510,10 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
         static_fields,
         instance_field_count,
         bootstrap_methods,
+        permitted_subclasses,
+        nest_host,
+        nest_members,
+        record_components,
         load_source: ClassLoadSource::Classfile,
     }
 }
@@ -10509,6 +10669,34 @@ fn runtime_visible_annotations_from_attrs(
         .unwrap_or_default()
 }
 
+fn runtime_visible_parameter_annotations_from_attrs(
+    cp: &[Option<CpEntry>],
+    attrs: &[duke_classfile::AttributeInfo],
+) -> Vec<Vec<ReflectedAnnotation>> {
+    attrs
+        .iter()
+        .find_map(|attr| {
+            if let duke_classfile::AttributeData::RuntimeVisibleParameterAnnotations(params) =
+                &attr.data
+            {
+                Some(
+                    params
+                        .iter()
+                        .map(|annotations| {
+                            annotations
+                                .iter()
+                                .filter_map(|annotation| resolve_annotation(cp, annotation))
+                                .collect()
+                        })
+                        .collect(),
+                )
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default()
+}
+
 fn annotation_default_from_attrs(
     cp: &[Option<CpEntry>],
     attrs: &[duke_classfile::AttributeInfo],
@@ -10538,6 +10726,70 @@ fn signature_from_attrs(
     })
 }
 
+/// Decode the `PermittedSubclasses` (JVMS §4.7.31), `NestHost` and
+/// `NestMembers` (JVMS §4.7.30) attributes into
+/// `(permitted_subclasses, nest_host, nest_members)`, with class indices
+/// resolved to internal slash-form names. Shared by the classfile and
+/// reflection paths so sealed/nest metadata survives in one place.
+fn sealed_nest_info_from_attrs(
+    cp: &[Option<CpEntry>],
+    attrs: &[duke_classfile::AttributeInfo],
+) -> (Vec<String>, Option<String>, Vec<String>) {
+    let mut permitted_subclasses = Vec::new();
+    let mut nest_host = None;
+    let mut nest_members = Vec::new();
+    for attr in attrs {
+        match &attr.data {
+            duke_classfile::AttributeData::PermittedSubclasses(indices) => {
+                permitted_subclasses = indices
+                    .iter()
+                    .filter_map(|idx| resolve_class_name(cp, idx.0 as usize).ok())
+                    .collect();
+            }
+            duke_classfile::AttributeData::NestHost { host_class_index } => {
+                nest_host = resolve_class_name(cp, host_class_index.0 as usize).ok();
+            }
+            duke_classfile::AttributeData::NestMembers(indices) => {
+                nest_members = indices
+                    .iter()
+                    .filter_map(|idx| resolve_class_name(cp, idx.0 as usize).ok())
+                    .collect();
+            }
+            _ => {}
+        }
+    }
+    (permitted_subclasses, nest_host, nest_members)
+}
+
+/// Resolve the `Record` attribute (JVMS §4.7.30) to runtime record components,
+/// in declaration order. Empty when the class is not a record.
+fn record_components_from_attrs(
+    cp: &[Option<CpEntry>],
+    attrs: &[duke_classfile::AttributeInfo],
+) -> Vec<crate::context::RecordComponent> {
+    fn cp_utf8(cp: &[Option<CpEntry>], idx: usize) -> Option<String> {
+        match cp.get(idx).and_then(|e| e.as_ref()) {
+            Some(CpEntry::Utf8(s)) => Some(s.clone()),
+            _ => None,
+        }
+    }
+    for attr in attrs {
+        if let duke_classfile::AttributeData::Record(components) = &attr.data {
+            return components
+                .iter()
+                .filter_map(|c| {
+                    Some(crate::context::RecordComponent {
+                        name: cp_utf8(cp, c.name_index.0 as usize)?,
+                        descriptor: cp_utf8(cp, c.descriptor_index.0 as usize)?,
+                        annotations: runtime_visible_annotations_from_attrs(cp, &c.attributes),
+                    })
+                })
+                .collect();
+        }
+    }
+    Vec::new()
+}
+
 fn reflected_class_info_from_loader(
     loader: &dyn ClassLoader,
     internal_name: &str,
@@ -10546,6 +10798,14 @@ fn reflected_class_info_from_loader(
 
     let bytes = loader.find_class(internal_name).ok()?;
     let class_file = duke_classfile::parse(&bytes).ok()?;
+    let (permitted_subclasses, nest_host, nest_members) = sealed_nest_info_from_attrs(
+        &class_file.constant_pool,
+        &class_file.attributes,
+    );
+    let record_components = record_components_from_attrs(
+        &class_file.constant_pool,
+        &class_file.attributes,
+    );
     let methods = class_file
         .methods
         .iter()
@@ -10571,6 +10831,10 @@ fn reflected_class_info_from_loader(
                     &method.attributes,
                 ),
                 signature: signature_from_attrs(
+                    &class_file.constant_pool,
+                    &method.attributes,
+                ),
+                parameter_annotations: runtime_visible_parameter_annotations_from_attrs(
                     &class_file.constant_pool,
                     &method.attributes,
                 ),
@@ -10623,6 +10887,10 @@ fn reflected_class_info_from_loader(
             &class_file.attributes,
         ),
         signature: signature_from_attrs(&class_file.constant_pool, &class_file.attributes),
+        permitted_subclasses,
+        nest_host,
+        nest_members,
+        record_components,
     })
 }
 
@@ -10660,6 +10928,7 @@ fn synthesized_lambda_sam(registry: &ClassRegistry, class: &str) -> Option<Refle
         annotations: Vec::new(),
         annotation_default: None,
         signature: None,
+        parameter_annotations: Vec::new(),
     })
 }
 
@@ -10699,6 +10968,7 @@ fn inspect_reflected_class(
                     annotations: Vec::new(),
                     annotation_default: None,
                     signature: None,
+                    parameter_annotations: Vec::new(),
                 })
                 .collect();
             // Lambda proxies carry an empty ClassContext.methods (dispatch
@@ -10727,6 +10997,10 @@ fn inspect_reflected_class(
                 access_flags: SYNTHETIC_CLASS_ACCESS_FLAGS,
                 annotations: Vec::new(),
                 signature: None,
+                permitted_subclasses: Vec::new(),
+                nest_host: None,
+                nest_members: Vec::new(),
+            record_components: Vec::new(),
             });
         }
         Err(Error::ClassNotFound { .. }) => {}
@@ -10755,6 +11029,7 @@ fn inspect_reflected_class(
             annotations: Vec::new(),
             annotation_default: None,
             signature: None,
+            parameter_annotations: Vec::new(),
         })
         .collect();
     // Lambda proxies carry an empty ClassContext.methods (dispatch constraint);
@@ -10784,6 +11059,10 @@ fn inspect_reflected_class(
         access_flags: SYNTHETIC_CLASS_ACCESS_FLAGS,
         annotations: Vec::new(),
         signature: None,
+        permitted_subclasses: ctx.permitted_subclasses.clone(),
+        nest_host: ctx.nest_host.clone(),
+        nest_members: ctx.nest_members.clone(),
+        record_components: ctx.record_components.clone(),
     })
 }
 
@@ -10793,6 +11072,13 @@ const REFLECTION_MEMBER_DESCRIPTOR_FIELD: usize = 2;
 const REFLECTION_MEMBER_PUBLIC_FIELD: usize = 3;
 const REFLECTION_MEMBER_STATIC_FIELD: usize = 4;
 const REFLECTION_MEMBER_ACCESSIBLE_FIELD: usize = 5;
+
+/// Heap layout of a synthesized `java/lang/reflect/RecordComponent` object:
+/// declaring record `Class`, name `String`, type `Class`, accessor `Method`.
+const RECORD_COMPONENT_DECLARING_RECORD_FIELD: usize = 0;
+const RECORD_COMPONENT_NAME_FIELD: usize = 1;
+const RECORD_COMPONENT_TYPE_FIELD: usize = 2;
+const RECORD_COMPONENT_ACCESSOR_FIELD: usize = 3;
 
 /// `ACC_INTERFACE` (§4.1) — set when a `Class` mirror denotes an interface.
 const ACC_INTERFACE: u16 = 0x0200;
@@ -10854,18 +11140,18 @@ fn allocate_class_object(heap: &mut duke_gc::Heap, class_key: &str) -> Result<u6
     Ok(class_ref)
 }
 
-fn class_key_from_ref(heap: &duke_gc::Heap, class_ref: u64) -> Result<String> {
+pub(crate) fn class_key_from_ref(heap: &duke_gc::Heap, class_ref: u64) -> Result<String> {
     heap.get(class_ref)?
         .string_value
         .clone()
         .ok_or(Error::InvalidRef { address: class_ref })
 }
 
-fn class_internal_name_from_ref(heap: &duke_gc::Heap, class_ref: u64) -> Result<String> {
+pub(crate) fn class_internal_name_from_ref(heap: &duke_gc::Heap, class_ref: u64) -> Result<String> {
     Ok(class_internal_name_from_key(&class_key_from_ref(heap, class_ref)?).to_string())
 }
 
-fn allocate_reference_array(
+pub(crate) fn allocate_reference_array(
     heap: &mut duke_gc::Heap,
     array_class_name: &str,
     elements: &[u64],
@@ -11326,7 +11612,7 @@ struct ReflectedMethodHandle {
     is_accessible: bool,
 }
 
-fn reflected_method_handle(
+pub(crate) fn reflected_method_handle(
     heap: &duke_gc::Heap,
     method_ref: u64,
 ) -> Result<ReflectedMethodHandle> {
@@ -11985,8 +12271,13 @@ fn resolve_method_handle(
         }) => (*reference_kind, reference_index.0 as usize),
         _ => return Err(Error::InvalidCpIndex { index: cp_idx }),
     };
-    let (class_name, method_name, descriptor) = resolve_methodref(cp, ref_idx)?;
-    Ok((kind, class_name, method_name, descriptor))
+    // REF_getField/REF_getStatic/REF_putField/REF_putStatic wrap a Fieldref;
+    // all other kinds wrap a Methodref.
+    let (class_name, member_name, descriptor) = match kind {
+        1 | 2 | 3 | 4 => resolve_fieldref(cp, ref_idx)?,
+        _ => resolve_methodref(cp, ref_idx)?,
+    };
+    Ok((kind, class_name, member_name, descriptor))
 }
 
 /// Resolve a `NameAndType` CP entry to (name, descriptor).

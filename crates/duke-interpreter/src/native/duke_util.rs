@@ -5934,3 +5934,71 @@ pub(crate) fn native_stream_iterate_predicate(
     drop(scope);
     Ok(Some(Slot::Reference(Some(out_ref))))
 }
+/// Native: `Comparator.thenComparingInt(ToIntFunction)` — chains an int key extractor
+/// as the tie-breaker. Returns a `duke/util/ThenComparingIntComparator` with
+/// `fields[0]`=primary comparator, `fields[1]`=ToIntFunction ref.
+pub(crate) fn native_comparator_then_comparing_int(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let primary = extract_slot_arg(args, 0);
+    let key_fn = extract_slot_arg(args, 1);
+    let r = heap.allocate("duke/util/ThenComparingIntComparator".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = primary;
+    heap.get_mut(r)?.fields[1] = key_fn;
+    heap.remember_reference_write(r, primary);
+    heap.remember_reference_write(r, key_fn);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `ThenComparingIntComparator.compare(O,O)I` — primary, then int keys.
+pub(crate) fn native_then_comparing_int_compare(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let a = extract_slot_arg(args, 1);
+    let b = extract_slot_arg(args, 2);
+    let primary = extract_first_field_arg(heap, this_ref)?;
+    let key_fn_slot = extract_field_arg(heap, this_ref, 1)?;
+    let result = invoke_comparator(primary, a, b, heap, out, ops)?;
+    if result != 0 {
+        return Ok(Some(Slot::Int(result)));
+    }
+    let Slot::Reference(Some(mut fn_ref)) = key_fn_slot else {
+        return Ok(Some(Slot::Int(0)));
+    };
+    let fn_class = heap.get(fn_ref)?.class_name.clone();
+    let mut scope = NativeRootScope::new();
+    scope.pin_ref(&mut fn_ref);
+    let ka = ops.invoke(
+        heap,
+        out,
+        &fn_class,
+        "applyAsInt",
+        "(Ljava/lang/Object;)I",
+        vec![Slot::Reference(Some(fn_ref)), a],
+    )?;
+    let kb = ops.invoke(
+        heap,
+        out,
+        &fn_class,
+        "applyAsInt",
+        "(Ljava/lang/Object;)I",
+        vec![Slot::Reference(Some(fn_ref)), b],
+    )?;
+    let ia = match ka {
+        Some(Slot::Int(n)) => n,
+        _ => 0,
+    };
+    let ib = match kb {
+        Some(Slot::Int(n)) => n,
+        _ => 0,
+    };
+    Ok(Some(Slot::Int(ia.cmp(&ib) as i32)))
+}

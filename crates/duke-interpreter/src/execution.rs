@@ -140,6 +140,332 @@ fn current_method_name(registry: &ClassRegistry, current_class: &str, method_idx
         .to_string()
 }
 
+/// Read one record component via its `ObjectMethods.bootstrap` getter handle.
+///
+/// javac emits `REF_getField` handles, which read the instance field directly.
+/// Any other handle kind is invoked as a method.
+#[allow(clippy::too_many_arguments)]
+fn record_getter_value(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    stdout: &mut dyn Write,
+    getter: &(u8, String, String, String),
+    obj_ref: u64,
+) -> Result<Slot> {
+    let (kind, class, name, desc) = getter;
+    if *kind == 1 {
+        // REF_getField
+        let idx = field_slot_idx(registry, class, name)?;
+        let obj = heap.get(obj_ref)?;
+        return obj
+            .fields
+            .get(idx)
+            .copied()
+            .ok_or(Error::InvalidRef { address: obj_ref });
+    }
+    let mut ops = InterpreterCallbackOps { registry, loader };
+    ops.invoke(
+        heap,
+        stdout,
+        class,
+        name,
+        desc,
+        vec![Slot::Reference(Some(obj_ref))],
+    )
+    .map(|opt| opt.unwrap_or(Slot::Reference(None)))
+}
+
+/// `Objects.equals` semantics over two slots (boxing already applied by the
+/// bootstrap's `MethodHandle.invoke`).
+#[allow(clippy::too_many_arguments)]
+fn record_slots_equal(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    stdout: &mut dyn Write,
+    a: Slot,
+    b: Slot,
+) -> Result<bool> {
+    match (a, b) {
+        (Slot::Int(x), Slot::Int(y)) => Ok(x == y),
+        (Slot::Long(x), Slot::Long(y)) => Ok(x == y),
+        (Slot::Float(x), Slot::Float(y)) => Ok(x.to_bits() == y.to_bits()),
+        (Slot::Double(x), Slot::Double(y)) => Ok(x.to_bits() == y.to_bits()),
+        (Slot::Reference(r1), Slot::Reference(r2)) => match (r1, r2) {
+            (None, None) => Ok(true),
+            (None, _) | (_, None) => Ok(false),
+            (Some(x), Some(y)) => {
+                if x == y {
+                    return Ok(true);
+                }
+                let x_is_string = heap.get(x)?.class_name == "java/lang/String";
+                let y_is_string = heap.get(y)?.class_name == "java/lang/String";
+                if x_is_string && y_is_string {
+                    return Ok(
+                        heap_object_to_string_ref(heap, x)? == heap_object_to_string_ref(heap, y)?
+                    );
+                }
+                let class_name = heap.get(x)?.class_name.clone();
+                let mut ops = InterpreterCallbackOps { registry, loader };
+                let result = ops.invoke(
+                    heap,
+                    stdout,
+                    &class_name,
+                    "equals",
+                    "(Ljava/lang/Object;)Z",
+                    vec![Slot::Reference(Some(x)), Slot::Reference(Some(y))],
+                )?;
+                Ok(matches!(result, Some(Slot::Int(1))))
+            }
+        },
+        _ => Ok(false),
+    }
+}
+
+/// `Objects.hashCode` over one (boxed) component slot.
+fn record_slot_hash(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    stdout: &mut dyn Write,
+    slot: Slot,
+) -> Result<i32> {
+    match slot {
+        Slot::Int(i) => Ok(i),
+        Slot::Long(l) => Ok((l ^ (l >> 32)) as i32),
+        Slot::Float(f) => Ok(f.to_bits() as i32),
+        Slot::Double(d) => {
+            let bits = d.to_bits();
+            Ok((bits ^ (bits >> 32)) as i32)
+        }
+        Slot::Reference(None) => Ok(0),
+        Slot::Reference(Some(r)) => {
+            let class_name = heap.get(r)?.class_name.clone();
+            let mut ops = InterpreterCallbackOps { registry, loader };
+            let result = ops.invoke(
+                heap,
+                stdout,
+                &class_name,
+                "hashCode",
+                "()I",
+                vec![Slot::Reference(Some(r))],
+            )?;
+            match result {
+                Some(Slot::Int(h)) => Ok(h),
+                _ => Err(Error::TypeMismatch {
+                    expected: "int",
+                    got: "other",
+                }),
+            }
+        }
+        _ => Ok(0),
+    }
+}
+
+/// `String.valueOf` over one (boxed) component slot.
+fn record_slot_string(
+    registry: &mut ClassRegistry,
+    loader: &dyn ClassLoader,
+    heap: &mut duke_gc::Heap,
+    stdout: &mut dyn Write,
+    slot: Slot,
+) -> Result<String> {
+    match slot {
+        Slot::Int(i) => Ok(i.to_string()),
+        Slot::Long(l) => Ok(l.to_string()),
+        Slot::Float(f) => Ok(format_java_float(f)),
+        Slot::Double(d) => Ok(format_java_double(d)),
+        Slot::Reference(None) => Ok("null".to_string()),
+        Slot::Reference(Some(r)) => {
+            let class_name = heap.get(r)?.class_name.clone();
+            if class_name == "java/lang/String" {
+                return heap_object_to_string_ref(heap, r);
+            }
+            let mut ops = InterpreterCallbackOps { registry, loader };
+            let result = ops.invoke(
+                heap,
+                stdout,
+                &class_name,
+                "toString",
+                "()Ljava/lang/String;",
+                vec![Slot::Reference(Some(r))],
+            )?;
+            match result {
+                Some(Slot::Reference(Some(s))) => heap_object_to_string_ref(heap, s),
+                _ => Err(Error::TypeMismatch {
+                    expected: "reference",
+                    got: "other",
+                }),
+            }
+        }
+        _ => Ok("<return-address>".to_string()),
+    }
+}
+
+/// A resolved `java/lang/runtime/SwitchBootstraps` case label (JEP 441, Java 21
+/// pattern matching for switch).
+///
+/// `typeSwitch`/`enumSwitch` take their case labels as bootstrap static
+/// arguments: each is a `Class` (type test), a `String`/`Integer` constant, or an
+/// `EnumDesc` constant-dynamic describing an enum constant.
+#[derive(Debug, Clone)]
+enum SwitchLabel {
+    /// `Class` label — matches when the target is an instance of the class
+    /// (internal slash-form name).
+    Class(String),
+    /// `String` label — `typeSwitch` matches via `String.equals`; `enumSwitch`
+    /// matches an enum target whose `name()` equals the label.
+    Str(String),
+    /// `Integer` label — matches a boxed `Number` target with equal `intValue()`.
+    Int(i32),
+    /// `EnumDesc` label — matches an enum constant by declaring class
+    /// (internal slash-form name) and constant name.
+    EnumDesc { enum_class: String, name: String },
+}
+
+/// Resolve one `SwitchBootstraps` static label argument to a [`SwitchLabel`].
+///
+/// Handles `Class`, `String`/`Utf8`, `Integer`, and `Dynamic` (condy) entries.
+/// Condy labels go through `ConstantBootstraps.invoke`; the shapes javac 21
+/// emits are `Enum$EnumDesc.of(ClassDesc.of("com.Foo"), "BAR")` for enum case
+/// labels and `ClassDesc.of("com.Foo")` for class-desc constants.
+fn resolve_switch_label(
+    cp: &[Option<CpEntry>],
+    bootstrap_methods: &[duke_classfile::BootstrapMethodEntry],
+    cp_idx: usize,
+) -> Result<SwitchLabel> {
+    match cp.get(cp_idx).and_then(|e| e.as_ref()) {
+        Some(CpEntry::Class { .. }) => Ok(SwitchLabel::Class(resolve_class_name(cp, cp_idx)?)),
+        Some(CpEntry::String { .. }) | Some(CpEntry::Utf8(_)) => {
+            Ok(SwitchLabel::Str(resolve_cp_string(cp, cp_idx)?))
+        }
+        Some(CpEntry::Integer(i)) => Ok(SwitchLabel::Int(*i)),
+        Some(CpEntry::Dynamic {
+            bootstrap_method_attr_index,
+            ..
+        }) => {
+            resolve_condy_switch_label(cp, bootstrap_methods, *bootstrap_method_attr_index as usize)
+        }
+        _ => Err(Error::Unimplemented {
+            mnemonic: "unsupported SwitchBootstraps label constant",
+        }),
+    }
+}
+
+/// Resolve a condy (`ConstantBootstraps.invoke`) used as a `SwitchBootstraps` label.
+fn resolve_condy_switch_label(
+    cp: &[Option<CpEntry>],
+    bootstrap_methods: &[duke_classfile::BootstrapMethodEntry],
+    bsm_idx: usize,
+) -> Result<SwitchLabel> {
+    let bsm = bootstrap_methods
+        .get(bsm_idx)
+        .ok_or(Error::InvalidCpIndex { index: bsm_idx })?;
+    let (_kind, class, name, _desc) = resolve_method_handle(cp, bsm.method_ref.0 as usize)?;
+    if class != "java/lang/invoke/ConstantBootstraps" || name != "invoke" {
+        return Err(Error::Unimplemented {
+            mnemonic: "switch label condy via non-ConstantBootstraps",
+        });
+    }
+    // Static args: [factory MethodHandle, factory args...].
+    let factory_idx = bsm
+        .arguments
+        .first()
+        .ok_or(Error::InvalidCpIndex { index: bsm_idx })?;
+    let (_kind, fclass, fname, _fdesc) = resolve_method_handle(cp, factory_idx.0 as usize)?;
+    match (fclass.as_str(), fname.as_str()) {
+        ("java/lang/Enum$EnumDesc", "of") => {
+            // EnumDesc.of(ClassDesc, String name).
+            let classdesc_idx = bsm
+                .arguments
+                .get(1)
+                .ok_or(Error::InvalidCpIndex { index: bsm_idx })?;
+            let name_idx = bsm
+                .arguments
+                .get(2)
+                .ok_or(Error::InvalidCpIndex { index: bsm_idx })?;
+            let enum_class =
+                resolve_classdesc_name(cp, bootstrap_methods, classdesc_idx.0 as usize)?;
+            let const_name = resolve_cp_string(cp, name_idx.0 as usize)?;
+            Ok(SwitchLabel::EnumDesc {
+                enum_class,
+                name: const_name,
+            })
+        }
+        ("java/lang/constant/ClassDesc", "of") => {
+            let name_idx = bsm
+                .arguments
+                .get(1)
+                .ok_or(Error::InvalidCpIndex { index: bsm_idx })?;
+            let binary = resolve_cp_string(cp, name_idx.0 as usize)?;
+            Ok(SwitchLabel::Class(binary.replace('.', "/")))
+        }
+        _ => Err(Error::Unimplemented {
+            mnemonic: "unsupported ConstantBootstraps factory for switch label",
+        }),
+    }
+}
+
+/// Resolve a `ClassDesc` condy (or plain string) static arg to an internal
+/// (slash-form) class name.
+fn resolve_classdesc_name(
+    cp: &[Option<CpEntry>],
+    bootstrap_methods: &[duke_classfile::BootstrapMethodEntry],
+    cp_idx: usize,
+) -> Result<String> {
+    match cp.get(cp_idx).and_then(|e| e.as_ref()) {
+        Some(CpEntry::Dynamic {
+            bootstrap_method_attr_index,
+            ..
+        }) => match resolve_condy_switch_label(
+            cp,
+            bootstrap_methods,
+            *bootstrap_method_attr_index as usize,
+        )? {
+            SwitchLabel::Class(name) => Ok(name),
+            _ => Err(Error::Unimplemented {
+                mnemonic: "ClassDesc condy did not resolve to a class name",
+            }),
+        },
+        Some(CpEntry::String { .. }) | Some(CpEntry::Utf8(_)) => {
+            Ok(resolve_cp_string(cp, cp_idx)?.replace('.', "/"))
+        }
+        _ => Err(Error::InvalidCpIndex { index: cp_idx }),
+    }
+}
+
+/// Read the `name()` of an enum heap object (its first field, per `Enum.name`
+/// native). Returns `None` when the object is not enum-shaped.
+fn enum_heap_name(heap: &duke_gc::Heap, obj_ref: u64) -> Result<Option<String>> {
+    let obj = heap.get(obj_ref)?;
+    match obj.fields.first() {
+        Some(Slot::Reference(Some(name_ref))) => {
+            Ok(Some(heap_object_to_string_ref(heap, *name_ref)?))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Extract `intValue()` from a boxed `java.lang.Number` heap object
+/// (`Integer`/`Long`/`Short`/`Byte`), narrowing like the JDK's
+/// `SwitchBootstraps.integerEqCheck`. Returns `None` for non-`Number` objects.
+fn boxed_int_value(heap: &duke_gc::Heap, obj_ref: u64) -> Result<Option<i32>> {
+    let obj = heap.get(obj_ref)?;
+    if !matches!(
+        obj.class_name.as_str(),
+        "java/lang/Integer" | "java/lang/Long" | "java/lang/Short" | "java/lang/Byte"
+    ) {
+        return Ok(None);
+    }
+    match obj.fields.first() {
+        Some(Slot::Int(i)) => Ok(Some(*i)),
+        // Long.intValue() narrows.
+        Some(Slot::Long(l)) => Ok(Some(*l as i32)),
+        _ => Ok(None),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn layout_coherence_check(
     registry: &ClassRegistry,
@@ -2935,19 +3261,17 @@ pub fn run_execution(
                 };
 
                 // 2. Look up the bootstrap method entry.
-                let (bsm_class, bsm_args) = {
+                let (bsm_class, bsm_name, bsm_args) = {
                     let ctx = registry.get(current_class)?;
                     let bsm_entry = ctx
                         .bootstrap_methods
                         .get(bsm_idx)
                         .ok_or(Error::InvalidCpIndex { index: bsm_idx })?;
-                    let (_kind, class, _name, _desc) =
+                    let (_kind, class, name, _desc) =
                         resolve_method_handle(&ctx.constant_pool, bsm_entry.method_ref.0 as usize)?;
                     let args: Vec<duke_classfile::CpIndex> = bsm_entry.arguments.clone();
-                    (class, args)
+                    (class, name, args)
                 };
-
-                let _ = &call_name; // suppress unused warning for now
 
                 // 3. Dispatch based on bootstrap method class.
                 if bsm_class == "java/lang/invoke/StringConcatFactory" {
@@ -2986,6 +3310,9 @@ pub fn run_execution(
                         &arg_types,
                         &constants,
                         heap,
+                        registry,
+                        loader,
+                        stdout,
                     )?;
                     frame.push(result)?;
                 } else if bsm_class == "java/lang/invoke/LambdaMetafactory" {
@@ -3071,6 +3398,192 @@ pub fn run_execution(
                         let roots = gather_roots(frame, call_stack, registry, string_intern);
                         heap.collect(&roots);
                         patch_forwarded_slots(frame, call_stack, registry, heap, string_intern);
+                    }
+                } else if bsm_class == "java/lang/runtime/SwitchBootstraps" {
+                    // --- SwitchBootstraps.typeSwitch / enumSwitch (JEP 441) ---
+                    // Dynamic invocation shape: `(Target, int restart)I`.
+                    // Returns the index of the first matching label, -1 for a
+                    // null target, or `labels.length` when nothing matches.
+                    let restart_slot = frame.pop()?;
+                    let target_slot = frame.pop()?;
+                    let restart = match restart_slot {
+                        Slot::Int(i) => i,
+                        _ => {
+                            return Err(Error::TypeMismatch {
+                                expected: "int",
+                                got: "non-int",
+                            });
+                        }
+                    };
+                    // Resolve labels while the class context borrow is live,
+                    // then drop it before `is_assignable_from` needs `&mut`.
+                    let labels: Vec<SwitchLabel> = {
+                        let ctx = registry.get(current_class)?;
+                        let cp = &ctx.constant_pool;
+                        let table = &ctx.bootstrap_methods;
+                        bsm_args
+                            .iter()
+                            .map(|a| resolve_switch_label(cp, table, a.0 as usize))
+                            .collect::<Result<Vec<_>>>()?
+                    };
+                    if restart < 0 || restart as usize > labels.len() {
+                        throw_java!("java/lang/IndexOutOfBoundsException");
+                    }
+                    let is_enum_switch = bsm_name == "enumSwitch";
+                    let result: i32 = match &target_slot {
+                        Slot::Reference(None) => -1,
+                        Slot::Reference(Some(r)) => {
+                            let target_ref = *r;
+                            let actual_class = heap.get(target_ref)?.class_name.clone();
+                            let mut matched = labels.len() as i32;
+                            for (i, label) in labels.iter().enumerate().skip(restart as usize) {
+                                let hit = match label {
+                                    SwitchLabel::Class(c) => is_assignable_from(
+                                        registry,
+                                        loader,
+                                        &actual_class,
+                                        c,
+                                        Some(&**current_class),
+                                    ),
+                                    SwitchLabel::Str(s) => {
+                                        if is_enum_switch {
+                                            enum_heap_name(heap, target_ref)?.as_deref()
+                                                == Some(s.as_str())
+                                        } else {
+                                            actual_class == "java/lang/String"
+                                                && heap_object_to_string_ref(heap, target_ref)?
+                                                    == *s
+                                        }
+                                    }
+                                    SwitchLabel::Int(n) => {
+                                        boxed_int_value(heap, target_ref)? == Some(*n)
+                                    }
+                                    SwitchLabel::EnumDesc { enum_class, name } => {
+                                        actual_class == *enum_class
+                                            && enum_heap_name(heap, target_ref)?.as_deref()
+                                                == Some(name.as_str())
+                                    }
+                                };
+                                if hit {
+                                    matched = i as i32;
+                                    break;
+                                }
+                            }
+                            matched
+                        }
+                        _ => {
+                            return Err(Error::TypeMismatch {
+                                expected: "reference",
+                                got: "non-reference",
+                            });
+                        }
+                    };
+                    frame.push(Slot::Int(result))?;
+                } else if bsm_class == "java/lang/runtime/ObjectMethods" {
+                    // --- ObjectMethods.bootstrap (record equals/hashCode/toString, JEP 395) ---
+                    // Static args: [Class recordClass, String "p1;p2;...",
+                    //               MethodHandle... getters]. The invokedynamic
+                    // name selects the method; dynamic args pop from the frame.
+                    let (record_class, prop_names, getters) = {
+                        let ctx = registry.get(current_class)?;
+                        let cp = &ctx.constant_pool;
+                        let mut bsm_args_iter = bsm_args.iter();
+                        let class_idx = bsm_args_iter
+                            .next()
+                            .ok_or(Error::InvalidCpIndex { index: bsm_idx })?;
+                        let names_idx = bsm_args_iter
+                            .next()
+                            .ok_or(Error::InvalidCpIndex { index: bsm_idx })?;
+                        let rc = resolve_class_name(cp, class_idx.0 as usize)?;
+                        let names = resolve_cp_string(cp, names_idx.0 as usize)?;
+                        let getters: Vec<(u8, String, String, String)> = bsm_args_iter
+                            .map(|a| resolve_method_handle(cp, a.0 as usize))
+                            .collect::<Result<_>>()?;
+                        (rc, names, getters)
+                    };
+                    let props: Vec<&str> = prop_names.split(';').collect();
+                    match call_name.as_str() {
+                        "equals" => {
+                            let other_slot = frame.pop()?;
+                            let this_slot = frame.pop()?;
+                            let mut result = false;
+                            if let Slot::Reference(Some(this_ref)) = this_slot {
+                                match other_slot {
+                                    Slot::Reference(Some(other_ref)) if other_ref == this_ref => {
+                                        result = true;
+                                    }
+                                    Slot::Reference(Some(other_ref)) => {
+                                        let this_class = heap.get(this_ref)?.class_name.clone();
+                                        let other_class = heap.get(other_ref)?.class_name.clone();
+                                        if this_class == record_class && other_class == record_class
+                                        {
+                                            result = true;
+                                            for getter in &getters {
+                                                let va = record_getter_value(
+                                                    registry, loader, heap, stdout, getter,
+                                                    this_ref,
+                                                )?;
+                                                let vb = record_getter_value(
+                                                    registry, loader, heap, stdout, getter,
+                                                    other_ref,
+                                                )?;
+                                                if !record_slots_equal(
+                                                    registry, loader, heap, stdout, va, vb,
+                                                )? {
+                                                    result = false;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            frame.push(Slot::Int(i32::from(result)))?;
+                        }
+                        "hashCode" => {
+                            let this_slot = frame.pop()?;
+                            let mut hash: i32 = 1;
+                            if let Slot::Reference(Some(this_ref)) = this_slot {
+                                for getter in &getters {
+                                    let v = record_getter_value(
+                                        registry, loader, heap, stdout, getter, this_ref,
+                                    )?;
+                                    let h = record_slot_hash(registry, loader, heap, stdout, v)?;
+                                    hash = hash.wrapping_mul(31).wrapping_add(h);
+                                }
+                            }
+                            frame.push(Slot::Int(hash))?;
+                        }
+                        "toString" => {
+                            let this_slot = frame.pop()?;
+                            let mut out = String::from(simple_name_of_internal(&record_class));
+                            out.push('[');
+                            if let Slot::Reference(Some(this_ref)) = this_slot {
+                                for (i, getter) in getters.iter().enumerate() {
+                                    if i > 0 {
+                                        out.push_str(", ");
+                                    }
+                                    out.push_str(props.get(i).copied().unwrap_or("?"));
+                                    out.push('=');
+                                    let v = record_getter_value(
+                                        registry, loader, heap, stdout, getter, this_ref,
+                                    )?;
+                                    out.push_str(&record_slot_string(
+                                        registry, loader, heap, stdout, v,
+                                    )?);
+                                }
+                            }
+                            out.push(']');
+                            let s = heap.allocate_string(out);
+                            frame.push(Slot::Reference(Some(s)))?;
+                        }
+                        _ => {
+                            // Unknown record method — pop both dynamic args, push null.
+                            frame.pop()?;
+                            frame.pop()?;
+                            frame.push(Slot::Reference(None))?;
+                        }
                     }
                 } else {
                     // Unknown bootstrap method — pop args and push null.
