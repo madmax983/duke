@@ -7,13 +7,18 @@ public class P06VirtualThreads {
     public static void main(String[] args) throws Exception {
         // basic start/join
         List<String> out = Collections.synchronizedList(new ArrayList<>());
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch proceed = new CountDownLatch(1);
         Thread vt = Thread.ofVirtual().name("worker-1").start(() -> {
-            try { Thread.sleep(100); } catch (InterruptedException e) { }
+            started.countDown();
+            try { proceed.await(); } catch (InterruptedException e) { }
             out.add("ran:" + Thread.currentThread().isVirtual());
             out.add("name:" + Thread.currentThread().getName());
         });
+        started.await(); // ensure thread is running before checking isAlive
         System.out.println("isVirtual=" + vt.isVirtual());
         System.out.println("isAlive-before-join=" + vt.isAlive());
+        proceed.countDown();
         vt.join();
         System.out.println("isAlive-after-join=" + vt.isAlive());
         Collections.sort(out);
