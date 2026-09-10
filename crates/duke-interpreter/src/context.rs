@@ -172,6 +172,11 @@ pub enum ClassLoadSource {
 ///     static_fields: vec![],
 ///     instance_field_count: 0,
 ///     bootstrap_methods: vec![],
+///     permitted_subclasses: vec![],
+///     nest_host: None,
+///     nest_members: vec![],
+///     record_components: vec![],
+///     is_record: false,
 ///     load_source: ClassLoadSource::Classfile,
 /// };
 /// assert_eq!(context.class_name, "java/lang/Object");
@@ -210,6 +215,9 @@ pub struct ClassContext {
     /// Record components from the `Record` attribute (JVMS §4.7.30), in
     /// declaration order. Empty for non-record classes.
     pub record_components: Vec<RecordComponent>,
+    /// True if the class has a `Record` attribute (JVMS §4.7.30), even if it
+    /// declares zero components (e.g. `record Empty()`).
+    pub is_record: bool,
     /// How this class was loaded — `Synthetic` for `bootstrap_stdlib()` stubs,
     /// `Classfile` for real `.class` files parsed from JImage/directory/JAR.
     pub load_source: ClassLoadSource,

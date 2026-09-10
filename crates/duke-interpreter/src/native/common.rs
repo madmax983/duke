@@ -10501,6 +10501,7 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
     let (permitted_subclasses, nest_host, nest_members) =
         sealed_nest_info_from_attrs(&cf.constant_pool, &cf.attributes);
     let record_components = record_components_from_attrs(&cf.constant_pool, &cf.attributes);
+    let is_record = has_record_attribute(&cf.attributes);
 
     ClassContext {
         class_name,
@@ -10516,6 +10517,7 @@ pub fn build_class_context(cf: &duke_classfile::ClassFile) -> ClassContext {
         nest_host,
         nest_members,
         record_components,
+        is_record,
         load_source: ClassLoadSource::Classfile,
     }
 }
@@ -10763,6 +10765,14 @@ fn sealed_nest_info_from_attrs(
     (permitted_subclasses, nest_host, nest_members)
 }
 
+/// True when the class carries a `Record` attribute (JVMS §4.7.30) — even
+/// when it declares zero components (e.g. `record Empty()`).
+fn has_record_attribute(attrs: &[duke_classfile::AttributeInfo]) -> bool {
+    attrs
+        .iter()
+        .any(|a| matches!(a.data, duke_classfile::AttributeData::Record(_)))
+}
+
 /// Resolve the `Record` attribute (JVMS §4.7.30) to runtime record components,
 /// in declaration order. Empty when the class is not a record.
 fn record_components_from_attrs(
@@ -10808,6 +10818,7 @@ fn reflected_class_info_from_loader(
         &class_file.constant_pool,
         &class_file.attributes,
     );
+    let is_record = has_record_attribute(&class_file.attributes);
     let methods = class_file
         .methods
         .iter()
@@ -10893,6 +10904,7 @@ fn reflected_class_info_from_loader(
         nest_host,
         nest_members,
         record_components,
+        is_record,
     })
 }
 
@@ -11003,6 +11015,7 @@ fn inspect_reflected_class(
                 nest_host: None,
                 nest_members: Vec::new(),
             record_components: Vec::new(),
+            is_record: false,
             });
         }
         Err(Error::ClassNotFound { .. }) => {}
@@ -11065,6 +11078,7 @@ fn inspect_reflected_class(
         nest_host: ctx.nest_host.clone(),
         nest_members: ctx.nest_members.clone(),
         record_components: ctx.record_components.clone(),
+        is_record: ctx.is_record,
     })
 }
 

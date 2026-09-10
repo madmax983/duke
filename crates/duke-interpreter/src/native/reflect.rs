@@ -664,8 +664,9 @@ pub(crate) fn native_class_is_local_class(
     Ok(Some(Slot::Int(0)))
 }
 
-/// Native: `Class.isRecord()Z` — true when the class declares record
-/// components (has a `Record` attribute, JVMS §4.7.30).
+/// Native: `Class.isRecord()Z` — true when the class carries the `Record`
+/// attribute (JVMS §4.7.30), even when it declares zero components
+/// (e.g. `record Empty()`).
 pub(crate) fn native_class_is_record(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -676,9 +677,7 @@ pub(crate) fn native_class_is_record(
     let class_ref = extract_ref_arg(args, 0)?;
     let internal_name = class_internal_name_from_ref(heap, class_ref)?;
     let info = ops.inspect_class(&internal_name)?;
-    Ok(Some(Slot::Int(i32::from(
-        !info.record_components.is_empty(),
-    ))))
+    Ok(Some(Slot::Int(i32::from(info.is_record))))
 }
 
 /// Native: `Class.isPrimitive()Z` — true when the mirror represents a primitive.
@@ -1840,8 +1839,8 @@ fn record_component_field(heap: &duke_gc::Heap, component_ref: u64, field: usize
 }
 
 /// Native: `Class.getRecordComponents()[Ljava/lang/reflect/RecordComponent;`
-/// — the record components in declaration order, or an empty array when the
-/// class is not a record.
+/// — the record components in declaration order, or `null` when the class is
+/// not a record (HotSpot returns `null`, not an empty array).
 pub(crate) fn native_class_get_record_components(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -1852,6 +1851,9 @@ pub(crate) fn native_class_get_record_components(
     let class_ref = extract_ref_arg(args, 0)?;
     let internal_name = class_internal_name_from_ref(heap, class_ref)?;
     let info = ops.inspect_class(&internal_name)?;
+    if !info.is_record {
+        return Ok(Some(Slot::Reference(None)));
+    }
     let mut refs = Vec::with_capacity(info.record_components.len());
     for component in &info.record_components {
         refs.push(allocate_record_component_object(

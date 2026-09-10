@@ -3543,7 +3543,7 @@ pub fn run_execution(
                         }
                         "hashCode" => {
                             let this_slot = frame.pop()?;
-                            let mut hash: i32 = 1;
+                            let mut hash: i32 = 0;
                             if let Slot::Reference(Some(this_ref)) = this_slot {
                                 for getter in &getters {
                                     let v = record_getter_value(

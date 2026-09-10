@@ -445,6 +445,8 @@ pub struct ReflectedClassInfo {
     /// Record components from the `Record` attribute (JVMS §4.7.30), in
     /// declaration order. Empty for non-record classes.
     pub record_components: Vec<crate::context::RecordComponent>,
+    /// True if the class has a `Record` attribute, even with zero components.
+    pub is_record: bool,
 }
 /// A registry managing loaded classes, their initialization state, and associated native methods.
 pub struct ClassRegistry {
@@ -560,6 +562,7 @@ impl ClassRegistry {
             nest_host: None,
             nest_members: Vec::new(),
             record_components: Vec::new(),
+            is_record: false,
             load_source: ClassLoadSource::Synthetic,
         };
         self.register(ctx);
@@ -1452,6 +1455,7 @@ impl ClassRegistry {
                 nest_host: None,
                 nest_members: Vec::new(),
                 record_components: Vec::new(),
+                is_record: false,
                 load_source: ClassLoadSource::Synthetic,
             },
         );

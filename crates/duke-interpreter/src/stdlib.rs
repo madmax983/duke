@@ -24,6 +24,7 @@ fn atomic_context(name: &str, super_class: &str, value_descriptor: &str) -> Clas
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     }
 }
@@ -43,6 +44,7 @@ fn empty_synthetic_context(name: &str, super_class: &str) -> ClassContext {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     }
 }
@@ -173,6 +175,7 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -196,6 +199,7 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -216,6 +220,7 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     registry.register(empty_synthetic_context(
@@ -256,6 +261,7 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -280,6 +286,7 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     registry.register(ClassContext {
@@ -299,6 +306,7 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -347,6 +355,7 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -777,6 +786,7 @@ fn register_charset_classes(registry: &mut ClassRegistry, heap: &mut duke_gc::He
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(standard_ctx);
@@ -924,6 +934,7 @@ fn register_base64_stdlib(registry: &mut ClassRegistry) {
             nest_host: None,
             nest_members: Vec::new(),
             record_components: Vec::new(),
+            is_record: false,
             load_source: ClassLoadSource::Synthetic,
         });
     }
@@ -1012,6 +1023,7 @@ fn register_atomic_stdlib(registry: &mut ClassRegistry) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(number_ctx);
@@ -1247,6 +1259,7 @@ fn register_concurrent_hashmap_stdlib(registry: &mut ClassRegistry) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(concurrent_map_ctx);
@@ -1272,6 +1285,7 @@ fn register_concurrent_hashmap_stdlib(registry: &mut ClassRegistry) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(concurrent_hashmap_ctx);
@@ -1487,6 +1501,7 @@ fn register_unsafe_stdlib(registry: &mut ClassRegistry) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -1605,6 +1620,7 @@ fn lock_interface_context(name: &str) -> ClassContext {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     }
 }
@@ -1638,6 +1654,7 @@ fn register_locks_stdlib(registry: &mut ClassRegistry) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -1655,6 +1672,7 @@ fn register_locks_stdlib(registry: &mut ClassRegistry) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -1683,6 +1701,7 @@ fn register_locks_stdlib(registry: &mut ClassRegistry) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -1700,6 +1719,7 @@ fn register_locks_stdlib(registry: &mut ClassRegistry) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -1717,6 +1737,7 @@ fn register_locks_stdlib(registry: &mut ClassRegistry) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -1899,6 +1920,7 @@ fn register_sync_primitives_stdlib(registry: &mut ClassRegistry) {
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -2078,6 +2100,7 @@ fn register_executor_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::He
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -2101,6 +2124,7 @@ fn register_executor_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::He
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -2136,6 +2160,7 @@ fn register_executor_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::He
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -2308,6 +2333,7 @@ fn register_executor_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::He
             nest_host: None,
             nest_members: Vec::new(),
             record_components: Vec::new(),
+            is_record: false,
             load_source: ClassLoadSource::Synthetic,
         });
         registry
@@ -2403,6 +2429,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(system_ctx);
@@ -2433,6 +2460,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(ps_ctx);
@@ -2475,6 +2503,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(file_ctx);
@@ -2511,6 +2540,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(io_exception_ctx);
@@ -2529,6 +2559,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(file_not_found_ctx);
@@ -2547,6 +2578,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(socket_exception_ctx);
@@ -2565,6 +2597,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(bind_exception_ctx);
@@ -2583,6 +2616,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(connect_exception_ctx);
@@ -2601,6 +2635,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(input_stream_ctx);
@@ -2634,6 +2669,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(resource_input_stream_ctx);
@@ -2714,6 +2750,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(input_stream_reader_ctx);
@@ -2764,6 +2801,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(buffered_reader_ctx);
@@ -2803,6 +2841,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(output_stream_ctx);
@@ -2821,6 +2860,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(byte_array_output_stream_ctx);
@@ -2851,6 +2891,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(process_ctx);
@@ -2890,6 +2931,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(process_impl_ctx);
@@ -2955,6 +2997,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(process_builder_ctx);
@@ -2991,6 +3034,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(runtime_ctx);
@@ -3037,6 +3081,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(process_input_stream_ctx);
@@ -3077,6 +3122,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(process_error_stream_ctx);
@@ -3117,6 +3163,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(process_output_stream_ctx);
@@ -3157,6 +3204,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(file_input_stream_ctx);
@@ -3203,6 +3251,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(file_output_stream_ctx);
@@ -3256,6 +3305,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(server_socket_ctx);
@@ -3309,6 +3359,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(socket_ctx);
@@ -3352,6 +3403,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(socket_input_stream_ctx);
@@ -3392,6 +3444,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(socket_output_stream_ctx);
@@ -3434,6 +3487,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     let case_insensitive_order =
@@ -3494,6 +3548,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(string_ctx);
@@ -3811,6 +3866,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(object_ctx);
@@ -3870,6 +3926,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(record_ctx);
@@ -3904,6 +3961,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(class_ctx);
@@ -4249,6 +4307,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(protection_domain_ctx);
@@ -4277,6 +4336,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(code_source_ctx);
@@ -4305,6 +4365,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(url_ctx);
@@ -4385,6 +4446,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(url_connection_ctx);
@@ -4419,6 +4481,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(url_decoder_ctx);
@@ -4447,6 +4510,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(url_class_path_ctx);
@@ -4469,6 +4533,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(url_class_loader_ctx);
@@ -4509,6 +4574,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(uri_ctx);
@@ -4531,6 +4597,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(path_ctx);
@@ -4560,6 +4627,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(paths_ctx);
@@ -4584,6 +4652,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(file_attribute_ctx);
@@ -4628,6 +4697,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(posix_file_permission_ctx);
@@ -4646,6 +4716,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(posix_file_permissions_ctx);
@@ -4680,6 +4751,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(boot_archive_entry_ctx);
@@ -4777,9 +4849,49 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(reflect_method_ctx);
+    let reflect_record_component_ctx = ClassContext {
+        class_name: "java/lang/reflect/RecordComponent".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "declaringRecord".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "name".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "type".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "accessor".to_string(),
+                descriptor: "Ljava/lang/reflect/Method;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 4,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(reflect_record_component_ctx);
     registry.natives_mut().register(
         "java/lang/reflect/Method",
         "getName",
@@ -4904,6 +5016,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(reflect_constructor_ctx);
@@ -5001,6 +5114,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(reflect_field_ctx);
@@ -5079,6 +5193,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(runnable_ctx);
@@ -5103,6 +5218,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(class_loader_ctx);
@@ -5248,6 +5364,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(thread_ctx);
@@ -5367,6 +5484,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(thread_builder_ctx);
@@ -5467,6 +5585,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(stack_trace_element_ctx);
@@ -5544,6 +5663,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(throwable_ctx);
@@ -5641,6 +5761,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(exception_ctx);
@@ -5673,6 +5794,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             nest_host: None,
             nest_members: Vec::new(),
             record_components: Vec::new(),
+            is_record: false,
             load_source: ClassLoadSource::Synthetic,
         });
         registry
@@ -5701,6 +5823,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(rte_ctx);
@@ -5737,6 +5860,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(illegal_argument_ctx);
@@ -5773,6 +5897,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(illegal_thread_state_ctx);
@@ -5791,6 +5916,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(reflective_operation_ctx);
@@ -5809,6 +5935,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(class_not_found_ctx);
@@ -5827,6 +5954,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(no_such_method_ctx);
@@ -5845,6 +5973,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(no_such_field_ctx);
@@ -5863,6 +5992,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(illegal_access_ctx);
@@ -5881,6 +6011,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(instantiation_ctx);
@@ -5899,6 +6030,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(invocation_target_ctx);
@@ -5962,6 +6094,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             nest_host: None,
             nest_members: Vec::new(),
             record_components: Vec::new(),
+            is_record: false,
             load_source: ClassLoadSource::Synthetic,
         };
         registry.register(ctx);
@@ -6042,6 +6175,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             nest_host: None,
             nest_members: Vec::new(),
             record_components: Vec::new(),
+            is_record: false,
             load_source: ClassLoadSource::Synthetic,
         };
         registry.register(ctx);
@@ -6080,6 +6214,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(autocloseable_ctx);
@@ -6099,6 +6234,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(serializable_ctx);
@@ -6118,6 +6254,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(sql_driver_ctx);
@@ -6149,6 +6286,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(enum_ctx);
@@ -6216,6 +6354,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(integer_ctx);
@@ -6424,6 +6563,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(long_ctx);
@@ -6620,6 +6760,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(double_ctx);
@@ -6703,6 +6844,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(float_ctx);
@@ -6805,6 +6947,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(boolean_ctx);
@@ -6872,6 +7015,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(byte_ctx);
@@ -6948,6 +7092,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(short_ctx);
@@ -7018,6 +7163,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(void_ctx);
@@ -7051,6 +7197,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(math_ctx);
@@ -7078,6 +7225,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(modifier_ctx);
@@ -7397,6 +7545,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(sb_ctx);
@@ -7562,6 +7711,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(character_ctx);
@@ -7676,6 +7826,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(collection_ctx);
@@ -7722,6 +7873,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(service_loader_ctx);
@@ -7785,6 +7937,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(service_iter_ctx);
@@ -7831,6 +7984,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(arraylist_ctx);
@@ -8081,6 +8235,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(iter_ctx);
@@ -8136,6 +8291,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(enumset_ctx);
@@ -8271,6 +8427,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(enumset_iter_ctx);
@@ -8319,6 +8476,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(cowal_ctx);
@@ -8397,6 +8555,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(lbq_ctx);
@@ -8500,6 +8659,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(arrays_ctx);
@@ -8559,6 +8719,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(abstract_map_ctx);
@@ -8589,6 +8750,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(hashmap_ctx);
@@ -8704,6 +8866,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(hashtable_ctx);
@@ -8840,6 +9003,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(weak_hashmap_ctx);
@@ -8978,6 +9142,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(identity_hashmap_ctx);
@@ -9114,6 +9279,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(properties_ctx);
@@ -9142,6 +9308,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(properties_enum_ctx);
@@ -9279,6 +9446,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(linked_list_ctx);
@@ -9407,6 +9575,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(map_entry_ctx);
@@ -9453,6 +9622,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     let set_ctx = ClassContext {
@@ -9469,6 +9639,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(set_ctx);
@@ -9572,6 +9743,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(hashset_iter_ctx);
@@ -9619,6 +9791,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(linked_hashset_ctx);
@@ -9761,6 +9934,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(collections_ctx);
@@ -9879,6 +10053,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(unmod_list_ctx);
@@ -10026,6 +10201,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(comparing_comp_ctx);
@@ -10064,6 +10240,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(counting_ctx);
@@ -10085,6 +10262,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(grouping_ctx);
@@ -10116,6 +10294,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(to_set_ctx);
@@ -10144,6 +10323,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(to_map_ctx);
@@ -10367,6 +10547,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(unmod_map_ctx);
@@ -10467,6 +10648,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(partitioning_ctx);
@@ -10513,6 +10695,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(reversed_ctx);
@@ -10551,6 +10734,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(treemap_ctx);
@@ -10647,6 +10831,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(stack_ctx);
@@ -10693,6 +10878,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(comparator_ctx);
@@ -10730,6 +10916,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(natural_ord_ctx);
@@ -10755,6 +10942,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(reverse_ord_ctx);
@@ -10785,6 +10973,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(comparing_int_ctx);
@@ -10815,6 +11004,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(treeset_ctx);
@@ -10882,6 +11072,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(linked_hashmap_ctx);
@@ -11079,6 +11270,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(stream_ctx);
@@ -11098,6 +11290,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(jstream_ctx);
@@ -11231,6 +11424,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(collectors_ctx);
@@ -11256,6 +11450,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(to_list_ctx);
@@ -11275,6 +11470,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(to_unmod_list_ctx);
@@ -11310,6 +11506,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(joining_ctx);
@@ -11376,6 +11573,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     registry.register(ClassContext {
@@ -11403,6 +11601,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -11459,6 +11658,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(int_stream_ctx);
@@ -11478,6 +11678,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(j_int_stream_ctx);
@@ -11614,6 +11815,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(opt_int_ctx);
@@ -11632,6 +11834,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(j_opt_int_ctx);
@@ -11725,6 +11928,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(opt_dbl_ctx);
@@ -11742,6 +11946,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(j_opt_dbl_ctx);
@@ -11777,6 +11982,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(pq_ctx);
@@ -11846,6 +12052,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(arraydeque_ctx);
@@ -11989,6 +12196,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(objects_ctx);
@@ -12056,6 +12264,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(list_ctx);
@@ -12094,6 +12303,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(set_iface_ctx);
@@ -12132,6 +12342,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(map_iface_ctx);
@@ -12165,6 +12376,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(optional_ctx);
@@ -12314,6 +12526,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(pattern_ctx);
@@ -12402,6 +12615,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(matcher_ctx);
@@ -12515,6 +12729,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(zip_exception_ctx);
@@ -12566,6 +12781,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(zip_entry_ctx);
@@ -12613,6 +12829,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(zip_file_ctx);
@@ -12659,6 +12876,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(jar_file_ctx);
@@ -12717,6 +12935,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(manifest_ctx);
@@ -12745,6 +12964,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(attributes_ctx);
@@ -12774,6 +12994,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(byte_buffer_is_ctx);
@@ -12816,6 +13037,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(random_ctx);
@@ -12892,6 +13114,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(uuid_ctx);
@@ -12984,6 +13207,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             nest_host: None,
             nest_members: Vec::new(),
             record_components: Vec::new(),
+            is_record: false,
             load_source: ClassLoadSource::Synthetic,
         });
     }
@@ -13002,6 +13226,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(access_controller_ctx);
@@ -13032,6 +13257,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(privileged_action_exception_ctx);
@@ -13062,6 +13288,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(no_such_algorithm_ctx);
@@ -13080,6 +13307,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(no_such_provider_ctx);
@@ -13098,6 +13326,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(security_ctx);
@@ -13134,6 +13363,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(provider_ctx);
@@ -13180,6 +13410,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(provider_service_ctx);
@@ -13216,6 +13447,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(secure_random_ctx);
@@ -13257,6 +13489,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(message_digest_ctx);
@@ -13337,6 +13570,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(sb_buf_ctx);
@@ -13439,6 +13673,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(sj_ctx);
@@ -13528,6 +13763,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(then_cmp_ctx);
@@ -13583,6 +13819,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(then_cmp_int_ctx);
@@ -13638,6 +13875,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(and_pred_ctx);
@@ -13690,6 +13928,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(or_pred_ctx);
@@ -13735,6 +13974,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(neg_pred_ctx);
@@ -13795,6 +14035,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(and_then_consumer_ctx);
@@ -13849,6 +14090,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(and_then_fn_ctx);
@@ -13895,6 +14137,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(compose_fn_ctx);
@@ -13932,6 +14175,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(bifunction_ctx);
@@ -13966,6 +14210,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(bifunction_and_then_ctx);
@@ -14001,6 +14246,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(long_stream_ctx);
@@ -14033,6 +14279,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(double_stream_ctx);
@@ -14176,6 +14423,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(opt_long_ctx);
@@ -14194,6 +14442,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(opt_long_ctx2);
@@ -14328,6 +14577,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(summing_ctx);
@@ -14349,6 +14599,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(averaging_ctx);
@@ -14443,6 +14694,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(comparing_long_ctx);
@@ -14576,6 +14828,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(mapping_ctx);
@@ -14612,6 +14865,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(grouping2_ctx);
@@ -14752,6 +15006,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     registry.register(ClassContext {
@@ -14772,6 +15027,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -14836,6 +15092,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     // MaxByCollector: fields[0] = comparator
@@ -14857,6 +15114,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     // SummingDoubleCollector: fields[0] = ToDoubleFunction
@@ -14878,6 +15136,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     // AveragingLongCollector: fields[0] = ToLongFunction
@@ -14899,6 +15158,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     // CollectingAndThenCollector: fields[0]=downstream, fields[1]=finisher
@@ -14927,6 +15187,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -14951,6 +15212,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     registry.natives_mut().register(
@@ -14986,6 +15248,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     registry.natives_mut().register(
@@ -15026,6 +15289,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     registry.natives_mut().register(
@@ -15164,6 +15428,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     registry.natives_mut().register_callback(
@@ -15433,6 +15698,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(date_time_formatter_ctx);
@@ -15481,6 +15747,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(localdate_ctx);
@@ -15632,6 +15899,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(duration_ctx);
@@ -15789,6 +16057,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(period_ctx);
@@ -15856,6 +16125,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(instant_ctx);
@@ -15984,6 +16254,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(localdatetime_ctx);
@@ -16148,6 +16419,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(zone_id_ctx);
@@ -16197,6 +16469,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(locale_ctx);
@@ -16298,6 +16571,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(summarizing_ctx);
@@ -16337,6 +16611,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(iss_ctx);
@@ -16390,6 +16665,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(bitset_ctx);
@@ -16427,6 +16703,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(function_iface_ctx);
@@ -16446,6 +16723,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(identity_fn_ctx);
@@ -16527,6 +16805,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(unmod_set_ctx);
@@ -16641,6 +16920,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(type_iface_ctx);
@@ -16674,6 +16954,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             nest_host: None,
             nest_members: Vec::new(),
             record_components: Vec::new(),
+            is_record: false,
             load_source: ClassLoadSource::Synthetic,
         });
     }
@@ -16697,6 +16978,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -16736,6 +17018,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     // duke/internal/reflect/ParameterizedTypeImpl:
@@ -16771,6 +17054,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     // duke/internal/reflect/GenericArrayTypeImpl:
@@ -16793,6 +17077,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     // duke/internal/reflect/WildcardTypeImpl:
@@ -16823,6 +17108,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -16848,6 +17134,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(thread_local_ctx);
@@ -16886,6 +17173,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(inheritable_thread_local_ctx);
@@ -16930,6 +17218,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(reference_ctx);
@@ -16962,6 +17251,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(weak_reference_ctx);
@@ -17001,6 +17291,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(soft_reference_ctx);
@@ -17039,6 +17330,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(reference_queue_ctx);
@@ -17327,6 +17619,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         nest_host: None,
         nest_members: Vec::new(),
         record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(unsafe_ctx);
