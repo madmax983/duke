@@ -6161,7 +6161,7 @@ fn builder_thread_name(heap: &mut duke_gc::Heap, builder_ref: u64) -> Result<u64
         builder.fields.get(BUILDER_IS_VIRTUAL_SLOT),
         Some(Slot::Int(n)) if *n != 0
     );
-    drop(builder);
+    let _ = builder;
 
     if let Some(Slot::Reference(Some(name_ref))) = name_slot {
         return Ok(name_ref);

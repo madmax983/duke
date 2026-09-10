@@ -9216,7 +9216,7 @@ fn resolve_thread_entry(
                 })?;
             impl_args.push(slot);
         }
-        drop(lambda_object);
+        let _ = lambda_object;
         let (dispatch_class, method_idx) = resolve_method_in_hierarchy(
             registry,
             loader,

@@ -6474,7 +6474,7 @@ pub(crate) fn native_linkedhashset_remove_first(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let first = native_linkedhashset_get_first(args, heap, _out, _control)?;
-    if let Some(elem) = first {
+    if let Some(_elem) = first {
         let obj = heap.get_mut(this_ref)?;
         obj.fields.remove(1);
         let size = (obj.fields.len() - 1) as i32;

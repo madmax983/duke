@@ -54,6 +54,7 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    #[allow(clippy::missing_const_for_fn)]
     fn read_u8(&mut self) -> Result<u8> {
         if self.pos >= self.data.len() {
             return Err(Error::UnexpectedEof { offset: self.pos });

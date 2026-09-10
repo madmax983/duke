@@ -11440,7 +11440,7 @@ fn class_registry_contains_true_after_register() {
         nest_host: None,
         nest_members: vec![],
         load_source: ClassLoadSource::Classfile,
-    record_components: vec![],
+        record_components: vec![],
     };
     assert!(!reg.contains("Foo"));
     reg.register(ctx);
@@ -11473,7 +11473,7 @@ fn class_registry_all_classes_mut_allows_mutation() {
         nest_host: None,
         nest_members: vec![],
         load_source: ClassLoadSource::Classfile,
-    record_components: vec![],
+        record_components: vec![],
     };
     reg.register(ctx);
     for cls in reg.all_classes_mut() {
