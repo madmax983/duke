@@ -1898,27 +1898,46 @@ pub(crate) fn native_objects_equals(
 pub(crate) fn native_objects_tostring(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
+    out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
-    let s = match args.first() {
-        Some(Slot::Reference(None)) | None => heap.allocate_string("null".to_string()),
+    let text = match args.first() {
+        Some(Slot::Reference(None)) | None => "null".to_string(),
         Some(Slot::Reference(Some(r))) => {
-            let text = heap_object_to_string_ref(heap, *r)?;
-            heap.allocate_string(text)
+            let obj_ref = *r;
+            let class_name = heap.get(obj_ref)?.class_name.clone();
+            if class_name == "java/lang/String" {
+                heap_object_to_string_ref(heap, obj_ref)?
+            } else {
+                let result = ops.invoke(
+                    heap,
+                    out,
+                    &class_name,
+                    "toString",
+                    "()Ljava/lang/String;",
+                    vec![Slot::Reference(Some(obj_ref))],
+                )?;
+                match result {
+                    Some(Slot::Reference(Some(s))) => heap_object_to_string_ref(heap, s)?,
+                    _ => heap_object_to_string_ref(heap, obj_ref)?,
+                }
+            }
         }
-        Some(Slot::Int(n)) => heap.allocate_string(n.to_string()),
-        Some(Slot::Long(n)) => heap.allocate_string(n.to_string()),
-        Some(other) => heap.allocate_string(format!("{other:?}")),
+        Some(Slot::Int(n)) => n.to_string(),
+        Some(Slot::Long(n)) => n.to_string(),
+        Some(other) => format!("{other:?}"),
     };
+    let s = heap.allocate_string(text);
     Ok(Some(Slot::Reference(Some(s))))
 }
 /// Native: `Objects.toString(Object, String)String` — returns nullDefault if null, else toString.
 pub(crate) fn native_objects_tostring_default(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
+    out: &mut dyn Write,
     _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
 ) -> Result<Option<Slot>> {
     match args.first() {
         Some(Slot::Reference(None)) | None => {
@@ -1930,7 +1949,24 @@ pub(crate) fn native_objects_tostring_default(
             Ok(Some(Slot::Reference(Some(default_ref))))
         }
         Some(Slot::Reference(Some(r))) => {
-            let text = heap_object_to_string_ref(heap, *r)?;
+            let obj_ref = *r;
+            let class_name = heap.get(obj_ref)?.class_name.clone();
+            let text = if class_name == "java/lang/String" {
+                heap_object_to_string_ref(heap, obj_ref)?
+            } else {
+                let result = ops.invoke(
+                    heap,
+                    out,
+                    &class_name,
+                    "toString",
+                    "()Ljava/lang/String;",
+                    vec![Slot::Reference(Some(obj_ref))],
+                )?;
+                match result {
+                    Some(Slot::Reference(Some(s))) => heap_object_to_string_ref(heap, s)?,
+                    _ => heap_object_to_string_ref(heap, obj_ref)?,
+                }
+            };
             let s = heap.allocate_string(text);
             Ok(Some(Slot::Reference(Some(s))))
         }
@@ -6024,4 +6060,708 @@ pub(crate) fn native_enumset_iter_next(
     };
     heap.get_mut(this_ref)?.fields[1] = Slot::Int(cursor + 1);
     Ok(Some(element))
+}
+
+/// Native: `AbstractCollection.toString()` — the JDK's `[e1, e2]` join.
+/// Implemented via the public `iterator()` so every collection subclass
+/// (`ArrayList`, `HashSet`, `List.of` impls, …) shares it.
+pub(crate) fn native_abstract_collection_tostring(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let class_name = heap.get(this_ref)?.class_name.clone();
+    // this.iterator()
+    let iter_slot = ops.invoke(
+        heap,
+        out,
+        &class_name,
+        "iterator",
+        "()Ljava/util/Iterator;",
+        vec![Slot::Reference(Some(this_ref))],
+    )?;
+    let Some(Slot::Reference(Some(iter_ref))) = iter_slot else {
+        return Err(Error::TypeMismatch {
+            expected: "iterator",
+            got: "other",
+        });
+    };
+    let iter_class = heap.get(iter_ref)?.class_name.clone();
+    let mut parts: Vec<String> = Vec::new();
+    loop {
+        let has_next = ops.invoke(
+            heap,
+            out,
+            &iter_class,
+            "hasNext",
+            "()Z",
+            vec![Slot::Reference(Some(iter_ref))],
+        )?;
+        let more = matches!(has_next, Some(Slot::Int(n)) if n != 0);
+        if !more {
+            break;
+        }
+        let next = ops.invoke(
+            heap,
+            out,
+            &iter_class,
+            "next",
+            "()Ljava/lang/Object;",
+            vec![Slot::Reference(Some(iter_ref))],
+        )?;
+        let text = match next {
+            Some(Slot::Reference(None)) | None => "null".to_string(),
+            Some(Slot::Reference(Some(e))) if e == this_ref => "(this Collection)".to_string(),
+            Some(Slot::Reference(Some(e))) => {
+                let elem_class = heap.get(e)?.class_name.clone();
+                if elem_class == "java/lang/String" {
+                    heap_object_to_string_ref(heap, e)?
+                } else {
+                    let s = ops.invoke(
+                        heap,
+                        out,
+                        &elem_class,
+                        "toString",
+                        "()Ljava/lang/String;",
+                        vec![Slot::Reference(Some(e))],
+                    )?;
+                    match s {
+                        Some(Slot::Reference(Some(sr))) => heap_object_to_string_ref(heap, sr)?,
+                        _ => heap_object_to_string_ref(heap, e)?,
+                    }
+                }
+            }
+            Some(other) => format!("{other:?}"),
+        };
+        parts.push(text);
+    }
+    let joined = format!("[{}]", parts.join(", "));
+    let r = heap.allocate_string(joined);
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Native: `Collections.synchronizedList(List)List`.
+///
+/// Duke's interpreter serializes native execution under the shared VM lock,
+/// which provides the mutual exclusion a synchronized wrapper would. Returning
+/// the backing list directly preserves identity and concurrent-add visibility.
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn native_collections_synchronized_list(
+    args: &[Slot],
+    _heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    Ok(Some(extract_slot_arg(args, 0)))
+}
+
+/// Native: `ArrayList.replaceAll(UnaryOperator)` — applies the operator to each
+/// element in place.
+pub(crate) fn native_arraylist_replace_all(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let op_slot = extract_slot_arg(args, 1);
+    let Slot::Reference(Some(op_ref)) = op_slot else {
+        return Err(Error::NullPointerException);
+    };
+    let op_class = heap.get(op_ref)?.class_name.clone();
+    let size = match heap.get(this_ref)?.fields.first() {
+        Some(Slot::Int(n)) => *n as usize,
+        _ => 0,
+    };
+    for i in 0..size {
+        let elem = heap.get(this_ref)?.fields.get(1 + i).copied().unwrap_or(Slot::Reference(None));
+        let new_elem = ops.invoke(
+            heap,
+            out,
+            &op_class,
+            "apply",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            vec![Slot::Reference(Some(op_ref)), elem],
+        )?;
+        let new_slot = new_elem.unwrap_or(Slot::Reference(None));
+        heap.get_mut(this_ref)?.fields[1 + i] = new_slot;
+        heap.remember_reference_write(this_ref, new_slot);
+    }
+    Ok(None)
+}
+
+/// Helper: create a `java/util/Map$Entry` with the given key and value.
+fn make_map_entry(
+    heap: &mut duke_gc::Heap,
+    key: Slot,
+    value: Slot,
+) -> Result<u64> {
+    let r = heap.allocate("java/util/Map$Entry".to_string(), 2);
+    heap.get_mut(r)?.fields[0] = key;
+    heap.get_mut(r)?.fields[1] = value;
+    heap.remember_reference_write(r, key);
+    heap.remember_reference_write(r, value);
+    Ok(r)
+}
+
+/// `LinkedHashMap.firstEntry()` — first insertion-order entry, or null if empty.
+pub(crate) fn native_linkedhashmap_first_entry(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    if fields.len() < 3 {
+        return Ok(Some(Slot::Reference(None)));
+    }
+    let entry = make_map_entry(heap, fields[1], fields[2])?;
+    Ok(Some(Slot::Reference(Some(entry))))
+}
+
+/// `LinkedHashMap.lastEntry()` — last insertion-order entry, or null if empty.
+pub(crate) fn native_linkedhashmap_last_entry(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    if fields.len() < 3 {
+        return Ok(Some(Slot::Reference(None)));
+    }
+    let n = fields.len();
+    let entry = make_map_entry(heap, fields[n - 2], fields[n - 1])?;
+    Ok(Some(Slot::Reference(Some(entry))))
+}
+
+/// `LinkedHashMap.putFirst(k, v)` — inserts at the front (moving existing key).
+/// Returns the previous value, or null.
+pub(crate) fn native_linkedhashmap_put_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = extract_slot_arg(args, 1);
+    let value = extract_slot_arg(args, 2);
+    // Remove existing key first (if present), capturing the old value.
+    let fields = heap.get(this_ref)?.fields.clone();
+    let mut pairs: Vec<(Slot, Slot)> = Vec::new();
+    let mut old_value = Slot::Reference(None);
+    let mut i = 1;
+    while i + 1 < fields.len() {
+        if slots_equal(&fields[i], &key, heap) {
+            old_value = fields[i + 1];
+        } else {
+            pairs.push((fields[i], fields[i + 1]));
+        }
+        i += 2;
+    }
+    // Rebuild with new pair first.
+    let obj = heap.get_mut(this_ref)?;
+    obj.fields.truncate(1);
+    obj.fields.push(key);
+    obj.fields.push(value);
+    for (k, v) in pairs {
+        obj.fields.push(k);
+        obj.fields.push(v);
+    }
+    let size = ((obj.fields.len() - 1) / 2) as i32;
+    obj.fields[0] = Slot::Int(size);
+    heap.remember_reference_write(this_ref, key);
+    heap.remember_reference_write(this_ref, value);
+    Ok(Some(old_value))
+}
+
+/// `LinkedHashMap.putLast(k, v)` — inserts at the end (moving existing key).
+/// Returns the previous value, or null.
+pub(crate) fn native_linkedhashmap_put_last(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = extract_slot_arg(args, 1);
+    let value = extract_slot_arg(args, 2);
+    // Remove existing key first, then put (which appends).
+    let fields = heap.get(this_ref)?.fields.clone();
+    let mut old_value = Slot::Reference(None);
+    let mut i = 1;
+    while i + 1 < fields.len() {
+        if slots_equal(&fields[i], &key, heap) {
+            old_value = fields[i + 1];
+            // Remove this pair.
+            let obj = heap.get_mut(this_ref)?;
+            obj.fields.remove(i + 1);
+            obj.fields.remove(i);
+            let size = ((obj.fields.len() - 1) / 2) as i32;
+            obj.fields[0] = Slot::Int(size);
+            break;
+        }
+        i += 2;
+    }
+    native_hashmap_put(
+        &[Slot::Reference(Some(this_ref)), key, value],
+        heap,
+        out,
+        control,
+    )?;
+    Ok(Some(old_value))
+}
+
+/// `LinkedHashMap.pollFirstEntry()` — removes and returns first entry.
+pub(crate) fn native_linkedhashmap_poll_first_entry(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let entry_slot = native_linkedhashmap_first_entry(args, heap, _out, _control)?;
+    if let Some(Slot::Reference(Some(_))) = entry_slot {
+        let fields = heap.get(this_ref)?.fields.clone();
+        if fields.len() >= 3 {
+            let obj = heap.get_mut(this_ref)?;
+            obj.fields.remove(2);
+            obj.fields.remove(1);
+            let size = ((obj.fields.len() - 1) / 2) as i32;
+            obj.fields[0] = Slot::Int(size);
+        }
+    }
+    Ok(entry_slot)
+}
+
+/// `LinkedHashMap.pollLastEntry()` — removes and returns last entry.
+pub(crate) fn native_linkedhashmap_poll_last_entry(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let entry_slot = native_linkedhashmap_last_entry(args, heap, _out, _control)?;
+    if let Some(Slot::Reference(Some(_))) = entry_slot {
+        let obj = heap.get_mut(this_ref)?;
+        if obj.fields.len() >= 3 {
+            let n = obj.fields.len();
+            obj.fields.truncate(n - 2);
+            let size = ((obj.fields.len() - 1) / 2) as i32;
+            obj.fields[0] = Slot::Int(size);
+        }
+    }
+    Ok(entry_slot)
+}
+
+/// `LinkedHashMap.reversed()` — returns a new LinkedHashMap with reversed order.
+pub(crate) fn native_linkedhashmap_reversed(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    let r = heap.allocate("java/util/LinkedHashMap".to_string(), 1);
+    {
+        let obj = heap.get_mut(r)?;
+        obj.fields[0] = Slot::Int(0);
+        let mut i = 1;
+        let mut pairs: Vec<(Slot, Slot)> = Vec::new();
+        while i + 1 < fields.len() {
+            pairs.push((fields[i], fields[i + 1]));
+            i += 2;
+        }
+        for (k, v) in pairs.into_iter().rev() {
+            obj.fields.push(k);
+            obj.fields.push(v);
+        }
+        let size = ((obj.fields.len() - 1) / 2) as i32;
+        obj.fields[0] = Slot::Int(size);
+    }
+    // Remember references.
+    let fields2 = heap.get(r)?.fields.clone();
+    for f in fields2.iter().skip(1) {
+        heap.remember_reference_write(r, *f);
+    }
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// `LinkedHashSet.addFirst(e)` — inserts at front (moves existing element).
+pub(crate) fn native_linkedhashset_add_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let elem = extract_slot_arg(args, 1);
+    let fields = heap.get(this_ref)?.fields.clone();
+    // Remove existing occurrence.
+    let mut elems: Vec<Slot> = Vec::new();
+    for f in fields.iter().skip(1) {
+        if !slots_equal(f, &elem, heap) {
+            elems.push(*f);
+        }
+    }
+    let obj = heap.get_mut(this_ref)?;
+    obj.fields.truncate(1);
+    obj.fields.push(elem);
+    for e in elems {
+        obj.fields.push(e);
+    }
+    let size = (obj.fields.len() - 1) as i32;
+    obj.fields[0] = Slot::Int(size);
+    heap.remember_reference_write(this_ref, elem);
+    Ok(None)
+}
+
+/// `LinkedHashSet.addLast(e)` — appends (standard add).
+pub(crate) fn native_linkedhashset_add_last(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    native_hashset_add(args, heap, out, control)?;
+    Ok(None)
+}
+
+/// `LinkedHashSet.getFirst()` — first element.
+pub(crate) fn native_linkedhashset_get_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    if fields.len() < 2 {
+        return Err(Error::JavaException { class_name: "java/util/NoSuchElementException".to_string() });
+    }
+    Ok(Some(fields[1]))
+}
+
+/// `LinkedHashSet.getLast()` — last element.
+pub(crate) fn native_linkedhashset_get_last(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    if fields.len() < 2 {
+        return Err(Error::JavaException { class_name: "java/util/NoSuchElementException".to_string() });
+    }
+    Ok(Some(fields[fields.len() - 1]))
+}
+
+/// `LinkedHashSet.removeFirst()` — removes and returns first element.
+pub(crate) fn native_linkedhashset_remove_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let first = native_linkedhashset_get_first(args, heap, _out, _control)?;
+    if let Some(_elem) = first {
+        let obj = heap.get_mut(this_ref)?;
+        obj.fields.remove(1);
+        let size = (obj.fields.len() - 1) as i32;
+        obj.fields[0] = Slot::Int(size);
+    }
+    Ok(first)
+}
+
+/// `LinkedHashSet.reversed()` — returns a new LinkedHashSet with reversed order.
+pub(crate) fn native_linkedhashset_reversed(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    let r = heap.allocate("java/util/LinkedHashSet".to_string(), 1);
+    {
+        let obj = heap.get_mut(r)?;
+        obj.fields[0] = Slot::Int(0);
+        for f in fields.iter().skip(1).rev() {
+            obj.fields.push(*f);
+        }
+        let size = (obj.fields.len() - 1) as i32;
+        obj.fields[0] = Slot::Int(size);
+    }
+    let fields2 = heap.get(r)?.fields.clone();
+    for f in fields2.iter().skip(1) {
+        heap.remember_reference_write(r, *f);
+    }
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// `ArrayList.getFirst()` — first element (Java 21 SequencedCollection).
+pub(crate) fn native_arraylist_get_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get(this_ref)?;
+    obj.fields.get(1).copied().map_or_else(
+        || Err(Error::JavaException { class_name: "java/util/NoSuchElementException".to_string() }),
+        |s| Ok(Some(s)),
+    )
+}
+
+/// `ArrayList.getLast()` — last element (Java 21 SequencedCollection).
+pub(crate) fn native_arraylist_get_last(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get(this_ref)?;
+    if obj.fields.len() < 2 {
+        return Err(Error::JavaException { class_name: "java/util/NoSuchElementException".to_string() });
+    }
+    Ok(Some(obj.fields[obj.fields.len() - 1]))
+}
+
+/// `ArrayList.addFirst(e)` — inserts at index 0.
+pub(crate) fn native_arraylist_add_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let elem = extract_slot_arg(args, 1);
+    let obj = heap.get_mut(this_ref)?;
+    obj.fields.insert(1, elem);
+    if let Some(Slot::Int(sz)) = obj.fields.first_mut() {
+        *sz += 1;
+    }
+    heap.remember_reference_write(this_ref, elem);
+    Ok(None)
+}
+
+/// `ArrayList.addLast(e)` — appends.
+pub(crate) fn native_arraylist_add_last(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    native_arraylist_add(args, heap, out, control)
+}
+
+/// `ArrayList.removeFirst()` — removes and returns first element.
+pub(crate) fn native_arraylist_remove_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get_mut(this_ref)?;
+    if obj.fields.len() < 2 {
+        return Err(Error::JavaException { class_name: "java/util/NoSuchElementException".to_string() });
+    }
+    let elem = obj.fields.remove(1);
+    if let Some(Slot::Int(sz)) = obj.fields.first_mut() {
+        *sz -= 1;
+    }
+    Ok(Some(elem))
+}
+
+/// `ArrayList.removeLast()` — removes and returns last element.
+pub(crate) fn native_arraylist_remove_last(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get_mut(this_ref)?;
+    if obj.fields.len() < 2 {
+        return Err(Error::JavaException { class_name: "java/util/NoSuchElementException".to_string() });
+    }
+    let elem = obj.fields.pop().unwrap_or(Slot::Reference(None));
+    if let Some(Slot::Int(sz)) = obj.fields.first_mut() {
+        *sz -= 1;
+    }
+    Ok(Some(elem))
+}
+
+/// `ArrayList.reversed()` — returns a new ArrayList with reversed order.
+///
+/// NOTE: Java 21 specifies that `reversed()` returns a *backed view* where
+/// mutations through either the view or the original are visible to the other.
+/// The current implementation returns a snapshot copy, which satisfies the
+/// parity tests (order verification) but not the full backed-view contract.
+/// Implementing true backed views for all 5 sequenced collection types
+/// (ArrayList, ArrayDeque, LinkedHashMap, LinkedHashSet, TreeMap) with correct
+/// bidirectional mutation semantics is tracked as future work.
+pub(crate) fn native_arraylist_reversed(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let fields = heap.get(this_ref)?.fields.clone();
+    let class_name = heap.get(this_ref)?.class_name.clone();
+    let r = heap.allocate(class_name, 1);
+    {
+        let obj = heap.get_mut(r)?;
+        obj.fields[0] = Slot::Int(0);
+        for f in fields.iter().skip(1).rev() {
+            obj.fields.push(*f);
+        }
+        let size = (obj.fields.len() - 1) as i32;
+        obj.fields[0] = Slot::Int(size);
+    }
+    let fields2 = heap.get(r)?.fields.clone();
+    for f in fields2.iter().skip(1) {
+        heap.remember_reference_write(r, *f);
+    }
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// `Map$Entry.toString()` — returns "key=value".
+pub(crate) fn native_map_entry_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let key = extract_first_field_arg(heap, this_ref)?;
+    let value = extract_field_arg(heap, this_ref, 1)?;
+    let key_str = slot_to_string_via_callback(key, heap, out, ops)?;
+    let val_str = slot_to_string_via_callback(value, heap, out, ops)?;
+    let r = heap.allocate_string(format!("{key_str}={val_str}"));
+    Ok(Some(Slot::Reference(Some(r))))
+}
+
+/// Helper: convert a Slot to String via virtual `toString()` (null → "null").
+fn slot_to_string_via_callback(
+    slot: Slot,
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn Write,
+    ops: &mut dyn CallbackOps,
+) -> Result<String> {
+    match slot {
+        Slot::Reference(None) => Ok("null".to_string()),
+        Slot::Reference(Some(r)) => {
+            let class_name = heap.get(r)?.class_name.clone();
+            if class_name == "java/lang/String" {
+                return heap_object_to_string_ref(heap, r);
+            }
+            let result = ops.invoke(
+                heap,
+                out,
+                &class_name,
+                "toString",
+                "()Ljava/lang/String;",
+                vec![Slot::Reference(Some(r))],
+            )?;
+            match result {
+                Some(Slot::Reference(Some(sr))) => heap_object_to_string_ref(heap, sr),
+                _ => Ok("null".to_string()),
+            }
+        }
+        Slot::Int(v) => Ok(v.to_string()),
+        Slot::Long(v) => Ok(v.to_string()),
+        Slot::Float(v) => Ok(format_java_float(v)),
+        Slot::Double(v) => Ok(format_java_double(v)),
+        _ => Ok("null".to_string()),
+    }
+}
+
+/// `ArrayDeque.getFirst()` — first element, throws if empty.
+pub(crate) fn native_arraydeque_get_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get(this_ref)?;
+    obj.fields.get(1).copied().map_or_else(
+        || {
+            Err(Error::JavaException {
+                class_name: "java/util/NoSuchElementException".to_string(),
+            })
+        },
+        |s| Ok(Some(s)),
+    )
+}
+
+/// `ArrayDeque.getLast()` — last element, throws if empty.
+pub(crate) fn native_arraydeque_get_last(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let obj = heap.get(this_ref)?;
+    if obj.fields.len() < 2 {
+        return Err(Error::JavaException {
+            class_name: "java/util/NoSuchElementException".to_string(),
+        });
+    }
+    Ok(Some(obj.fields[obj.fields.len() - 1]))
+}
+
+/// `ArrayDeque.removeFirst()` — removes and returns first, throws if empty.
+pub(crate) fn native_arraydeque_remove_first(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let elem = native_arraydeque_get_first(args, heap, _out, _control)?;
+    if elem.is_some() {
+        let obj = heap.get_mut(this_ref)?;
+        obj.fields.remove(1);
+        if let Some(Slot::Int(sz)) = obj.fields.first_mut() {
+            *sz -= 1;
+        }
+    }
+    Ok(elem)
+}
+
+/// `ArrayDeque.removeLast()` — removes and returns last, throws if empty.
+pub(crate) fn native_arraydeque_remove_last(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let elem = native_arraydeque_get_last(args, heap, _out, _control)?;
+    if elem.is_some() {
+        let obj = heap.get_mut(this_ref)?;
+        obj.fields.pop();
+        if let Some(Slot::Int(sz)) = obj.fields.first_mut() {
+            *sz -= 1;
+        }
+    }
+    Ok(elem)
 }

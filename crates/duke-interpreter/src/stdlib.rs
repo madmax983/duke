@@ -20,6 +20,11 @@ fn atomic_context(name: &str, super_class: &str, value_descriptor: &str) -> Clas
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     }
 }
@@ -35,6 +40,11 @@ fn empty_synthetic_context(name: &str, super_class: &str) -> ClassContext {
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     }
 }
@@ -161,6 +171,11 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -180,6 +195,11 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         instance_field_count: 5,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -196,6 +216,11 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         instance_field_count: 2,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     registry.register(empty_synthetic_context(
@@ -232,6 +257,11 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         instance_field_count: 6,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -252,6 +282,11 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         instance_field_count: 2,
         interfaces: vec!["java/util/Enumeration".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     registry.register(ClassContext {
@@ -267,6 +302,11 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         instance_field_count: 2,
         interfaces: vec!["java/util/Enumeration".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -311,6 +351,11 @@ fn register_jul_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) {
         instance_field_count: 2,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -737,6 +782,11 @@ fn register_charset_classes(registry: &mut ClassRegistry, heap: &mut duke_gc::He
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(standard_ctx);
@@ -880,6 +930,11 @@ fn register_base64_stdlib(registry: &mut ClassRegistry) {
             instance_field_count: 1,
             interfaces: Vec::new(),
             bootstrap_methods: Vec::new(),
+            permitted_subclasses: Vec::new(),
+            nest_host: None,
+            nest_members: Vec::new(),
+            record_components: Vec::new(),
+            is_record: false,
             load_source: ClassLoadSource::Synthetic,
         });
     }
@@ -964,6 +1019,11 @@ fn register_atomic_stdlib(registry: &mut ClassRegistry) {
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(number_ctx);
@@ -1195,6 +1255,11 @@ fn register_concurrent_hashmap_stdlib(registry: &mut ClassRegistry) {
         instance_field_count: 0,
         interfaces: vec!["java/util/Map".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(concurrent_map_ctx);
@@ -1216,6 +1281,11 @@ fn register_concurrent_hashmap_stdlib(registry: &mut ClassRegistry) {
             "java/util/Map".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(concurrent_hashmap_ctx);
@@ -1427,6 +1497,11 @@ fn register_unsafe_stdlib(registry: &mut ClassRegistry) {
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -1541,6 +1616,11 @@ fn lock_interface_context(name: &str) -> ClassContext {
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     }
 }
@@ -1570,6 +1650,11 @@ fn register_locks_stdlib(registry: &mut ClassRegistry) {
         instance_field_count: 0,
         interfaces: vec!["java/util/concurrent/locks/Lock".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -1583,6 +1668,11 @@ fn register_locks_stdlib(registry: &mut ClassRegistry) {
         instance_field_count: 0,
         interfaces: vec!["java/util/concurrent/locks/Condition".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -1607,6 +1697,11 @@ fn register_locks_stdlib(registry: &mut ClassRegistry) {
         instance_field_count: 2,
         interfaces: vec!["java/util/concurrent/locks/ReadWriteLock".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -1620,6 +1715,11 @@ fn register_locks_stdlib(registry: &mut ClassRegistry) {
         instance_field_count: 0,
         interfaces: vec!["java/util/concurrent/locks/Lock".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -1633,6 +1733,11 @@ fn register_locks_stdlib(registry: &mut ClassRegistry) {
         instance_field_count: 0,
         interfaces: vec!["java/util/concurrent/locks/Lock".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -1811,6 +1916,11 @@ fn register_sync_primitives_stdlib(registry: &mut ClassRegistry) {
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -1986,6 +2096,11 @@ fn register_executor_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::He
             "java/util/concurrent/Executor".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -2005,6 +2120,11 @@ fn register_executor_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::He
         instance_field_count: 5,
         interfaces: vec!["java/util/concurrent/Future".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -2036,6 +2156,11 @@ fn register_executor_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::He
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -2054,6 +2179,11 @@ fn register_executor_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::He
             "newCachedThreadPool",
             "()Ljava/util/concurrent/ExecutorService;",
             native_executors_new_cached_thread_pool,
+        ),
+        (
+            "newVirtualThreadPerTaskExecutor",
+            "()Ljava/util/concurrent/ExecutorService;",
+            native_executors_new_virtual_thread_per_task_executor as NativeHandler,
         ),
     ] {
         registry.natives_mut().register(
@@ -2089,6 +2219,10 @@ fn register_executor_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::He
         registry
             .natives_mut()
             .register(class_name, "shutdown", "()V", native_executor_shutdown);
+        // `ExecutorService extends AutoCloseable`: `close()` shuts down and waits.
+        registry
+            .natives_mut()
+            .register(class_name, "close", "()V", native_executor_close);
         registry.natives_mut().register(
             class_name,
             "awaitTermination",
@@ -2195,6 +2329,11 @@ fn register_executor_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::He
             instance_field_count: 0,
             interfaces: Vec::new(),
             bootstrap_methods: Vec::new(),
+            permitted_subclasses: Vec::new(),
+            nest_host: None,
+            nest_members: Vec::new(),
+            record_components: Vec::new(),
+            is_record: false,
             load_source: ClassLoadSource::Synthetic,
         });
         registry
@@ -2286,6 +2425,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(system_ctx);
@@ -2312,6 +2456,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(ps_ctx);
@@ -2350,6 +2499,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(file_ctx);
@@ -2382,6 +2536,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(io_exception_ctx);
@@ -2396,6 +2555,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(file_not_found_ctx);
@@ -2410,6 +2574,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(socket_exception_ctx);
@@ -2424,6 +2593,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(bind_exception_ctx);
@@ -2438,6 +2612,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(connect_exception_ctx);
@@ -2452,6 +2631,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: vec!["java/lang/AutoCloseable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(input_stream_ctx);
@@ -2481,6 +2665,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 3,
         interfaces: vec!["java/lang/AutoCloseable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(resource_input_stream_ctx);
@@ -2557,6 +2746,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(input_stream_reader_ctx);
@@ -2603,6 +2797,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(buffered_reader_ctx);
@@ -2638,6 +2837,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: vec!["java/lang/AutoCloseable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(output_stream_ctx);
@@ -2652,6 +2856,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(byte_array_output_stream_ctx);
@@ -2678,6 +2887,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(process_ctx);
@@ -2713,6 +2927,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 4,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(process_impl_ctx);
@@ -2774,6 +2993,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(process_builder_ctx);
@@ -2806,6 +3030,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(runtime_ctx);
@@ -2848,6 +3077,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/AutoCloseable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(process_input_stream_ctx);
@@ -2884,6 +3118,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/AutoCloseable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(process_error_stream_ctx);
@@ -2920,6 +3159,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/AutoCloseable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(process_output_stream_ctx);
@@ -2956,6 +3200,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/AutoCloseable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(file_input_stream_ctx);
@@ -2998,6 +3247,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/AutoCloseable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(file_output_stream_ctx);
@@ -3047,6 +3301,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/lang/AutoCloseable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(server_socket_ctx);
@@ -3096,6 +3355,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/lang/AutoCloseable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(socket_ctx);
@@ -3135,6 +3399,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/AutoCloseable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(socket_input_stream_ctx);
@@ -3171,6 +3440,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/AutoCloseable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(socket_output_stream_ctx);
@@ -3209,6 +3483,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/io/Serializable".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     let case_insensitive_order =
@@ -3265,6 +3544,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/lang/CharSequence".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(string_ctx);
@@ -3578,6 +3862,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(object_ctx);
@@ -3633,6 +3922,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(record_ctx);
@@ -3663,6 +3957,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: vec!["java/lang/reflect/Type".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(class_ctx);
@@ -3704,6 +4003,96 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getEnumConstants",
         "()[Ljava/lang/Object;",
         native_class_get_enum_constants,
+    );
+    registry.natives_mut().register(
+        "java/lang/Class",
+        "getSimpleName",
+        "()Ljava/lang/String;",
+        native_class_get_simple_name,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "isSealed",
+        "()Z",
+        native_class_is_sealed,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getPermittedSubclasses",
+        "()[Ljava/lang/Class;",
+        native_class_get_permitted_subclasses,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getNestHost",
+        "()Ljava/lang/Class;",
+        native_class_get_nest_host,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getNestMembers",
+        "()[Ljava/lang/Class;",
+        native_class_get_nest_members,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "getRecordComponents",
+        "()[Ljava/lang/reflect/RecordComponent;",
+        native_class_get_record_components,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/RecordComponent",
+        "getName",
+        "()Ljava/lang/String;",
+        native_record_component_get_name,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/RecordComponent",
+        "getType",
+        "()Ljava/lang/Class;",
+        native_record_component_get_type,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/RecordComponent",
+        "getAccessor",
+        "()Ljava/lang/reflect/Method;",
+        native_record_component_get_accessor,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/RecordComponent",
+        "getDeclaringRecord",
+        "()Ljava/lang/Class;",
+        native_record_component_get_declaring_record,
+    );
+    registry.natives_mut().register(
+        "java/lang/reflect/RecordComponent",
+        "toString",
+        "()Ljava/lang/String;",
+        native_record_component_to_string,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/reflect/RecordComponent",
+        "getAnnotation",
+        "(Ljava/lang/Class;)Ljava/lang/annotation/Annotation;",
+        native_record_component_get_annotation,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/reflect/RecordComponent",
+        "getAnnotations",
+        "()[Ljava/lang/annotation/Annotation;",
+        native_record_component_get_annotations,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/reflect/RecordComponent",
+        "isAnnotationPresent",
+        "(Ljava/lang/Class;)Z",
+        native_record_component_is_annotation_present,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "isNestmateOf",
+        "(Ljava/lang/Class;)Z",
+        native_class_is_nestmate_of,
     );
     registry.natives_mut().register(
         "java/lang/Class",
@@ -3770,6 +4159,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getAnnotation",
         "(Ljava/lang/Class;)Ljava/lang/annotation/Annotation;",
         native_class_get_annotation,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "isAnnotationPresent",
+        "(Ljava/lang/Class;)Z",
+        native_class_is_annotation_present,
     );
     registry.natives_mut().register_callback(
         "java/lang/Class",
@@ -3908,6 +4303,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(protection_domain_ctx);
@@ -3932,6 +4332,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(code_source_ctx);
@@ -3956,6 +4361,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(url_ctx);
@@ -4032,6 +4442,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(url_connection_ctx);
@@ -4062,6 +4477,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(url_decoder_ctx);
@@ -4086,6 +4506,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(url_class_path_ctx);
@@ -4104,6 +4529,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(url_class_loader_ctx);
@@ -4140,6 +4570,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(uri_ctx);
@@ -4158,6 +4593,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(path_ctx);
@@ -4183,6 +4623,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(paths_ctx);
@@ -4203,6 +4648,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(file_attribute_ctx);
@@ -4243,6 +4693,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(posix_file_permission_ctx);
@@ -4257,6 +4712,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(posix_file_permissions_ctx);
@@ -4287,6 +4747,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["org/springframework/boot/loader/launch/Archive$Entry".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(boot_archive_entry_ctx);
@@ -4380,9 +4845,53 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 6,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(reflect_method_ctx);
+    let reflect_record_component_ctx = ClassContext {
+        class_name: "java/lang/reflect/RecordComponent".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "declaringRecord".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "name".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "type".to_string(),
+                descriptor: "Ljava/lang/Class;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "accessor".to_string(),
+                descriptor: "Ljava/lang/reflect/Method;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 4,
+        interfaces: Vec::new(),
+        bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(reflect_record_component_ctx);
     registry.natives_mut().register(
         "java/lang/reflect/Method",
         "getName",
@@ -4424,6 +4933,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getParameterCount",
         "()I",
         native_reflect_method_get_parameter_count,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/reflect/Method",
+        "getParameterAnnotations",
+        "()[[Ljava/lang/annotation/Annotation;",
+        native_reflect_method_get_parameter_annotations,
     );
     registry.natives_mut().register(
         "java/lang/reflect/Method",
@@ -4497,6 +5012,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 6,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(reflect_constructor_ctx);
@@ -4590,6 +5110,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 6,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(reflect_field_ctx);
@@ -4664,6 +5189,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(runnable_ctx);
@@ -4684,6 +5214,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(class_loader_ctx);
@@ -4803,11 +5338,33 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
                 descriptor: "Ljava/lang/Thread;".to_string(),
                 is_static: true,
             },
+            // Java 21 virtual-thread support: thread name, isVirtual flag,
+            // and liveness flag (slots 5-7).
+            FieldEntry {
+                name: "name".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "isVirtual".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "alive".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
         ],
         static_fields: vec![Slot::Reference(None), Slot::Reference(None)],
-        instance_field_count: 5,
+        instance_field_count: 8,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(thread_ctx);
@@ -4863,6 +5420,123 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/lang/String;",
         native_thread_get_name,
     );
+    registry
+        .natives_mut()
+        .register("java/lang/Thread", "isAlive", "()Z", native_thread_is_alive);
+    registry.natives_mut().register(
+        "java/lang/Thread",
+        "isVirtual",
+        "()Z",
+        native_thread_is_virtual,
+    );
+    // Java 21 thread builders: `Thread.ofVirtual()` / `Thread.ofPlatform()`.
+    // The JDK types these as `Thread$Builder$OfVirtual` / `OfPlatform`;
+    // Duke's single builder class serves both.
+    registry.natives_mut().register(
+        "java/lang/Thread",
+        "ofVirtual",
+        "()Ljava/lang/Thread$Builder$OfVirtual;",
+        native_thread_of_virtual,
+    );
+    registry.natives_mut().register(
+        "java/lang/Thread",
+        "ofPlatform",
+        "()Ljava/lang/Thread$Builder$OfPlatform;",
+        native_thread_of_platform,
+    );
+    let thread_builder_ctx = ClassContext {
+        class_name: "java/lang/Thread$Builder".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "name".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "namePrefix".to_string(),
+                descriptor: "Ljava/lang/String;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "nameStart".to_string(),
+                descriptor: "J".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "isVirtual".to_string(),
+                descriptor: "Z".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "counter".to_string(),
+                descriptor: "J".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 5,
+        interfaces: vec!["java/util/concurrent/ThreadFactory".to_string()],
+        bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(thread_builder_ctx);
+    for builder_return in [
+        "Ljava/lang/Thread$Builder;",
+        "Ljava/lang/Thread$Builder$OfVirtual;",
+        "Ljava/lang/Thread$Builder$OfPlatform;",
+    ] {
+        let name_desc = format!("(Ljava/lang/String;){builder_return}");
+        let name_prefix_desc = format!("(Ljava/lang/String;J){builder_return}");
+        registry.natives_mut().register(
+            "java/lang/Thread$Builder",
+            "name",
+            &name_desc,
+            native_thread_builder_name,
+        );
+        registry.natives_mut().register(
+            "java/lang/Thread$Builder",
+            "name",
+            &name_prefix_desc,
+            native_thread_builder_name_prefix,
+        );
+    }
+    registry.natives_mut().register(
+        "java/lang/Thread$Builder",
+        "start",
+        "(Ljava/lang/Runnable;)Ljava/lang/Thread;",
+        native_thread_builder_start,
+    );
+    registry.natives_mut().register(
+        "java/lang/Thread$Builder",
+        "unstarted",
+        "(Ljava/lang/Runnable;)Ljava/lang/Thread;",
+        native_thread_builder_unstarted,
+    );
+    registry.natives_mut().register(
+        "java/lang/Thread$Builder",
+        "factory",
+        "()Ljava/util/concurrent/ThreadFactory;",
+        native_thread_builder_factory,
+    );
+    registry.natives_mut().register(
+        "java/lang/Thread$Builder",
+        "newThread",
+        "(Ljava/lang/Runnable;)Ljava/lang/Thread;",
+        native_thread_builder_new_thread,
+    );
+    // `java/util/concurrent/ThreadFactory` interface marker.
+    registry.register(empty_synthetic_context(
+        "java/util/concurrent/ThreadFactory",
+        "java/lang/Object",
+    ));
     registry.natives_mut().register_callback(
         "java/lang/Thread",
         "getContextClassLoader",
@@ -4907,6 +5581,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 4,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(stack_trace_element_ctx);
@@ -4980,6 +5659,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 3,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(throwable_ctx);
@@ -5073,6 +5757,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(exception_ctx);
@@ -5101,6 +5790,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             instance_field_count: 0,
             interfaces: Vec::new(),
             bootstrap_methods: Vec::new(),
+            permitted_subclasses: Vec::new(),
+            nest_host: None,
+            nest_members: Vec::new(),
+            record_components: Vec::new(),
+            is_record: false,
             load_source: ClassLoadSource::Synthetic,
         });
         registry
@@ -5125,6 +5819,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(rte_ctx);
@@ -5157,6 +5856,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(illegal_argument_ctx);
@@ -5189,6 +5893,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(illegal_thread_state_ctx);
@@ -5203,6 +5912,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(reflective_operation_ctx);
@@ -5217,6 +5931,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(class_not_found_ctx);
@@ -5231,6 +5950,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(no_such_method_ctx);
@@ -5245,6 +5969,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(no_such_field_ctx);
@@ -5259,6 +5988,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(illegal_access_ctx);
@@ -5273,6 +6007,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(instantiation_ctx);
@@ -5287,6 +6026,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(invocation_target_ctx);
@@ -5346,6 +6090,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             instance_field_count: 0,
             interfaces: Vec::new(),
             bootstrap_methods: Vec::new(),
+            permitted_subclasses: Vec::new(),
+            nest_host: None,
+            nest_members: Vec::new(),
+            record_components: Vec::new(),
+            is_record: false,
             load_source: ClassLoadSource::Synthetic,
         };
         registry.register(ctx);
@@ -5422,6 +6171,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             instance_field_count: 0,
             interfaces: Vec::new(),
             bootstrap_methods: Vec::new(),
+            permitted_subclasses: Vec::new(),
+            nest_host: None,
+            nest_members: Vec::new(),
+            record_components: Vec::new(),
+            is_record: false,
             load_source: ClassLoadSource::Synthetic,
         };
         registry.register(ctx);
@@ -5456,6 +6210,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(autocloseable_ctx);
@@ -5471,6 +6230,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(serializable_ctx);
@@ -5486,6 +6250,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(sql_driver_ctx);
@@ -5513,6 +6282,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(enum_ctx);
@@ -5576,6 +6350,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(integer_ctx);
@@ -5626,6 +6405,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "toString",
         "(I)Ljava/lang/String;",
         native_integer_tostring_static,
+    );
+    registry.natives_mut().register(
+        "java/lang/Integer",
+        "toString",
+        "()Ljava/lang/String;",
+        native_integer_tostring,
     );
     registry.natives_mut().register(
         "java/lang/Integer",
@@ -5774,6 +6559,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(long_ctx);
@@ -5966,6 +6756,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(double_ctx);
@@ -6045,6 +6840,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(float_ctx);
@@ -6143,6 +6943,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(boolean_ctx);
@@ -6206,6 +7011,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(byte_ctx);
@@ -6278,6 +7088,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(short_ctx);
@@ -6344,6 +7159,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(void_ctx);
@@ -6373,6 +7193,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(math_ctx);
@@ -6396,6 +7221,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(modifier_ctx);
@@ -6560,7 +7390,7 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(C)Ljava/lang/String;",
         native_string_value_of_char,
     );
-    registry.natives_mut().register(
+    registry.natives_mut().register_callback(
         "java/lang/String",
         "valueOf",
         "(Ljava/lang/Object;)Ljava/lang/String;",
@@ -6587,6 +7417,24 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "strip",
         "()Ljava/lang/String;",
         native_string_strip,
+    );
+    registry.natives_mut().register_callback(
+        "java/lang/String",
+        "transform",
+        "(Ljava/util/function/Function;)Ljava/lang/Object;",
+        native_string_transform,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "translateEscapes",
+        "()Ljava/lang/String;",
+        native_string_translate_escapes,
+    );
+    registry.natives_mut().register(
+        "java/lang/String",
+        "stripIndent",
+        "()Ljava/lang/String;",
+        native_string_strip_indent,
     );
     registry.natives_mut().register(
         "java/lang/String",
@@ -6693,6 +7541,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: vec!["java/lang/CharSequence".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(sb_ctx);
@@ -6854,6 +7707,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/Comparable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(character_ctx);
@@ -6964,6 +7822,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(collection_ctx);
@@ -7006,6 +7869,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 3,
         interfaces: vec!["java/lang/Iterable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(service_loader_ctx);
@@ -7065,6 +7933,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 4,
         interfaces: vec!["java/util/Iterator".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(service_iter_ctx);
@@ -7107,6 +7980,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/lang/Iterable".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(arraylist_ctx);
@@ -7143,6 +8021,114 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
     registry
         .natives_mut()
         .register("java/util/ArrayList", "size", "()I", native_arraylist_size);
+    // `AbstractCollection.toString()` — the JDK `[e1, e2]` join, shared by
+    // every concrete collection via its public `iterator()`. Native lookup is
+    // exact-key (no superclass walk), so register on each concrete class.
+    for class in [
+        "java/util/ArrayList",
+        "java/util/LinkedList",
+        "java/util/ArrayDeque",
+        "java/util/PriorityQueue",
+        "java/util/HashSet",
+        "java/util/LinkedHashSet",
+    ] {
+        registry.natives_mut().register_callback(
+            class,
+            "toString",
+            "()Ljava/lang/String;",
+            native_abstract_collection_tostring,
+        );
+    }
+    registry.natives_mut().register_callback(
+        "java/util/ArrayList",
+        "replaceAll",
+        "(Ljava/util/function/UnaryOperator;)V",
+        native_arraylist_replace_all,
+    );
+    // SequencedCollection methods (Java 21)
+    for (name, desc, func) in [
+        (
+            "getFirst",
+            "()Ljava/lang/Object;",
+            native_arraylist_get_first
+                as fn(
+                    &[Slot],
+                    &mut duke_gc::Heap,
+                    &mut dyn Write,
+                    &mut NativeControl,
+                ) -> Result<Option<Slot>>,
+        ),
+        (
+            "getLast",
+            "()Ljava/lang/Object;",
+            native_arraylist_get_last
+                as fn(
+                    &[Slot],
+                    &mut duke_gc::Heap,
+                    &mut dyn Write,
+                    &mut NativeControl,
+                ) -> Result<Option<Slot>>,
+        ),
+        (
+            "addFirst",
+            "(Ljava/lang/Object;)V",
+            native_arraylist_add_first
+                as fn(
+                    &[Slot],
+                    &mut duke_gc::Heap,
+                    &mut dyn Write,
+                    &mut NativeControl,
+                ) -> Result<Option<Slot>>,
+        ),
+        (
+            "addLast",
+            "(Ljava/lang/Object;)V",
+            native_arraylist_add_last
+                as fn(
+                    &[Slot],
+                    &mut duke_gc::Heap,
+                    &mut dyn Write,
+                    &mut NativeControl,
+                ) -> Result<Option<Slot>>,
+        ),
+        (
+            "removeFirst",
+            "()Ljava/lang/Object;",
+            native_arraylist_remove_first
+                as fn(
+                    &[Slot],
+                    &mut duke_gc::Heap,
+                    &mut dyn Write,
+                    &mut NativeControl,
+                ) -> Result<Option<Slot>>,
+        ),
+        (
+            "removeLast",
+            "()Ljava/lang/Object;",
+            native_arraylist_remove_last
+                as fn(
+                    &[Slot],
+                    &mut duke_gc::Heap,
+                    &mut dyn Write,
+                    &mut NativeControl,
+                ) -> Result<Option<Slot>>,
+        ),
+        (
+            "reversed",
+            "()Ljava/util/List;",
+            native_arraylist_reversed
+                as fn(
+                    &[Slot],
+                    &mut duke_gc::Heap,
+                    &mut dyn Write,
+                    &mut NativeControl,
+                ) -> Result<Option<Slot>>,
+        ),
+    ] {
+        registry
+            .natives_mut()
+            .register("java/util/ArrayList", name, desc, func);
+    }
     registry.natives_mut().register(
         "java/util/ArrayList",
         "toArray",
@@ -7245,6 +8231,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(iter_ctx);
@@ -7296,6 +8287,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/io/Serializable".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(enumset_ctx);
@@ -7427,6 +8423,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 3,
         interfaces: vec!["java/util/Iterator".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(enumset_iter_ctx);
@@ -7471,6 +8472,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/lang/Iterable".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(cowal_ctx);
@@ -7545,6 +8551,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/lang/Iterable".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(lbq_ctx);
@@ -7644,6 +8655,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(arrays_ctx);
@@ -7699,6 +8715,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: vec!["java/util/Map".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(abstract_map_ctx);
@@ -7725,6 +8746,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/util/Collection".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(hashmap_ctx);
@@ -7836,6 +8862,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/util/Collection".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(hashtable_ctx);
@@ -7968,6 +8999,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/util/Collection".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(weak_hashmap_ctx);
@@ -8102,6 +9138,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/util/Collection".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(identity_hashmap_ctx);
@@ -8234,6 +9275,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/util/Collection".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(properties_ctx);
@@ -8258,6 +9304,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/util/Enumeration".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(properties_enum_ctx);
@@ -8391,6 +9442,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/Iterable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(linked_list_ctx);
@@ -8515,6 +9571,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(map_entry_ctx);
@@ -8529,6 +9590,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "getValue",
         "()Ljava/lang/Object;",
         native_map_entry_get_value,
+    );
+    registry.natives_mut().register_callback(
+        "java/util/Map$Entry",
+        "toString",
+        "()Ljava/lang/String;",
+        native_map_entry_to_string,
     );
 
     // java/util/HashSet — set backed by unique elements in fields
@@ -8551,6 +9618,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/lang/Iterable".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     let set_ctx = ClassContext {
@@ -8563,6 +9635,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(set_ctx);
@@ -8662,6 +9739,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/util/Iterator".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(hashset_iter_ctx);
@@ -8695,19 +9777,21 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         super_class: Some("java/util/HashSet".to_string()),
         constant_pool: Vec::new(),
         methods: Vec::new(),
-        fields: vec![FieldEntry {
-            name: "size".to_string(),
-            descriptor: "I".to_string(),
-            is_static: false,
-        }],
+        // No own fields: inherits HashSet's layout (fields[0]=size, fields[1..]=elements).
+        fields: Vec::new(),
         static_fields: Vec::new(),
-        instance_field_count: 1,
+        instance_field_count: 0,
         interfaces: vec![
             "java/util/Set".to_string(),
             "java/util/Collection".to_string(),
             "java/lang/Iterable".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(linked_hashset_ctx);
@@ -8766,6 +9850,43 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()I",
         native_hashset_size,
     );
+    // SequencedSet methods (Java 21)
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "addFirst",
+        "(Ljava/lang/Object;)V",
+        native_linkedhashset_add_first,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "addLast",
+        "(Ljava/lang/Object;)V",
+        native_linkedhashset_add_last,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "getFirst",
+        "()Ljava/lang/Object;",
+        native_linkedhashset_get_first,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "getLast",
+        "()Ljava/lang/Object;",
+        native_linkedhashset_get_last,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "removeFirst",
+        "()Ljava/lang/Object;",
+        native_linkedhashset_remove_first,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashSet",
+        "reversed",
+        "()Ljava/util/SequencedSet;",
+        native_linkedhashset_reversed,
+    );
     registry.natives_mut().register(
         "java/util/LinkedHashSet",
         "isEmpty",
@@ -8809,6 +9930,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(collections_ctx);
@@ -8835,6 +9961,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "emptyMap",
         "()Ljava/util/Map;",
         native_collections_empty_map,
+    );
+    registry.natives_mut().register(
+        "java/util/Collections",
+        "synchronizedList",
+        "(Ljava/util/List;)Ljava/util/List;",
+        native_collections_synchronized_list,
     );
     registry.natives_mut().register(
         "java/util/Collections",
@@ -8917,6 +10049,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/util/Collection".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(unmod_list_ctx);
@@ -9060,6 +10197,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/Comparator".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(comparing_comp_ctx);
@@ -9094,6 +10236,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(counting_ctx);
@@ -9111,6 +10258,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(grouping_ctx);
@@ -9138,6 +10290,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(to_set_ctx);
@@ -9162,6 +10319,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(to_map_ctx);
@@ -9381,6 +10543,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: vec!["java/util/Map".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(unmod_map_ctx);
@@ -9477,6 +10644,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(partitioning_ctx);
@@ -9519,6 +10691,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/Comparator".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(reversed_ctx);
@@ -9553,6 +10730,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(treemap_ctx);
@@ -9591,6 +10773,19 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "lastKey",
         "()Ljava/lang/Object;",
         native_treemap_last_key,
+    );
+    // SequencedMap methods — TreeMap uses the same flat layout.
+    registry.natives_mut().register(
+        "java/util/TreeMap",
+        "firstEntry",
+        "()Ljava/util/Map$Entry;",
+        native_linkedhashmap_first_entry,
+    );
+    registry.natives_mut().register(
+        "java/util/TreeMap",
+        "lastEntry",
+        "()Ljava/util/Map$Entry;",
+        native_linkedhashmap_last_entry,
     );
     registry.natives_mut().register(
         "java/util/TreeMap",
@@ -9632,6 +10827,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(stack_ctx);
@@ -9674,6 +10874,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(comparator_ctx);
@@ -9707,6 +10912,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: vec!["java/util/Comparator".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(natural_ord_ctx);
@@ -9728,6 +10938,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: vec!["java/util/Comparator".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(reverse_ord_ctx);
@@ -9754,6 +10969,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/Comparator".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(comparing_int_ctx);
@@ -9780,6 +11000,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/Set".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(treeset_ctx);
@@ -9843,6 +11068,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(linked_hashmap_ctx);
@@ -9911,6 +11141,49 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "entrySet",
         "()Ljava/util/Set;",
         native_hashmap_entry_set,
+    );
+    // SequencedMap methods (Java 21)
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "firstEntry",
+        "()Ljava/util/Map$Entry;",
+        native_linkedhashmap_first_entry,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "lastEntry",
+        "()Ljava/util/Map$Entry;",
+        native_linkedhashmap_last_entry,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "putFirst",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_linkedhashmap_put_first,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "putLast",
+        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+        native_linkedhashmap_put_last,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "pollFirstEntry",
+        "()Ljava/util/Map$Entry;",
+        native_linkedhashmap_poll_first_entry,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "pollLastEntry",
+        "()Ljava/util/Map$Entry;",
+        native_linkedhashmap_poll_last_entry,
+    );
+    registry.natives_mut().register(
+        "java/util/LinkedHashMap",
+        "reversed",
+        "()Ljava/util/SequencedMap;",
+        native_linkedhashmap_reversed,
     );
     // Map-default family — LinkedHashMap uses the exact HashMap layout
     // (fields[0]=size, fields[1..]=key/value pairs), so it reuses the HashMap
@@ -9993,6 +11266,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(stream_ctx);
@@ -10008,6 +11286,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(jstream_ctx);
@@ -10137,6 +11420,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(collectors_ctx);
@@ -10158,6 +11446,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(to_list_ctx);
@@ -10173,6 +11466,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(to_unmod_list_ctx);
@@ -10204,6 +11502,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 3,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(joining_ctx);
@@ -10266,6 +11569,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/stream/Stream".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     registry.register(ClassContext {
@@ -10289,6 +11597,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/util/stream/Stream".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -10341,6 +11654,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(int_stream_ctx);
@@ -10356,6 +11674,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(j_int_stream_ctx);
@@ -10488,6 +11811,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(opt_int_ctx);
@@ -10502,6 +11830,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(j_opt_int_ctx);
@@ -10591,6 +11924,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(opt_dbl_ctx);
@@ -10604,6 +11942,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(j_opt_dbl_ctx);
@@ -10635,6 +11978,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(pq_ctx);
@@ -10700,6 +12048,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/lang/Iterable".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(arraydeque_ctx);
@@ -10766,6 +12119,67 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Z",
         native_arraydeque_is_empty,
     );
+    // Deque/SequencedCollection methods
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "addFirst",
+        "(Ljava/lang/Object;)V",
+        native_arraydeque_add_first,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "addLast",
+        "(Ljava/lang/Object;)V",
+        native_arraydeque_add_last,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "offerFirst",
+        "(Ljava/lang/Object;)Z",
+        native_arraydeque_offer_first,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "offerLast",
+        "(Ljava/lang/Object;)Z",
+        native_arraydeque_offer_last,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "peekFirst",
+        "()Ljava/lang/Object;",
+        native_arraydeque_peek_first,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "peekLast",
+        "()Ljava/lang/Object;",
+        native_arraydeque_peek_last,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "getFirst",
+        "()Ljava/lang/Object;",
+        native_arraydeque_get_first,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "getLast",
+        "()Ljava/lang/Object;",
+        native_arraydeque_get_last,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "removeFirst",
+        "()Ljava/lang/Object;",
+        native_arraydeque_remove_first,
+    );
+    registry.natives_mut().register(
+        "java/util/ArrayDeque",
+        "removeLast",
+        "()Ljava/lang/Object;",
+        native_arraydeque_remove_last,
+    );
 
     // java/util/Objects — null-safe utility methods
     let objects_ctx = ClassContext {
@@ -10778,6 +12192,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(objects_ctx);
@@ -10811,13 +12230,13 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Object;Ljava/lang/Object;)Z",
         native_objects_equals,
     );
-    registry.natives_mut().register(
+    registry.natives_mut().register_callback(
         "java/util/Objects",
         "toString",
         "(Ljava/lang/Object;)Ljava/lang/String;",
         native_objects_tostring,
     );
-    registry.natives_mut().register(
+    registry.natives_mut().register_callback(
         "java/util/Objects",
         "toString",
         "(Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/String;",
@@ -10841,6 +12260,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(list_ctx);
@@ -10875,6 +12299,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(set_iface_ctx);
@@ -10909,6 +12338,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(map_iface_ctx);
@@ -10938,6 +12372,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(optional_ctx);
@@ -11083,6 +12522,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(pattern_ctx);
@@ -11167,6 +12611,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 6,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(matcher_ctx);
@@ -11276,6 +12725,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(zip_exception_ctx);
@@ -11323,6 +12777,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 6,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(zip_entry_ctx);
@@ -11366,6 +12825,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/AutoCloseable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(zip_file_ctx);
@@ -11408,6 +12872,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(jar_file_ctx);
@@ -11462,6 +12931,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(manifest_ctx);
@@ -11486,6 +12960,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(attributes_ctx);
@@ -11511,6 +12990,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/AutoCloseable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(byte_buffer_is_ctx);
@@ -11549,6 +13033,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(random_ctx);
@@ -11621,6 +13110,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/lang/Comparable".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(uuid_ctx);
@@ -11709,6 +13203,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             instance_field_count: 0,
             interfaces: Vec::new(),
             bootstrap_methods: Vec::new(),
+            permitted_subclasses: Vec::new(),
+            nest_host: None,
+            nest_members: Vec::new(),
+            record_components: Vec::new(),
+            is_record: false,
             load_source: ClassLoadSource::Synthetic,
         });
     }
@@ -11723,6 +13222,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(access_controller_ctx);
@@ -11749,6 +13253,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(privileged_action_exception_ctx);
@@ -11775,6 +13284,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(no_such_algorithm_ctx);
@@ -11789,6 +13303,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(no_such_provider_ctx);
@@ -11803,6 +13322,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(security_ctx);
@@ -11835,6 +13359,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(provider_ctx);
@@ -11877,6 +13406,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 3,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(provider_service_ctx);
@@ -11909,6 +13443,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(secure_random_ctx);
@@ -11946,6 +13485,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(message_digest_ctx);
@@ -12022,6 +13566,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: vec!["java/lang/CharSequence".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(sb_buf_ctx);
@@ -12120,6 +13669,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 4,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(sj_ctx);
@@ -12205,6 +13759,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/util/Comparator".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(then_cmp_ctx);
@@ -12219,6 +13778,56 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "thenComparing",
         "(Ljava/util/Comparator;)Ljava/util/Comparator;",
         native_comparator_then_comparing,
+    );
+    // Comparator.thenComparingInt(ToIntFunction) → ThenComparingIntComparator
+    for class_name in [
+        "duke/util/ComparingComparator",
+        "duke/util/ComparingIntComparator",
+        "duke/util/ThenComparingComparator",
+        "duke/util/ThenComparingIntComparator",
+        "duke/util/ReversedComparator",
+    ] {
+        registry.natives_mut().register(
+            class_name,
+            "thenComparingInt",
+            "(Ljava/util/function/ToIntFunction;)Ljava/util/Comparator;",
+            native_comparator_then_comparing_int,
+        );
+    }
+    let then_cmp_int_ctx = ClassContext {
+        class_name: "duke/util/ThenComparingIntComparator".to_string(),
+        super_class: Some("java/lang/Object".to_string()),
+        constant_pool: Vec::new(),
+        methods: Vec::new(),
+        fields: vec![
+            FieldEntry {
+                name: "primary".to_string(),
+                descriptor: "Ljava/util/Comparator;".to_string(),
+                is_static: false,
+            },
+            FieldEntry {
+                name: "keyExtractor".to_string(),
+                descriptor: "Ljava/util/function/ToIntFunction;".to_string(),
+                is_static: false,
+            },
+        ],
+        static_fields: Vec::new(),
+        instance_field_count: 2,
+        interfaces: vec!["java/util/Comparator".to_string()],
+        bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
+        load_source: ClassLoadSource::Synthetic,
+    };
+    registry.register(then_cmp_int_ctx);
+    registry.natives_mut().register_callback(
+        "duke/util/ThenComparingIntComparator",
+        "compare",
+        "(Ljava/lang/Object;Ljava/lang/Object;)I",
+        native_then_comparing_int_compare,
     );
 
     // Predicate.and / or / negate combinators
@@ -12262,6 +13871,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/util/function/Predicate".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(and_pred_ctx);
@@ -12310,6 +13924,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/util/function/Predicate".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(or_pred_ctx);
@@ -12351,6 +13970,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/function/Predicate".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(neg_pred_ctx);
@@ -12407,6 +14031,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/util/function/Consumer".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(and_then_consumer_ctx);
@@ -12457,6 +14086,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/util/function/Function".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(and_then_fn_ctx);
@@ -12499,6 +14133,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/util/function/Function".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(compose_fn_ctx);
@@ -12532,6 +14171,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(bifunction_ctx);
@@ -12562,6 +14206,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/util/function/BiFunction".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(bifunction_and_then_ctx);
@@ -12593,6 +14242,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/stream/LongStream".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(long_stream_ctx);
@@ -12621,6 +14275,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/stream/DoubleStream".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(double_stream_ctx);
@@ -12760,6 +14419,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(opt_long_ctx);
@@ -12774,6 +14438,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(opt_long_ctx2);
@@ -12904,6 +14573,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(summing_ctx);
@@ -12921,6 +14595,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(averaging_ctx);
@@ -13011,6 +14690,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/Comparator".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(comparing_long_ctx);
@@ -13140,6 +14824,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(mapping_ctx);
@@ -13172,6 +14861,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(grouping2_ctx);
@@ -13308,6 +15002,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     registry.register(ClassContext {
@@ -13324,6 +15023,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -13384,6 +15088,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     // MaxByCollector: fields[0] = comparator
@@ -13401,6 +15110,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     // SummingDoubleCollector: fields[0] = ToDoubleFunction
@@ -13418,6 +15132,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     // AveragingLongCollector: fields[0] = ToLongFunction
@@ -13435,6 +15154,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     // CollectingAndThenCollector: fields[0]=downstream, fields[1]=finisher
@@ -13459,6 +15183,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -13479,6 +15208,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     registry.natives_mut().register(
@@ -13510,6 +15244,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     registry.natives_mut().register(
@@ -13546,6 +15285,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 3,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     registry.natives_mut().register(
@@ -13680,6 +15424,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/Comparator".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     registry.natives_mut().register_callback(
@@ -13945,6 +15694,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(date_time_formatter_ctx);
@@ -13989,6 +15743,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(localdate_ctx);
@@ -14136,6 +15895,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(duration_ctx);
@@ -14289,6 +16053,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 3,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(period_ctx);
@@ -14352,6 +16121,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(instant_ctx);
@@ -14476,6 +16250,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 5,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(localdatetime_ctx);
@@ -14636,6 +16415,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(zone_id_ctx);
@@ -14681,6 +16465,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(locale_ctx);
@@ -14778,6 +16567,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/util/stream/Collector".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(summarizing_ctx);
@@ -14813,6 +16607,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 4,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(iss_ctx);
@@ -14862,6 +16661,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(bitset_ctx);
@@ -14895,6 +16699,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(function_iface_ctx);
@@ -14910,6 +16719,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: vec!["java/util/function/Function".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(identity_fn_ctx);
@@ -14987,6 +16801,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             "java/util/Collection".to_string(),
         ],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(unmod_set_ctx);
@@ -15097,6 +16916,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(type_iface_ctx);
@@ -15126,6 +16950,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
             // Each of these extends java/lang/reflect/Type.
             interfaces: vec!["java/lang/reflect/Type".to_string()],
             bootstrap_methods: Vec::new(),
+            permitted_subclasses: Vec::new(),
+            nest_host: None,
+            nest_members: Vec::new(),
+            record_components: Vec::new(),
+            is_record: false,
             load_source: ClassLoadSource::Synthetic,
         });
     }
@@ -15145,6 +16974,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -15180,6 +17014,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 3,
         interfaces: vec!["java/lang/reflect/TypeVariable".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     // duke/internal/reflect/ParameterizedTypeImpl:
@@ -15211,6 +17050,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 3,
         interfaces: vec!["java/lang/reflect/ParameterizedType".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     // duke/internal/reflect/GenericArrayTypeImpl:
@@ -15229,6 +17073,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: vec!["java/lang/reflect/GenericArrayType".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
     // duke/internal/reflect/WildcardTypeImpl:
@@ -15255,6 +17104,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 2,
         interfaces: vec!["java/lang/reflect/WildcardType".to_string()],
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     });
 
@@ -15276,6 +17130,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(thread_local_ctx);
@@ -15310,6 +17169,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(inheritable_thread_local_ctx);
@@ -15350,6 +17214,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(reference_ctx);
@@ -15378,6 +17247,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(weak_reference_ctx);
@@ -15413,6 +17287,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(soft_reference_ctx);
@@ -15447,6 +17326,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(reference_queue_ctx);
@@ -15504,9 +17388,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Z",
         native_class_is_local_class,
     );
-    registry
-        .natives_mut()
-        .register("java/lang/Class", "isRecord", "()Z", native_class_is_record);
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "isRecord",
+        "()Z",
+        native_class_is_record,
+    );
     registry.natives_mut().register_callback(
         "java/lang/Class",
         "isInterface",
@@ -15728,6 +17615,11 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     registry.register(unsafe_ctx);

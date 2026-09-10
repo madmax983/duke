@@ -5,6 +5,7 @@ use crate::{
     attributes::{
         Annotation, AttributeData, AttributeInfo, BootstrapMethodEntry, CodeAttribute,
         ElementValue, ElementValuePair, ExceptionTableEntry, LineNumberEntry, LocalVariableEntry,
+        RecordComponentInfo,
     },
     class::{ClassFile, FieldInfo, MethodInfo},
     constant_pool::{CpEntry, CpIndex},
@@ -53,6 +54,7 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    #[allow(clippy::missing_const_for_fn)]
     fn read_u8(&mut self) -> Result<u8> {
         if self.pos >= self.data.len() {
             return Err(Error::UnexpectedEof { offset: self.pos });
@@ -417,12 +419,16 @@ pub fn resolve_attributes(attrs: &mut [AttributeInfo], pool: &[Option<CpEntry>])
             AttributeData::Raw(b) => std::mem::take(b),
             _ => continue, // already resolved
         };
-        attr.data = decode_known_attribute(name, &raw)?;
+        attr.data = decode_known_attribute(name, &raw, pool)?;
     }
     Ok(())
 }
 
-fn decode_known_attribute(name: &str, raw: &[u8]) -> Result<AttributeData> {
+fn decode_known_attribute(
+    name: &str,
+    raw: &[u8],
+    pool: &[Option<CpEntry>],
+) -> Result<AttributeData> {
     let mut c = Cursor::new(raw);
     let data = match name {
         "ConstantValue" => AttributeData::ConstantValue {
@@ -443,9 +449,20 @@ fn decode_known_attribute(name: &str, raw: &[u8]) -> Result<AttributeData> {
             exception_index_table: decode_exceptions(&mut c)?,
         },
         "BootstrapMethods" => AttributeData::BootstrapMethods(decode_bootstrap_methods(&mut c)?),
+        "PermittedSubclasses" => {
+            AttributeData::PermittedSubclasses(decode_class_index_table(&mut c)?)
+        }
+        "NestHost" => AttributeData::NestHost {
+            host_class_index: c.read_cp_index()?,
+        },
+        "NestMembers" => AttributeData::NestMembers(decode_class_index_table(&mut c)?),
+        "Record" => AttributeData::Record(decode_record(&mut c, pool)?),
         "RuntimeVisibleAnnotations" => {
             AttributeData::RuntimeVisibleAnnotations(decode_runtime_visible_annotations(&mut c)?)
         }
+        "RuntimeVisibleParameterAnnotations" => AttributeData::RuntimeVisibleParameterAnnotations(
+            decode_runtime_visible_parameter_annotations(&mut c)?,
+        ),
         "AnnotationDefault" => AttributeData::AnnotationDefault(decode_element_value(&mut c, 0)?),
         _ => AttributeData::Raw(raw.to_vec()),
     };
@@ -500,6 +517,54 @@ fn decode_exceptions(c: &mut Cursor<'_>) -> Result<Vec<CpIndex>> {
     Ok(table)
 }
 
+/// Decode a `u2 count` + `u2 class_index[count]` table, shared by
+/// `PermittedSubclasses` (§4.7.31) and `NestMembers` (§4.7.30).
+fn decode_class_index_table(c: &mut Cursor<'_>) -> Result<Vec<CpIndex>> {
+    let num = c.read_u16()? as usize;
+    let mut table = Vec::with_capacity(c.safe_capacity(num, 2));
+    for _ in 0..num {
+        table.push(c.read_cp_index()?);
+    }
+    Ok(table)
+}
+
+/// Decode a `Record` attribute (JVMS §4.7.30): the record components in
+/// declaration order, each with its own (raw) attributes.
+fn decode_record(c: &mut Cursor<'_>, pool: &[Option<CpEntry>]) -> Result<Vec<RecordComponentInfo>> {
+    let num = c.read_u16()? as usize;
+    let mut components = Vec::with_capacity(c.safe_capacity(num, 6));
+    for _ in 0..num {
+        let name_index = c.read_cp_index()?;
+        let descriptor_index = c.read_cp_index()?;
+        let attr_count = c.read_u16()? as usize;
+        let mut attributes = Vec::with_capacity(c.safe_capacity(attr_count, 6));
+        for _ in 0..attr_count {
+            let attr_name_index = c.read_cp_index()?;
+            let attr_len = c.read_u32()? as usize;
+            let raw = c.read_bytes(attr_len)?.to_vec();
+            let mut attr = AttributeInfo {
+                name_index: attr_name_index,
+                data: AttributeData::Raw(raw),
+            };
+            // Resolve the nested attribute eagerly so component annotations
+            // are available to reflection.
+            let nested_name = cp_utf8(pool, attr.name_index)?;
+            if let AttributeData::Raw(b) =
+                std::mem::replace(&mut attr.data, AttributeData::Raw(Vec::new()))
+            {
+                attr.data = decode_known_attribute(nested_name, &b, pool)?;
+            }
+            attributes.push(attr);
+        }
+        components.push(RecordComponentInfo {
+            name_index,
+            descriptor_index,
+            attributes,
+        });
+    }
+    Ok(components)
+}
+
 fn decode_bootstrap_methods(c: &mut Cursor<'_>) -> Result<Vec<BootstrapMethodEntry>> {
     let num = c.read_u16()? as usize;
     let mut entries = Vec::with_capacity(c.safe_capacity(num, 4));
@@ -525,6 +590,22 @@ fn decode_runtime_visible_annotations(c: &mut Cursor<'_>) -> Result<Vec<Annotati
         annotations.push(decode_annotation(c, 0)?);
     }
     Ok(annotations)
+}
+
+fn decode_runtime_visible_parameter_annotations(
+    c: &mut Cursor<'_>,
+) -> Result<Vec<Vec<Annotation>>> {
+    let num_parameters = c.read_u8()? as usize;
+    let mut params = Vec::with_capacity(c.safe_capacity(num_parameters, 4));
+    for _ in 0..num_parameters {
+        let num_annotations = c.read_u16()? as usize;
+        let mut annotations = Vec::with_capacity(c.safe_capacity(num_annotations, 4));
+        for _ in 0..num_annotations {
+            annotations.push(decode_annotation(c, 0)?);
+        }
+        params.push(annotations);
+    }
+    Ok(params)
 }
 
 fn decode_annotation(c: &mut Cursor<'_>, depth: usize) -> Result<Annotation> {
@@ -757,7 +838,7 @@ mod tests {
             b'e', 0x00, 0x0A, 0x00, 0x0B, // enum const
         ];
 
-        let decoded = decode_known_attribute("RuntimeVisibleAnnotations", &raw).unwrap();
+        let decoded = decode_known_attribute("RuntimeVisibleAnnotations", &raw, &[]).unwrap();
         let AttributeData::RuntimeVisibleAnnotations(annotations) = decoded else {
             panic!("expected RuntimeVisibleAnnotations");
         };
@@ -774,7 +855,7 @@ mod tests {
             b's', 0x00, 0x02, // string const
         ];
 
-        let decoded = decode_known_attribute("AnnotationDefault", &raw).unwrap();
+        let decoded = decode_known_attribute("AnnotationDefault", &raw, &[]).unwrap();
         let AttributeData::AnnotationDefault(ElementValue::ArrayValue(values)) = decoded else {
             panic!("expected AnnotationDefault array value");
         };
