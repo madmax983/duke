@@ -4763,13 +4763,15 @@ pub(crate) fn native_executor_close(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
     _out: &mut dyn Write,
-    _control: &mut NativeControl,
+    control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let executor_ref = extract_ref_arg(args, 0)?;
     executor_shutdown_nowait(args, heap)?;
-    // Wait for termination (no timeout — mirrors try-with-resources close).
-    while !executor_is_terminated(heap, executor_ref)? {
-        std::thread::sleep(std::time::Duration::from_millis(1));
+    // Wait for termination via retry-yield (not busy-wait): the shared VM lock
+    // is held across this native call, so sleeping here would deadlock worker
+    // threads that need the lock to finish their tasks.
+    if !executor_is_terminated(heap, executor_ref)? {
+        request_native_retry(control);
     }
     Ok(None)
 }
