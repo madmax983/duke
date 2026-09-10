@@ -12397,14 +12397,9 @@ impl duke_loader::ClassLoader for EmptyTestLoader {
 #[test]
 fn execute_string_concat_recipe_single_dynamic_int() {
     let mut heap = duke_gc::Heap::new();
-    let slot = execute_string_concat_recipe_for_tests(
-        "\u{1}",
-        &[Slot::Int(42)],
-        &['I'],
-        &[],
-        &mut heap,
-    )
-    .unwrap();
+    let slot =
+        execute_string_concat_recipe_for_tests("\u{1}", &[Slot::Int(42)], &['I'], &[], &mut heap)
+            .unwrap();
     let r = slot.as_reference().unwrap();
     assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("42"));
 }
@@ -12427,14 +12422,7 @@ fn execute_string_concat_recipe_constant_only() {
 #[test]
 fn execute_string_concat_recipe_literal_chars() {
     let mut heap = duke_gc::Heap::new();
-    let slot = execute_string_concat_recipe_for_tests(
-        "xyz",
-        &[],
-        &[],
-        &[],
-        &mut heap,
-    )
-    .unwrap();
+    let slot = execute_string_concat_recipe_for_tests("xyz", &[], &[], &[], &mut heap).unwrap();
     let r = slot.as_reference().unwrap();
     assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("xyz"));
 }
@@ -12465,7 +12453,8 @@ fn execute_string_concat_recipe_for_tests(
 fn execute_string_concat_recipe_mixed() {
     let mut heap = duke_gc::Heap::new();
     let slot =
-        execute_string_concat_recipe_for_tests("x\u{1}y", &[Slot::Int(5)], &['I'], &[], &mut heap).unwrap();
+        execute_string_concat_recipe_for_tests("x\u{1}y", &[Slot::Int(5)], &['I'], &[], &mut heap)
+            .unwrap();
     let r = slot.as_reference().unwrap();
     assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("x5y"));
 }
@@ -19243,8 +19232,14 @@ fn string_concat_recipe_extra_dynamic_placeholder_silently_skipped() {
     // Recipe "\u{1}\u{1}" with 1 arg: second \u{1} → dyn_idx=1 < len=1 is false → skip
     // Mutant < → <=: 1 <= 1 → true → dynamic_args[1] OOB panic
     let mut heap = duke_gc::Heap::new();
-    let r = execute_string_concat_recipe_for_tests("\u{1}\u{1}", &[Slot::Int(42)], &['I'], &[], &mut heap)
-        .unwrap();
+    let r = execute_string_concat_recipe_for_tests(
+        "\u{1}\u{1}",
+        &[Slot::Int(42)],
+        &['I'],
+        &[],
+        &mut heap,
+    )
+    .unwrap();
     let s = heap
         .get(r.as_reference().unwrap())
         .unwrap()
@@ -19259,8 +19254,14 @@ fn string_concat_recipe_extra_constant_placeholder_silently_skipped() {
     // Recipe "\u{2}\u{2}" with 1 constant: second \u{2} → const_idx=1 < len=1 is false → skip
     // Mutant < → <=: 1 <= 1 → true → constants[1] OOB panic
     let mut heap = duke_gc::Heap::new();
-    let r = execute_string_concat_recipe_for_tests("\u{2}\u{2}", &[], &[], &["hello".to_string()], &mut heap)
-        .unwrap();
+    let r = execute_string_concat_recipe_for_tests(
+        "\u{2}\u{2}",
+        &[],
+        &[],
+        &["hello".to_string()],
+        &mut heap,
+    )
+    .unwrap();
     let s = heap
         .get(r.as_reference().unwrap())
         .unwrap()

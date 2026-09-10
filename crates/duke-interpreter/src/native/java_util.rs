@@ -6606,6 +6606,14 @@ pub(crate) fn native_arraylist_remove_last(
 }
 
 /// `ArrayList.reversed()` — returns a new ArrayList with reversed order.
+///
+/// NOTE: Java 21 specifies that `reversed()` returns a *backed view* where
+/// mutations through either the view or the original are visible to the other.
+/// The current implementation returns a snapshot copy, which satisfies the
+/// parity tests (order verification) but not the full backed-view contract.
+/// Implementing true backed views for all 5 sequenced collection types
+/// (ArrayList, ArrayDeque, LinkedHashMap, LinkedHashSet, TreeMap) with correct
+/// bidirectional mutation semantics is tracked as future work.
 pub(crate) fn native_arraylist_reversed(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
