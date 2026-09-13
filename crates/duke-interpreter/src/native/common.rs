@@ -8458,6 +8458,10 @@ impl CallbackOps for InterpreterCallbackOps<'_> {
         inspect_reflected_class(self.registry, self.loader, class)
     }
 
+    fn resolve_class_key(&mut self, class: &str) -> Result<String> {
+        self.registry.resolve_loaded_class_key(class)
+    }
+
     fn ensure_class_initialized(
         &mut self,
         heap: &mut duke_gc::Heap,
@@ -11033,6 +11037,33 @@ fn inspect_reflected_class(
             // Lambda proxies carry an empty ClassContext.methods (dispatch
             // constraint); synthesize the SAM so reflection lists it.
             methods.extend(synthesized_lambda_sam(registry, &class_key));
+            // Synthetic JDK classes (e.g. java/lang/Math) register their methods as
+            // natives but leave ClassContext.methods empty. Synthesize ReflectedMethodInfo
+            // from the native registry so getMethod/getMethods can find them.
+            for (native_name, native_descriptor) in
+                registry.natives().methods_for_class(&internal_name)
+            {
+                if methods
+                    .iter()
+                    .any(|m| m.name == native_name && m.descriptor == native_descriptor)
+                {
+                    continue;
+                }
+                // Skip constructors and class initializers; natives never provide them.
+                if native_name == "<init>" || native_name == "<clinit>" {
+                    continue;
+                }
+                methods.push(ReflectedMethodInfo {
+                    name: native_name.clone(),
+                    descriptor: native_descriptor.clone(),
+                    is_public: true,
+                    is_static: native_method_is_static(&internal_name, &native_name),
+                    annotations: Vec::new(),
+                    annotation_default: None,
+                    signature: None,
+                    parameter_annotations: Vec::new(),
+                });
+            }
             let fields = ctx
                 .fields
                 .iter()
@@ -11426,17 +11457,18 @@ fn lookup_public_reflected_field_inner(
     field_name: &str,
     visited: &mut HashSet<String>,
 ) -> Result<Option<(String, ReflectedFieldInfo)>> {
-    if !visited.insert(class.to_string()) {
+    let canonical = ops.resolve_class_key(class)?;
+    if !visited.insert(canonical.clone()) {
         return Ok(None);
     }
-    let reflected = ops.inspect_class(class)?;
+    let reflected = ops.inspect_class(&canonical)?;
     if let Some(field) = reflected
         .fields
         .iter()
         .find(|field| field.is_public && field.name == field_name)
         .cloned()
     {
-        return Ok(Some((class.to_string(), field)));
+        return Ok(Some((canonical, field)));
     }
     if let Some(super_class) = reflected.super_class.clone()
         && let Some(found) =
@@ -11476,10 +11508,14 @@ fn lookup_public_reflected_method_inner(
     parameter_descriptor: &str,
     visited: &mut HashSet<String>,
 ) -> Result<Option<(String, ReflectedMethodInfo)>> {
-    if !visited.insert(class.to_string()) {
+    // Resolve to the canonical registry key first so the visited-set and the
+    // returned declaring-class both use the same identity. Loader identity is
+    // preserved: the canonical key IS the loader-qualified key.
+    let canonical = ops.resolve_class_key(class)?;
+    if !visited.insert(canonical.clone()) {
         return Ok(None);
     }
-    let reflected = ops.inspect_class(class)?;
+    let reflected = ops.inspect_class(&canonical)?;
     if let Some(method) = reflected
         .methods
         .iter()
@@ -11492,7 +11528,10 @@ fn lookup_public_reflected_method_inner(
         })
         .cloned()
     {
-        return Ok(Some((class.to_string(), method)));
+        // Store the canonical registry key (not the input alias) so
+        // `Method.invoke` routes through `prepare_execution_state` without
+        // ambiguity.
+        return Ok(Some((canonical, method)));
     }
     if let Some(super_class) = reflected.super_class.clone()
         && let Some(found) = lookup_public_reflected_method_inner(
@@ -11541,17 +11580,18 @@ fn collect_public_reflected_fields_inner(
     seen_fields: &mut HashSet<String>,
     collected: &mut Vec<(String, ReflectedFieldInfo)>,
 ) -> Result<()> {
-    if !visited_classes.insert(class.to_string()) {
+    let canonical = ops.resolve_class_key(class)?;
+    if !visited_classes.insert(canonical.clone()) {
         return Ok(());
     }
-    let reflected = ops.inspect_class(class)?;
+    let reflected = ops.inspect_class(&canonical)?;
     for field in reflected.fields {
         if !field.is_public {
             continue;
         }
-        let key = format!("{class}\0{}\0{}", field.name, field.descriptor);
+        let key = format!("{canonical}\0{}\0{}", field.name, field.descriptor);
         if seen_fields.insert(key) {
-            collected.push((class.to_string(), field));
+            collected.push((canonical.clone(), field));
         }
     }
     if let Some(super_class) = reflected.super_class {
@@ -11597,10 +11637,11 @@ fn collect_public_reflected_methods_inner(
     seen_methods: &mut HashSet<String>,
     collected: &mut Vec<(String, ReflectedMethodInfo)>,
 ) -> Result<()> {
-    if !visited_classes.insert(class.to_string()) {
+    let canonical = ops.resolve_class_key(class)?;
+    if !visited_classes.insert(canonical.clone()) {
         return Ok(());
     }
-    let reflected = ops.inspect_class(class)?;
+    let reflected = ops.inspect_class(&canonical)?;
     for method in reflected.methods {
         if !method.is_public || method.name == "<init>" || method.name == "<clinit>" {
             continue;
@@ -11611,7 +11652,7 @@ fn collect_public_reflected_methods_inner(
             descriptor_parameter_part(&method.descriptor)
         );
         if seen_methods.insert(key) {
-            collected.push((class.to_string(), method));
+            collected.push((canonical.clone(), method));
         }
     }
     if let Some(super_class) = reflected.super_class {

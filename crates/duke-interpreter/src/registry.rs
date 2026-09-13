@@ -1568,6 +1568,21 @@ pub trait CallbackOps {
     /// Returns an error if the class cannot be inspected.
     fn inspect_class(&mut self, class: &str) -> Result<ReflectedClassInfo>;
 
+    /// Resolve a class name to its canonical registry key.
+    ///
+    /// Reflection stores the declaring-class key in `Method`/`Field` objects;
+    /// that key must be the canonical registry key (not an alias or
+    /// internal-name fallback) so `Method.invoke` can route through
+    /// `prepare_execution_state` without ambiguity. The default impl returns
+    /// the input unchanged; the interpreter override resolves via the
+    /// registry.
+    ///
+    /// # Errors
+    /// Returns an error if the class cannot be resolved.
+    fn resolve_class_key(&mut self, class: &str) -> Result<String> {
+        Ok(class.to_string())
+    }
+
     /// Ensure the named class has completed initialization, including `<clinit>`.
     ///
     /// # Errors

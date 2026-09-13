@@ -1207,7 +1207,10 @@ pub(crate) fn native_class_get_declared_method(
     let name_ref = extract_ref_arg(args, 1)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let method_name = string_value_from_ref(heap, name_ref)?;
-    let reflected = ops.inspect_class(&class_key)?;
+    // Resolve to canonical key so the Method object stores an unambiguous
+    // registry key for `Method.invoke` (loader identity preserved).
+    let canonical_key = ops.resolve_class_key(&class_key)?;
+    let reflected = ops.inspect_class(&canonical_key)?;
     let parameter_descriptor =
         parameter_descriptor_from_class_array(heap, extract_slot_arg(args, 2))?;
 
@@ -1223,7 +1226,7 @@ pub(crate) fn native_class_get_declared_method(
     let method_ref = allocate_reflection_member_object(
         heap,
         "java/lang/reflect/Method",
-        &class_key,
+        &canonical_key,
         &method.name,
         &method.descriptor,
         method.is_public,
@@ -1275,7 +1278,8 @@ pub(crate) fn native_class_get_declared_field(
     let name_ref = extract_ref_arg(args, 1)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
     let field_name = string_value_from_ref(heap, name_ref)?;
-    let reflected = ops.inspect_class(&class_key)?;
+    let canonical_key = ops.resolve_class_key(&class_key)?;
+    let reflected = ops.inspect_class(&canonical_key)?;
 
     let Some(field) = reflected
         .fields
@@ -1290,7 +1294,7 @@ pub(crate) fn native_class_get_declared_field(
     let field_ref = allocate_reflection_member_object(
         heap,
         "java/lang/reflect/Field",
-        &class_key,
+        &canonical_key,
         &field.name,
         &field.descriptor,
         field.is_public,
@@ -1307,7 +1311,8 @@ pub(crate) fn native_class_get_declared_constructor(
 ) -> Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
-    let reflected = ops.inspect_class(&class_key)?;
+    let canonical_key = ops.resolve_class_key(&class_key)?;
+    let reflected = ops.inspect_class(&canonical_key)?;
     let parameter_descriptor =
         parameter_descriptor_from_class_array(heap, extract_slot_arg(args, 1))?;
 
@@ -1321,7 +1326,7 @@ pub(crate) fn native_class_get_declared_constructor(
     let constructor_ref = allocate_reflection_member_object(
         heap,
         "java/lang/reflect/Constructor",
-        &class_key,
+        &canonical_key,
         &constructor.name,
         &constructor.descriptor,
         constructor.is_public,
@@ -1369,7 +1374,8 @@ pub(crate) fn native_class_get_constructor(
 ) -> Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
-    let reflected = ops.inspect_class(&class_key)?;
+    let canonical_key = ops.resolve_class_key(&class_key)?;
+    let reflected = ops.inspect_class(&canonical_key)?;
     let parameter_descriptor =
         parameter_descriptor_from_class_array(heap, extract_slot_arg(args, 1))?;
 
@@ -1383,7 +1389,7 @@ pub(crate) fn native_class_get_constructor(
     let constructor_ref = allocate_reflection_member_object(
         heap,
         "java/lang/reflect/Constructor",
-        &class_key,
+        &canonical_key,
         &constructor.name,
         &constructor.descriptor,
         constructor.is_public,
@@ -1447,7 +1453,8 @@ pub(crate) fn native_class_get_declared_methods(
 ) -> Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
-    let reflected = ops.inspect_class(&class_key)?;
+    let canonical_key = ops.resolve_class_key(&class_key)?;
+    let reflected = ops.inspect_class(&canonical_key)?;
     let method_refs = reflected
         .methods
         .into_iter()
@@ -1456,7 +1463,7 @@ pub(crate) fn native_class_get_declared_methods(
             allocate_reflection_member_object(
                 heap,
                 "java/lang/reflect/Method",
-                &class_key,
+                &canonical_key,
                 &method.name,
                 &method.descriptor,
                 method.is_public,
@@ -1476,14 +1483,15 @@ pub(crate) fn native_class_get_declared_constructors(
 ) -> Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
-    let reflected = ops.inspect_class(&class_key)?;
+    let canonical_key = ops.resolve_class_key(&class_key)?;
+    let reflected = ops.inspect_class(&canonical_key)?;
     let constructor_refs = reflected_constructors(reflected, false)
         .into_iter()
         .map(|constructor| {
             allocate_reflection_member_object(
                 heap,
                 "java/lang/reflect/Constructor",
-                &class_key,
+                &canonical_key,
                 &constructor.name,
                 &constructor.descriptor,
                 constructor.is_public,
@@ -1530,14 +1538,15 @@ pub(crate) fn native_class_get_constructors(
 ) -> Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
-    let reflected = ops.inspect_class(&class_key)?;
+    let canonical_key = ops.resolve_class_key(&class_key)?;
+    let reflected = ops.inspect_class(&canonical_key)?;
     let constructor_refs = reflected_constructors(reflected, true)
         .into_iter()
         .map(|constructor| {
             allocate_reflection_member_object(
                 heap,
                 "java/lang/reflect/Constructor",
-                &class_key,
+                &canonical_key,
                 &constructor.name,
                 &constructor.descriptor,
                 constructor.is_public,
@@ -1558,7 +1567,8 @@ pub(crate) fn native_class_get_declared_fields(
 ) -> Result<Option<Slot>> {
     let class_ref = extract_ref_arg(args, 0)?;
     let class_key = class_key_from_ref(heap, class_ref)?;
-    let reflected = ops.inspect_class(&class_key)?;
+    let canonical_key = ops.resolve_class_key(&class_key)?;
+    let reflected = ops.inspect_class(&canonical_key)?;
     let field_refs = reflected
         .fields
         .into_iter()
@@ -1566,7 +1576,7 @@ pub(crate) fn native_class_get_declared_fields(
             allocate_reflection_member_object(
                 heap,
                 "java/lang/reflect/Field",
-                &class_key,
+                &canonical_key,
                 &field.name,
                 &field.descriptor,
                 field.is_public,
@@ -4119,6 +4129,32 @@ pub(crate) fn native_double_doublevalue(
     let this_ref = extract_ref_arg(args, 0)?;
     let val = heap.get(this_ref)?.fields[0];
     Ok(Some(val))
+}
+pub(crate) fn native_double_tostring(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    let this_ref = extract_ref_arg(args, 0)?;
+    let val = match heap.get(this_ref)?.fields[0] {
+        Slot::Double(d) => d,
+        Slot::Float(f) => f as f64,
+        _ => {
+            return Err(Error::JavaException {
+                class_name: "java/lang/IllegalStateException".to_string(),
+            })
+        }
+    };
+    // Java Double.toString format: whole numbers get ".0" suffix
+    let s = if val.fract() == 0.0 && val.is_finite() {
+        format!("{val:.1}")
+    } else {
+        // Use default Debug formatting which matches Java for most cases
+        format!("{val:?}")
+    };
+    let r = heap.allocate_string(s);
+    Ok(Some(Slot::Reference(Some(r))))
 }
 pub(crate) fn native_float_valueof(
     args: &[Slot],

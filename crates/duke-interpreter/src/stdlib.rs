@@ -6821,6 +6821,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "(Ljava/lang/Double;)I",
         native_double_compareto,
     );
+    registry.natives_mut().register(
+        "java/lang/Double",
+        "toString",
+        "()Ljava/lang/String;",
+        native_double_tostring,
+    );
 
     // java/lang/Float — boxed float with value field
     let float_ctx = ClassContext {
