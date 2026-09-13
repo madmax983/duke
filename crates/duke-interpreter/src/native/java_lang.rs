@@ -782,6 +782,37 @@ pub(crate) fn native_class_get_name(
     let name_ref = heap.allocate_string(internal_name_to_binary_name(&internal_name));
     Ok(Some(Slot::Reference(Some(name_ref))))
 }
+/// Native: `Class.toString()Ljava/lang/String;` — `"class com.foo.Bar"`,
+/// `"interface com.foo.Baz"`, or the bare name for primitives, matching
+/// `java.lang.Class#toString` (`(isInterface() ? "interface " :
+/// (isPrimitive() ? "" : "class ")) + getName()`).
+pub(crate) fn native_class_to_string(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+    ops: &mut dyn CallbackOps,
+) -> Result<Option<Slot>> {
+    let class_ref = extract_ref_arg(args, 0)?;
+    let internal_name = class_internal_name_from_ref(heap, class_ref)?;
+    let is_primitive = matches!(
+        internal_name.as_str(),
+        "I" | "J" | "F" | "D" | "Z" | "B" | "C" | "S" | "V"
+    );
+    let prefix = if is_primitive {
+        ""
+    } else if ops
+        .inspect_class(&internal_name)
+        .is_ok_and(|info| is_interface_from_access_flags(info.access_flags))
+    {
+        "interface "
+    } else {
+        "class "
+    };
+    let text = format!("{prefix}{}", internal_name_to_binary_name(&internal_name));
+    let text_ref = heap.allocate_string(text);
+    Ok(Some(Slot::Reference(Some(text_ref))))
+}
 pub(crate) fn native_class_get_package_name(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -1948,12 +1979,9 @@ pub(crate) fn native_thread_get_name(
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
     let name_slot = heap.get(this_ref)?.fields.get(THREAD_NAME_SLOT).copied();
-    match name_slot {
-        Some(Slot::Reference(Some(name_ref))) => Ok(Some(Slot::Reference(Some(name_ref)))),
-        _ => {
-            let fallback = heap.allocate_string("main".to_string());
-            Ok(Some(Slot::Reference(Some(fallback))))
-        }
+    if let Some(Slot::Reference(Some(name_ref))) = name_slot { Ok(Some(Slot::Reference(Some(name_ref)))) } else {
+        let fallback = heap.allocate_string("main".to_string());
+        Ok(Some(Slot::Reference(Some(fallback))))
     }
 }
 /// `Thread.isAlive()Z` — true once started and not yet terminated.
@@ -2031,11 +2059,10 @@ pub(crate) fn native_thread_start(
     let thread_ref = extract_ref_arg(args, 0)?;
     // Mark alive immediately: the spawn action is processed asynchronously,
     // but `isAlive()` must be true as soon as `start()` returns.
-    if let Ok(thread) = heap.get_mut(thread_ref) {
-        if let Some(slot) = thread.fields.get_mut(THREAD_ALIVE_SLOT) {
+    if let Ok(thread) = heap.get_mut(thread_ref)
+        && let Some(slot) = thread.fields.get_mut(THREAD_ALIVE_SLOT) {
             *slot = Slot::Int(1);
         }
-    }
     control.request(NativeThreadAction::Start { thread_ref });
     Ok(None)
 }
@@ -2578,14 +2605,11 @@ pub(crate) fn native_integer_tostring(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let val = match heap.get(this_ref)?.fields[0] {
-        Slot::Int(n) => n,
-        _ => {
-            return Err(Error::TypeMismatch {
-                expected: "int",
-                got: "other",
-            })
-        }
+    let Slot::Int(val) = heap.get(this_ref)?.fields[0] else {
+        return Err(Error::TypeMismatch {
+            expected: "int",
+            got: "other",
+        });
     };
     let r = heap.allocate_string(val.to_string());
     Ok(Some(Slot::Reference(Some(r))))
@@ -2732,7 +2756,7 @@ pub(crate) fn native_integer_lowest_one_bit(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let v = extract_int_arg(args, 0)?;
-    Ok(Some(Slot::Int(v & v.wrapping_neg())))
+    Ok(Some(Slot::Int(v.isolate_lowest_one())))
 }
 /// Native: `Integer.reverse(int)` — reverse bit order.
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
@@ -2875,7 +2899,7 @@ pub(crate) fn native_long_lowest_one_bit(
     _control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let v = extract_long_arg(args, 0)?;
-    Ok(Some(Slot::Long(v & v.wrapping_neg())))
+    Ok(Some(Slot::Long(v.isolate_lowest_one())))
 }
 /// Native: `Long.reverse(long)` — reverse bit order.
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
@@ -5661,6 +5685,8 @@ thread_local! {
 }
 
 /// `ThreadLocal.<init>()V` — no per-instance state; values live in the thread-local map.
+// The `Result` wrapper is required by the `NativeHandler` signature.
+#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn native_thread_local_init(
     _args: &[Slot],
     _heap: &mut duke_gc::Heap,
@@ -6250,11 +6276,10 @@ pub(crate) fn native_thread_builder_start(
     let target = extract_slot_arg(args, 1);
     let thread_ref = builder_new_thread(heap, builder_ref, target)?;
     // Mark alive immediately (see native_thread_start).
-    if let Ok(thread) = heap.get_mut(thread_ref) {
-        if let Some(slot) = thread.fields.get_mut(THREAD_ALIVE_SLOT) {
+    if let Ok(thread) = heap.get_mut(thread_ref)
+        && let Some(slot) = thread.fields.get_mut(THREAD_ALIVE_SLOT) {
             *slot = Slot::Int(1);
         }
-    }
     control.request(NativeThreadAction::Start { thread_ref });
     Ok(Some(Slot::Reference(Some(thread_ref))))
 }
@@ -6452,5 +6477,5 @@ pub(crate) fn native_class_is_annotation_present(
     let requested_type = class_key_from_ref(heap, annotation_type_ref)?;
     let reflected = ops.inspect_class(&class_key)?;
     let present = find_annotation(&reflected.annotations, &requested_type).is_some();
-    Ok(Some(Slot::Int(if present { 1 } else { 0 })))
+    Ok(Some(Slot::Int(i32::from(present))))
 }

@@ -5936,7 +5936,7 @@ pub(crate) fn native_stream_iterate_predicate(
 }
 /// Native: `Comparator.thenComparingInt(ToIntFunction)` — chains an int key extractor
 /// as the tie-breaker. Returns a `duke/util/ThenComparingIntComparator` with
-/// `fields[0]`=primary comparator, `fields[1]`=ToIntFunction ref.
+/// `fields[0]`=primary comparator, `fields[1]`=`ToIntFunction` ref.
 pub(crate) fn native_comparator_then_comparing_int(
     args: &[Slot],
     heap: &mut duke_gc::Heap,

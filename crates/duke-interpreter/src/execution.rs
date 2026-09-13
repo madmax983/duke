@@ -233,13 +233,19 @@ fn record_slot_hash(
 ) -> Result<i32> {
     match slot {
         Slot::Int(i) => Ok(i),
+        // JLS Long.hashCode: (int)(value ^ (value >>> 32)); narrowing is specified.
+        #[allow(clippy::cast_possible_truncation)]
         Slot::Long(l) => Ok((l ^ (l >> 32)) as i32),
+        // JLS Float.hashCode: floatToIntBits reinterpreted as int; wrap is specified.
+        #[allow(clippy::cast_possible_wrap)]
         Slot::Float(f) => Ok(f.to_bits() as i32),
         Slot::Double(d) => {
             let bits = d.to_bits();
-            Ok((bits ^ (bits >> 32)) as i32)
+            // JLS Double.hashCode: (int)(bits ^ (bits >>> 32)); narrowing is specified.
+            #[allow(clippy::cast_possible_truncation)]
+            let h = (bits ^ (bits >> 32)) as i32;
+            Ok(h)
         }
-        Slot::Reference(None) => Ok(0),
         Slot::Reference(Some(r)) => {
             let class_name = heap.get(r)?.class_name.clone();
             let mut ops = InterpreterCallbackOps { registry, loader };
@@ -337,7 +343,7 @@ fn resolve_switch_label(
 ) -> Result<SwitchLabel> {
     match cp.get(cp_idx).and_then(|e| e.as_ref()) {
         Some(CpEntry::Class { .. }) => Ok(SwitchLabel::Class(resolve_class_name(cp, cp_idx)?)),
-        Some(CpEntry::String { .. }) | Some(CpEntry::Utf8(_)) => {
+        Some(CpEntry::String { .. } | CpEntry::Utf8(_)) => {
             Ok(SwitchLabel::Str(resolve_cp_string(cp, cp_idx)?))
         }
         Some(CpEntry::Integer(i)) => Ok(SwitchLabel::Int(*i)),
@@ -428,7 +434,7 @@ fn resolve_classdesc_name(
                 mnemonic: "ClassDesc condy did not resolve to a class name",
             }),
         },
-        Some(CpEntry::String { .. }) | Some(CpEntry::Utf8(_)) => {
+        Some(CpEntry::String { .. } | CpEntry::Utf8(_)) => {
             Ok(resolve_cp_string(cp, cp_idx)?.replace('.', "/"))
         }
         _ => Err(Error::InvalidCpIndex { index: cp_idx }),
@@ -460,7 +466,8 @@ fn boxed_int_value(heap: &duke_gc::Heap, obj_ref: u64) -> Result<Option<i32>> {
     }
     match obj.fields.first() {
         Some(Slot::Int(i)) => Ok(Some(*i)),
-        // Long.intValue() narrows.
+        // Long.intValue() narrows; the truncation is specified Java behavior.
+        #[allow(clippy::cast_possible_truncation)]
         Some(Slot::Long(l)) => Ok(Some(*l as i32)),
         _ => Ok(None),
     }
@@ -2458,9 +2465,8 @@ pub fn run_execution(
                                 // ⚡ Bolt: Pre-allocate vector capacity to avoid multiple reallocations during push/extend
                                 let mut impl_args: Vec<Slot> =
                                     Vec::with_capacity(lambda_info.captured_count + sam_args.len());
-                                for i in 0..lambda_info.captured_count {
-                                    impl_args.push(obj.fields[i]);
-                                }
+                                impl_args
+                                    .extend_from_slice(&obj.fields[..lambda_info.captured_count]);
                                 impl_args.extend(sam_args.iter().copied());
 
                                 let _ = registry.ensure_loaded_from(
@@ -2880,21 +2886,15 @@ pub fn run_execution(
                 match array_type {
                     ArrayType::Long => {
                         let obj = heap.get_mut(r)?;
-                        for slot in &mut obj.fields {
-                            *slot = Slot::Long(0);
-                        }
+                        obj.fields.fill(Slot::Long(0));
                     }
                     ArrayType::Float => {
                         let obj = heap.get_mut(r)?;
-                        for slot in &mut obj.fields {
-                            *slot = Slot::Float(0.0);
-                        }
+                        obj.fields.fill(Slot::Float(0.0));
                     }
                     ArrayType::Double => {
                         let obj = heap.get_mut(r)?;
-                        for slot in &mut obj.fields {
-                            *slot = Slot::Double(0.0);
-                        }
+                        obj.fields.fill(Slot::Double(0.0));
                     }
                     _ => {} // Int/Boolean/Byte/Char/Short default to Slot::Int(0)
                 }
@@ -2918,9 +2918,7 @@ pub fn run_execution(
                 let r = heap.allocate(array_type, count as usize);
                 // Fix elements to Reference(None).
                 let obj = heap.get_mut(r)?;
-                for slot in &mut obj.fields {
-                    *slot = Slot::Reference(None);
-                }
+                obj.fields.fill(Slot::Reference(None));
                 frame.push(Slot::Reference(Some(r)))?;
                 if gc_allowed && heap.should_gc() {
                     let roots = gather_roots(frame, call_stack, registry, string_intern);
@@ -3330,7 +3328,7 @@ pub fn run_execution(
                         resolve_method_handle(cp, bsm_args[1].0 as usize)?
                     };
 
-                    let sam_method = call_name.clone();
+                    let sam_method = call_name;
 
                     // Resolve erased SAM descriptor from bootstrap arg 0.
                     let sam_desc = {
@@ -3375,8 +3373,8 @@ pub fn run_execution(
 
                     let lambda_info = LambdaInfo {
                         impl_class: impl_class.clone(),
-                        impl_method: impl_method.clone(),
-                        impl_desc: impl_desc.clone(),
+                        impl_method,
+                        impl_desc,
                         impl_kind,
                         sam_method,
                         sam_desc,
@@ -3557,7 +3555,7 @@ pub fn run_execution(
                         }
                         "toString" => {
                             let this_slot = frame.pop()?;
-                            let mut out = String::from(simple_name_of_internal(&record_class));
+                            let mut out = simple_name_of_internal(&record_class);
                             out.push('[');
                             if let Slot::Reference(Some(this_ref)) = this_slot {
                                 for (i, getter) in getters.iter().enumerate() {
@@ -3856,9 +3854,7 @@ pub fn run_execution(
                             let mut impl_args: Vec<Slot> = Vec::with_capacity(
                                 lambda_info.captured_count + callee_args.len() - 1,
                             );
-                            for i in 0..lambda_info.captured_count {
-                                impl_args.push(obj.fields[i]);
-                            }
+                            impl_args.extend_from_slice(&obj.fields[..lambda_info.captured_count]);
                             impl_args.extend(callee_args[1..].iter().copied());
 
                             let _ = registry.ensure_loaded_from(

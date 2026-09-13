@@ -1869,6 +1869,26 @@ impl NativeRegistry {
             .get(&make_key(class, method, descriptor))
             .copied()
     }
+
+    /// List all native (method, descriptor) pairs registered for a class.
+    ///
+    /// Used by reflection synthesis to make native methods visible to
+    /// `Class.getMethod`/`getMethods` for synthetic JDK classes whose
+    /// `ClassContext.methods` is empty.
+    #[must_use]
+    pub fn methods_for_class(&self, class: &str) -> Vec<(String, String)> {
+        let prefix = format!("{class}\x00");
+        self.handlers
+            .keys()
+            .filter_map(|key| {
+                key.strip_prefix(&prefix).and_then(|rest| {
+                    rest.split_once('\x00').map(|(method, descriptor)| {
+                        (method.to_string(), descriptor.to_string())
+                    })
+                })
+            })
+            .collect()
+    }
 }
 
 impl Default for NativeRegistry {

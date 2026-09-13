@@ -3983,6 +3983,12 @@ pub fn bootstrap_stdlib(registry: &mut ClassRegistry, heap: &mut duke_gc::Heap) 
         "()Ljava/lang/String;",
         native_class_get_name,
     );
+    registry.natives_mut().register_callback(
+        "java/lang/Class",
+        "toString",
+        "()Ljava/lang/String;",
+        native_class_to_string,
+    );
     registry.natives_mut().register(
         "java/lang/Class",
         "getPackageName",

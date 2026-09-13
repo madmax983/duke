@@ -481,9 +481,7 @@ pub(crate) fn native_reflect_array_new_instance(
     let count = usize::try_from(length).map_err(|_| index_out_of_bounds_error())?;
     let array_ref = heap.allocate(descriptor, count);
     let obj = heap.get_mut(array_ref)?;
-    for slot in &mut obj.fields {
-        *slot = default;
-    }
+    obj.fields.fill(default);
     Ok(Some(Slot::Reference(Some(array_ref))))
 }
 
@@ -1724,12 +1722,14 @@ fn simple_name_of_internal(internal: &str) -> String {
         _ => {}
     }
     let name = internal.rsplit('/').next().unwrap_or(internal);
-    match name.rfind('$') {
-        Some(idx) => name[idx + 1..]
-            .trim_start_matches(|c: char| c.is_ascii_digit())
-            .to_string(),
-        None => name.to_string(),
-    }
+    name.rfind('$').map_or_else(
+        || name.to_string(),
+        |idx| {
+            name[idx + 1..]
+                .trim_start_matches(|c: char| c.is_ascii_digit())
+                .to_string()
+        },
+    )
 }
 
 /// Native: `Class.getSimpleName()Ljava/lang/String;`.
@@ -1840,7 +1840,7 @@ fn record_component_field(heap: &duke_gc::Heap, component_ref: u64, field: usize
 
 /// Native: `Class.getRecordComponents()[Ljava/lang/reflect/RecordComponent;`
 /// — the record components in declaration order, or `null` when the class is
-/// not a record (HotSpot returns `null`, not an empty array).
+/// not a record (`HotSpot` returns `null`, not an empty array).
 pub(crate) fn native_class_get_record_components(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -2045,7 +2045,10 @@ pub(crate) fn native_reflect_method_get_parameter_annotations(
         .methods
         .into_iter()
         .find(|candidate| {
-            candidate.name == method.method_name && candidate.descriptor == method.descriptor
+            // The handle field really is named `method_name`; this is not a typo for `name`.
+            #[allow(clippy::suspicious_operation_groupings)]
+            let name_matches = candidate.name == method.method_name;
+            name_matches && candidate.descriptor == method.descriptor
         })
         .map_or_else(Vec::new, |m| m.parameter_annotations);
     // Build Annotation[][] — outer array of Annotation[] per parameter
@@ -2109,7 +2112,7 @@ pub(crate) fn native_record_component_is_annotation_present(
     let requested_type = class_key_from_ref(heap, annotation_type_ref)?;
     let annotations = annotations_for_record_component(heap, component_ref, ops)?;
     let present = find_annotation(&annotations, &requested_type).is_some();
-    Ok(Some(Slot::Int(if present { 1 } else { 0 })))
+    Ok(Some(Slot::Int(i32::from(present))))
 }
 
 fn annotations_for_record_component(
@@ -2118,13 +2121,15 @@ fn annotations_for_record_component(
     ops: &mut dyn CallbackOps,
 ) -> Result<Vec<crate::ReflectedAnnotation>> {
     // Get declaring class and component name from the object
-    let declaring_class_ref = match record_component_field(heap, component_ref, RECORD_COMPONENT_DECLARING_RECORD_FIELD)? {
-        Slot::Reference(Some(r)) => r,
-        _ => return Ok(Vec::new()),
+    let Slot::Reference(Some(declaring_class_ref)) =
+        record_component_field(heap, component_ref, RECORD_COMPONENT_DECLARING_RECORD_FIELD)?
+    else {
+        return Ok(Vec::new());
     };
-    let name_ref = match record_component_field(heap, component_ref, RECORD_COMPONENT_NAME_FIELD)? {
-        Slot::Reference(Some(r)) => r,
-        _ => return Ok(Vec::new()),
+    let Slot::Reference(Some(name_ref)) =
+        record_component_field(heap, component_ref, RECORD_COMPONENT_NAME_FIELD)?
+    else {
+        return Ok(Vec::new());
     };
     let internal_name = class_internal_name_from_ref(heap, declaring_class_ref)?;
     let name = heap.get(name_ref).ok().and_then(|o| o.string_value.clone()).unwrap_or_default();

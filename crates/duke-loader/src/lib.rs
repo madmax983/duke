@@ -186,7 +186,7 @@ mod tests {
         let bytes = loader
             .find_class("HelloWorld")
             .expect("should find HelloWorld");
-        assert!(!bytes.is_empty());
+        assert_ne!(bytes, []);
         assert_eq!(&bytes[..4], &[0xCA, 0xFE, 0xBA, 0xBE]);
     }
 

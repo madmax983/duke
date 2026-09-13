@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn test_build_basic_blocks_empty() {
         let blocks = build_basic_blocks(&[]);
-        assert!(blocks.is_empty());
+        assert_eq!(blocks.len(), 0);
     }
 
     #[test]

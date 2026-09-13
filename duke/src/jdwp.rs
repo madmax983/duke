@@ -351,7 +351,7 @@ mod tests {
         let (err, data, close) = dispatch_command(1, 1, &[], &req_id, &suspended);
         assert_eq!(err, ERR_NONE);
         assert!(!close);
-        assert!(!data.is_empty());
+        assert_ne!(data, [] as [u8; 0]);
 
         let (err, _, _close) = dispatch_command(1, 8, &[], &req_id, &suspended);
         assert_eq!(err, ERR_NONE);
@@ -377,7 +377,7 @@ mod tests {
         let suspended = AtomicBool::new(false);
         let (err, data, close) = dispatch_command(99, 99, &[], &req_id, &suspended);
         assert_eq!(err, ERR_NOT_IMPLEMENTED);
-        assert!(data.is_empty());
+        assert_eq!(data, [] as [u8; 0]);
         assert!(!close);
     }
 

@@ -1,3 +1,10 @@
+/// Convert a heap field count to a Java `int` size for sequenced-collection
+/// natives. Java collections are indexed by 32-bit ints, so a live field
+/// count always fits; the cast is exact in practice.
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+const fn heap_len_as_java_int(len: usize) -> i32 {
+    len as i32
+}
 /// Native: `ZipFile.<init>(String)` — open and index a ZIP/JAR archive.
 pub(crate) fn native_zip_file_init(
     args: &[Slot],
@@ -2524,9 +2531,7 @@ pub(crate) fn native_collection_to_array_with_seed_array(
     }
 
     let seed_array = heap.get_mut(seed_array_ref)?;
-    for slot in &mut seed_array.fields {
-        *slot = Slot::Reference(None);
-    }
+    seed_array.fields.fill(Slot::Reference(None));
     for (idx, element) in elements.iter().enumerate() {
         seed_array.fields[idx] = *element;
     }
@@ -2922,9 +2927,7 @@ pub(crate) fn native_arrays_fill_int(
         _ => Slot::Int(0),
     };
     let obj = heap.get_mut(arr_ref)?;
-    for slot in &mut obj.fields {
-        *slot = val;
-    }
+    obj.fields.fill(val);
     Ok(None)
 }
 /// Native: `Arrays.fill(Object[], Object)` — fills all elements with val.
@@ -2937,9 +2940,7 @@ pub(crate) fn native_arrays_fill_object(
     let arr_ref = extract_ref_arg(args, 0)?;
     let val = extract_slot_arg(args, 1);
     let obj = heap.get_mut(arr_ref)?;
-    for slot in &mut obj.fields {
-        *slot = val;
-    }
+    obj.fields.fill(val);
     Ok(None)
 }
 /// Native: `Arrays.setAll(Object[] array, IntFunction generator)V` — sets each
@@ -2994,8 +2995,13 @@ pub(crate) fn native_arrays_copyof_int(
     let src_fields = heap.get(src_ref)?.fields.clone();
     let dst_ref = heap.allocate("[I".to_string(), new_len);
     let dst = heap.get_mut(dst_ref)?;
-    for i in 0..new_len {
-        dst.fields[i] = src_fields.get(i).copied().unwrap_or(Slot::Int(0));
+    for (slot, value) in dst.fields.iter_mut().zip(
+        src_fields
+            .iter()
+            .copied()
+            .chain(std::iter::repeat(Slot::Int(0))),
+    ) {
+        *slot = value;
     }
     Ok(Some(Slot::Reference(Some(dst_ref))))
 }
@@ -3015,8 +3021,13 @@ pub(crate) fn native_arrays_copyof_object(
     let src_fields = heap.get(src_ref)?.fields.clone();
     let dst_ref = heap.allocate("[Ljava/lang/Object;".to_string(), new_len);
     let dst = heap.get_mut(dst_ref)?;
-    for i in 0..new_len {
-        dst.fields[i] = src_fields.get(i).copied().unwrap_or(Slot::Reference(None));
+    for (slot, value) in dst.fields.iter_mut().zip(
+        src_fields
+            .iter()
+            .copied()
+            .chain(std::iter::repeat(Slot::Reference(None))),
+    ) {
+        *slot = value;
     }
     Ok(Some(Slot::Reference(Some(dst_ref))))
 }
@@ -6174,7 +6185,7 @@ pub(crate) fn native_arraylist_replace_all(
     };
     let op_class = heap.get(op_ref)?.class_name.clone();
     let size = match heap.get(this_ref)?.fields.first() {
-        Some(Slot::Int(n)) => *n as usize,
+        Some(Slot::Int(n)) => usize::try_from(*n).unwrap_or(0),
         _ => 0,
     };
     for i in 0..size {
@@ -6274,7 +6285,7 @@ pub(crate) fn native_linkedhashmap_put_first(
         obj.fields.push(k);
         obj.fields.push(v);
     }
-    let size = ((obj.fields.len() - 1) / 2) as i32;
+    let size = heap_len_as_java_int((obj.fields.len() - 1) / 2);
     obj.fields[0] = Slot::Int(size);
     heap.remember_reference_write(this_ref, key);
     heap.remember_reference_write(this_ref, value);
@@ -6303,7 +6314,7 @@ pub(crate) fn native_linkedhashmap_put_last(
             let obj = heap.get_mut(this_ref)?;
             obj.fields.remove(i + 1);
             obj.fields.remove(i);
-            let size = ((obj.fields.len() - 1) / 2) as i32;
+            let size = heap_len_as_java_int((obj.fields.len() - 1) / 2);
             obj.fields[0] = Slot::Int(size);
             break;
         }
@@ -6322,18 +6333,18 @@ pub(crate) fn native_linkedhashmap_put_last(
 pub(crate) fn native_linkedhashmap_poll_first_entry(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
-    _control: &mut NativeControl,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let entry_slot = native_linkedhashmap_first_entry(args, heap, _out, _control)?;
+    let entry_slot = native_linkedhashmap_first_entry(args, heap, out, control)?;
     if let Some(Slot::Reference(Some(_))) = entry_slot {
         let fields = heap.get(this_ref)?.fields.clone();
         if fields.len() >= 3 {
             let obj = heap.get_mut(this_ref)?;
             obj.fields.remove(2);
             obj.fields.remove(1);
-            let size = ((obj.fields.len() - 1) / 2) as i32;
+            let size = heap_len_as_java_int((obj.fields.len() - 1) / 2);
             obj.fields[0] = Slot::Int(size);
         }
     }
@@ -6344,24 +6355,24 @@ pub(crate) fn native_linkedhashmap_poll_first_entry(
 pub(crate) fn native_linkedhashmap_poll_last_entry(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
-    _control: &mut NativeControl,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let entry_slot = native_linkedhashmap_last_entry(args, heap, _out, _control)?;
+    let entry_slot = native_linkedhashmap_last_entry(args, heap, out, control)?;
     if let Some(Slot::Reference(Some(_))) = entry_slot {
         let obj = heap.get_mut(this_ref)?;
         if obj.fields.len() >= 3 {
             let n = obj.fields.len();
             obj.fields.truncate(n - 2);
-            let size = ((obj.fields.len() - 1) / 2) as i32;
+            let size = heap_len_as_java_int((obj.fields.len() - 1) / 2);
             obj.fields[0] = Slot::Int(size);
         }
     }
     Ok(entry_slot)
 }
 
-/// `LinkedHashMap.reversed()` — returns a new LinkedHashMap with reversed order.
+/// `LinkedHashMap.reversed()` — returns a new `LinkedHashMap` with reversed order.
 pub(crate) fn native_linkedhashmap_reversed(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -6384,7 +6395,7 @@ pub(crate) fn native_linkedhashmap_reversed(
             obj.fields.push(k);
             obj.fields.push(v);
         }
-        let size = ((obj.fields.len() - 1) / 2) as i32;
+        let size = heap_len_as_java_int((obj.fields.len() - 1) / 2);
         obj.fields[0] = Slot::Int(size);
     }
     // Remember references.
@@ -6418,7 +6429,7 @@ pub(crate) fn native_linkedhashset_add_first(
     for e in elems {
         obj.fields.push(e);
     }
-    let size = (obj.fields.len() - 1) as i32;
+    let size = heap_len_as_java_int(obj.fields.len() - 1);
     obj.fields[0] = Slot::Int(size);
     heap.remember_reference_write(this_ref, elem);
     Ok(None)
@@ -6469,21 +6480,21 @@ pub(crate) fn native_linkedhashset_get_last(
 pub(crate) fn native_linkedhashset_remove_first(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
-    _control: &mut NativeControl,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let first = native_linkedhashset_get_first(args, heap, _out, _control)?;
+    let first = native_linkedhashset_get_first(args, heap, out, control)?;
     if let Some(_elem) = first {
         let obj = heap.get_mut(this_ref)?;
         obj.fields.remove(1);
-        let size = (obj.fields.len() - 1) as i32;
+        let size = heap_len_as_java_int(obj.fields.len() - 1);
         obj.fields[0] = Slot::Int(size);
     }
     Ok(first)
 }
 
-/// `LinkedHashSet.reversed()` — returns a new LinkedHashSet with reversed order.
+/// `LinkedHashSet.reversed()` — returns a new `LinkedHashSet` with reversed order.
 pub(crate) fn native_linkedhashset_reversed(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -6499,7 +6510,7 @@ pub(crate) fn native_linkedhashset_reversed(
         for f in fields.iter().skip(1).rev() {
             obj.fields.push(*f);
         }
-        let size = (obj.fields.len() - 1) as i32;
+        let size = heap_len_as_java_int(obj.fields.len() - 1);
         obj.fields[0] = Slot::Int(size);
     }
     let fields2 = heap.get(r)?.fields.clone();
@@ -6509,7 +6520,7 @@ pub(crate) fn native_linkedhashset_reversed(
     Ok(Some(Slot::Reference(Some(r))))
 }
 
-/// `ArrayList.getFirst()` — first element (Java 21 SequencedCollection).
+/// `ArrayList.getFirst()` — first element (Java 21 `SequencedCollection`).
 pub(crate) fn native_arraylist_get_first(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -6524,7 +6535,7 @@ pub(crate) fn native_arraylist_get_first(
     )
 }
 
-/// `ArrayList.getLast()` — last element (Java 21 SequencedCollection).
+/// `ArrayList.getLast()` — last element (Java 21 `SequencedCollection`).
 pub(crate) fn native_arraylist_get_last(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
@@ -6605,14 +6616,14 @@ pub(crate) fn native_arraylist_remove_last(
     Ok(Some(elem))
 }
 
-/// `ArrayList.reversed()` — returns a new ArrayList with reversed order.
+/// `ArrayList.reversed()` — returns a new `ArrayList` with reversed order.
 ///
 /// NOTE: Java 21 specifies that `reversed()` returns a *backed view* where
 /// mutations through either the view or the original are visible to the other.
 /// The current implementation returns a snapshot copy, which satisfies the
 /// parity tests (order verification) but not the full backed-view contract.
 /// Implementing true backed views for all 5 sequenced collection types
-/// (ArrayList, ArrayDeque, LinkedHashMap, LinkedHashSet, TreeMap) with correct
+/// (`ArrayList`, `ArrayDeque`, `LinkedHashMap`, `LinkedHashSet`, `TreeMap`) with correct
 /// bidirectional mutation semantics is tracked as future work.
 pub(crate) fn native_arraylist_reversed(
     args: &[Slot],
@@ -6630,7 +6641,7 @@ pub(crate) fn native_arraylist_reversed(
         for f in fields.iter().skip(1).rev() {
             obj.fields.push(*f);
         }
-        let size = (obj.fields.len() - 1) as i32;
+        let size = heap_len_as_java_int(obj.fields.len() - 1);
         obj.fields[0] = Slot::Int(size);
     }
     let fields2 = heap.get(r)?.fields.clone();
@@ -6665,7 +6676,6 @@ fn slot_to_string_via_callback(
     ops: &mut dyn CallbackOps,
 ) -> Result<String> {
     match slot {
-        Slot::Reference(None) => Ok("null".to_string()),
         Slot::Reference(Some(r)) => {
             let class_name = heap.get(r)?.class_name.clone();
             if class_name == "java/lang/String" {
@@ -6732,11 +6742,11 @@ pub(crate) fn native_arraydeque_get_last(
 pub(crate) fn native_arraydeque_remove_first(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
-    _control: &mut NativeControl,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let elem = native_arraydeque_get_first(args, heap, _out, _control)?;
+    let elem = native_arraydeque_get_first(args, heap, out, control)?;
     if elem.is_some() {
         let obj = heap.get_mut(this_ref)?;
         obj.fields.remove(1);
@@ -6751,11 +6761,11 @@ pub(crate) fn native_arraydeque_remove_first(
 pub(crate) fn native_arraydeque_remove_last(
     args: &[Slot],
     heap: &mut duke_gc::Heap,
-    _out: &mut dyn Write,
-    _control: &mut NativeControl,
+    out: &mut dyn Write,
+    control: &mut NativeControl,
 ) -> Result<Option<Slot>> {
     let this_ref = extract_ref_arg(args, 0)?;
-    let elem = native_arraydeque_get_last(args, heap, _out, _control)?;
+    let elem = native_arraydeque_get_last(args, heap, out, control)?;
     if elem.is_some() {
         let obj = heap.get_mut(this_ref)?;
         obj.fields.pop();

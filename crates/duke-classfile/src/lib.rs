@@ -122,10 +122,10 @@ mod tests {
         assert!(cf.access_flags.contains(ClassAccessFlags::SUPER));
         assert_eq!(cf.this_class, CpIndex(2));
         assert_eq!(cf.super_class, CpIndex(4));
-        assert!(cf.interfaces.is_empty());
-        assert!(cf.fields.is_empty());
-        assert!(cf.methods.is_empty());
-        assert!(cf.attributes.is_empty());
+        assert_eq!(cf.interfaces, []);
+        assert_eq!(cf.fields.len(), 0);
+        assert_eq!(cf.methods.len(), 0);
+        assert_eq!(cf.attributes.len(), 0);
 
         // Verify constant pool layout
         // Slot 0 is always None

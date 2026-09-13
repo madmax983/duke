@@ -166,7 +166,7 @@ mod tests {
             result.is_ok(),
             "empty bytecode is valid (zero instructions)"
         );
-        assert!(result.unwrap().is_empty());
+        assert_eq!(result.unwrap().len(), 0);
     }
 
     #[test]
@@ -522,7 +522,7 @@ mod tests {
         assert_eq!(instrs.len(), 1);
         if let (0, Instruction::Lookupswitch { default, pairs }) = &instrs[0] {
             assert_eq!(*default, 5);
-            assert!(pairs.is_empty());
+            assert_eq!(pairs.len(), 0);
         } else {
             panic!("expected Lookupswitch");
         }

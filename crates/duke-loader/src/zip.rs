@@ -1614,7 +1614,7 @@ mod proptests {
 
             let reader = ZipReader {
                 data,
-                index: HashMap::with_capacity(0),
+                index: HashMap::new(),
             };
 
             let _ = reader.read_entry_info(&info);

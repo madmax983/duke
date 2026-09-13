@@ -1454,6 +1454,7 @@ fn invokeinterface_getclass_resolves_inherited_object_native_via_super_chain() {
 /// and only ever reads back). `get()` resolves on the `Reference` base via the
 /// receiver's super chain. This is a NON-COLLECTING strong-ref-backed stub.
 #[test]
+#[allow(clippy::too_many_lines)]
 fn weak_reference_get_round_trips_referent() {
     use duke_classfile::CpIndex;
     use std::collections::HashMap;
@@ -12383,17 +12384,6 @@ fn native_string_format_precision() {
 // execute_string_concat_recipe
 // ---------------------------------------------------------------------------
 
-/// Minimal [`ClassLoader`](duke_loader::ClassLoader) double for concat tests.
-struct EmptyTestLoader;
-
-impl duke_loader::ClassLoader for EmptyTestLoader {
-    fn find_class(&self, name: &str) -> duke_loader::Result<Vec<u8>> {
-        Err(duke_loader::Error::NotFound {
-            name: name.to_string(),
-        })
-    }
-}
-
 #[test]
 fn execute_string_concat_recipe_single_dynamic_int() {
     let mut heap = duke_gc::Heap::new();
@@ -14126,8 +14116,8 @@ fn execute_daload_out_of_bounds_raises_error() {
 fn frame_pool_acquire_from_empty_gives_empty_vecs() {
     let mut pool = FramePool::new();
     let (locals, stack) = pool.acquire();
-    assert!(locals.is_empty());
-    assert!(stack.is_empty());
+    assert_eq!(locals, [] as [duke_runtime::Slot; 0]);
+    assert_eq!(stack, [] as [duke_runtime::Slot; 0]);
 }
 
 #[test]
@@ -14138,10 +14128,10 @@ fn frame_pool_release_and_reacquire_returns_pooled_bufs() {
     pool.release(locals, stack);
     let (locals2, stack2) = pool.acquire();
     assert_eq!(locals2.len(), 2);
-    assert!(stack2.is_empty());
+    assert_eq!(stack2, [] as [duke_runtime::Slot; 0]);
     // Pool should be empty again
     let (locals3, _) = pool.acquire();
-    assert!(locals3.is_empty());
+    assert_eq!(locals3, [] as [duke_runtime::Slot; 0]);
 }
 
 #[test]

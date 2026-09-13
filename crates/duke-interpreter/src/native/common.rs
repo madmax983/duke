@@ -1434,19 +1434,16 @@ enum Utf16Endian {
 /// (`chunks.by_ref().map(...)`) directly to `char::decode_utf16`. This avoids an $O(N)$
 /// heap allocation for every UTF-16 decoding operation.
 fn decode_utf16_bytes(bytes: &[u8], endian: Utf16Endian) -> String {
-    let mut chunks = bytes.chunks_exact(2);
-    let iter = chunks.by_ref().map(|chunk| {
-        let pair = [chunk[0], chunk[1]];
-        match endian {
-            Utf16Endian::Big => u16::from_be_bytes(pair),
-            Utf16Endian::Little => u16::from_le_bytes(pair),
-        }
+    let (chunks, remainder) = bytes.as_chunks::<2>();
+    let iter = chunks.iter().map(|pair| match endian {
+        Utf16Endian::Big => u16::from_be_bytes(*pair),
+        Utf16Endian::Little => u16::from_le_bytes(*pair),
     });
 
     let mut decoded: String = char::decode_utf16(iter)
         .map(|item| item.unwrap_or(REPLACEMENT_CHAR))
         .collect();
-    if !chunks.remainder().is_empty() {
+    if !remainder.is_empty() {
         decoded.push(REPLACEMENT_CHAR);
     }
     decoded
@@ -4483,11 +4480,11 @@ const THREAD_NAME_SLOT: usize = 5;
 const THREAD_IS_VIRTUAL_SLOT: usize = 6;
 const THREAD_ALIVE_SLOT: usize = 7;
 
-/// The `java/lang/Thread` heap ref for the Java thread running on this host
-/// thread. Set when a Java thread spawns; the main thread leaves it unset and
-/// falls back to the main-thread identity.
 thread_local! {
-    static CURRENT_JAVA_THREAD: std::cell::Cell<Option<u64>> = std::cell::Cell::new(None);
+    /// The `java/lang/Thread` heap ref for the Java thread running on this host
+    /// thread. Set when a Java thread spawns; the main thread leaves it unset and
+    /// falls back to the main-thread identity.
+    static CURRENT_JAVA_THREAD: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
 }
 
 /// Record the Java thread ref for the current host thread.
@@ -4497,7 +4494,7 @@ pub(crate) fn set_current_java_thread(thread_ref: u64) {
 
 /// The Java thread ref for the current host thread, if one was recorded.
 pub(crate) fn current_java_thread() -> Option<u64> {
-    CURRENT_JAVA_THREAD.with(|c| c.get())
+    CURRENT_JAVA_THREAD.with(std::cell::Cell::get)
 }
 
 static NEXT_THREAD_HOST_KEY: AtomicI32 = AtomicI32::new(1);
@@ -6494,6 +6491,7 @@ pub(crate) fn native_char_digit(
 
 /// Execute a `StringConcatFactory` recipe: walk the recipe string, replacing
 /// `\u{1}` placeholders with stringified dynamic args from the operand stack.
+#[allow(clippy::too_many_arguments)]
 fn execute_string_concat_recipe(
     recipe: &str,
     dynamic_args: &[Slot],
@@ -8276,7 +8274,7 @@ struct InterpreterCallbackOps<'a> {
     loader: &'a dyn ClassLoader,
 }
 
-#[allow(clippy::too_many_arguments, clippy::option_option)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines, clippy::option_option)]
 fn callback_invoke_registered_lambda(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
@@ -9912,11 +9910,10 @@ fn spawn_java_thread(
             let mut shared = shared_clone.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             shared.live_workers = shared.live_workers.saturating_sub(1);
             // Mark the Java thread object not-alive so `Thread.isAlive()` observes termination.
-            if let Ok(thread) = shared.heap.get_mut(thread_ref) {
-                if let Some(slot) = thread.fields.get_mut(THREAD_ALIVE_SLOT) {
+            if let Ok(thread) = shared.heap.get_mut(thread_ref)
+                && let Some(slot) = thread.fields.get_mut(THREAD_ALIVE_SLOT) {
                     *slot = Slot::Int(0);
                 }
-            }
         }
         let _ = runtime_clone
             .lock()
@@ -10949,6 +10946,54 @@ fn synthesized_lambda_sam(registry: &ClassRegistry, class: &str) -> Option<Refle
 // Threading `signature: Option<String>` through the class/field/method
 // synthetic-stub literals tipped this data-plumbing fn just over the line limit.
 #[allow(clippy::too_many_lines)]
+/// Heuristic for whether a native method is static, used when synthesizing
+/// reflection info for synthetic JDK classes.
+///
+/// The native registry does not record static-ness, so we use the JDK's
+/// known API shape. Classes not listed here default to instance methods.
+/// This is a best-effort heuristic; it only affects reflection synthesis,
+/// not actual dispatch (which goes through the native registry directly).
+fn native_method_is_static(class: &str, method: &str) -> bool {
+    match class {
+        // java.lang.Math: all methods are static.
+        "java/lang/Math" => true,
+        // java.lang.System: all methods are static.
+        "java/lang/System" => true,
+        // java.lang.Class: forName is static; getMethod etc. are instance.
+        "java/lang/Class" => matches!(
+            method,
+            "forName" | "forNameWithLoader"
+        ),
+        // java.lang.Thread: currentThread, sleep, yield are static.
+        "java/lang/Thread" => matches!(
+            method,
+            "currentThread" | "sleep" | "yield" | "interrupted"
+        ),
+        // java.lang.String: valueOf, format, join are static.
+        "java/lang/String" => matches!(method, "valueOf" | "format" | "join"),
+        // java.lang.Integer etc.: parseX, valueOf, etc. are static.
+        "java/lang/Integer" | "java/lang/Long" | "java/lang/Double" | "java/lang/Float"
+        | "java/lang/Short" | "java/lang/Byte" | "java/lang/Character" | "java/lang/Boolean" => {
+            matches!(
+                method,
+                "parseInt"
+                    | "parseLong"
+                    | "parseDouble"
+                    | "parseFloat"
+                    | "parseShort"
+                    | "parseByte"
+                    | "valueOf"
+                    | "toString"
+                    | "compare"
+                    | "sum"
+                    | "max"
+                    | "min"
+            )
+        }
+        _ => false,
+    }
+}
+
 fn inspect_reflected_class(
     registry: &mut ClassRegistry,
     loader: &dyn ClassLoader,
@@ -11050,6 +11095,32 @@ fn inspect_reflected_class(
     // Lambda proxies carry an empty ClassContext.methods (dispatch constraint);
     // synthesize the SAM so reflection lists it.
     methods.extend(synthesized_lambda_sam(registry, &class_key));
+    // Synthetic JDK classes (e.g. java/lang/Math) register their methods as
+    // natives but leave ClassContext.methods empty. Synthesize ReflectedMethodInfo
+    // from the native registry so getMethod/getMethods can find them.
+    // See https://github.com/madmax983/duke/issues/1630 (ladder fixture).
+    for (native_name, native_descriptor) in registry.natives().methods_for_class(&internal_name) {
+        if methods
+            .iter()
+            .any(|m| m.name == native_name && m.descriptor == native_descriptor)
+        {
+            continue;
+        }
+        // Skip constructors and class initializers; natives never provide them.
+        if native_name == "<init>" || native_name == "<clinit>" {
+            continue;
+        }
+        methods.push(ReflectedMethodInfo {
+            name: native_name.clone(),
+            descriptor: native_descriptor.clone(),
+            is_public: true,
+            is_static: native_method_is_static(&internal_name, &native_name),
+            annotations: Vec::new(),
+            annotation_default: None,
+            signature: None,
+            parameter_annotations: Vec::new(),
+        });
+    }
     let fields = ctx
         .fields
         .iter()
@@ -11175,9 +11246,7 @@ pub(crate) fn allocate_reference_array(
     let array_ref = heap.allocate(array_class_name.to_string(), elements.len());
     {
         let array_obj = heap.get_mut(array_ref)?;
-        for slot in &mut array_obj.fields {
-            *slot = Slot::Reference(None);
-        }
+        array_obj.fields.fill(Slot::Reference(None));
     }
     for (idx, element_ref) in elements.iter().enumerate() {
         heap.write_field(array_ref, idx, Slot::Reference(Some(*element_ref)))?;
@@ -12038,9 +12107,8 @@ fn lookup_registered_native_kind(
     method_name: &str,
     method_desc: &str,
 ) -> Option<HandlerKind> {
-    registry
-        .natives()
-        .get_kind(class_name, method_name, method_desc)
+    let result = registry.natives().get_kind(class_name, method_name, method_desc);
+    result
         .or_else(|| {
             let internal_name = registry.internal_name_for_class(class_name);
             (internal_name != class_name)
@@ -12290,7 +12358,7 @@ fn resolve_method_handle(
     // REF_getField/REF_getStatic/REF_putField/REF_putStatic wrap a Fieldref;
     // all other kinds wrap a Methodref.
     let (class_name, member_name, descriptor) = match kind {
-        1 | 2 | 3 | 4 => resolve_fieldref(cp, ref_idx)?,
+        1..=4 => resolve_fieldref(cp, ref_idx)?,
         _ => resolve_methodref(cp, ref_idx)?,
     };
     Ok((kind, class_name, member_name, descriptor))
@@ -13166,9 +13234,7 @@ fn allocate_reference_array_from_slots(
 ) -> Result<u64> {
     let array_ref = heap.allocate(array_class_name.to_string(), elements.len());
     let array = heap.get_mut(array_ref)?;
-    for slot in &mut array.fields {
-        *slot = Slot::Reference(None);
-    }
+    array.fields.fill(Slot::Reference(None));
     for (idx, element) in elements.iter().enumerate() {
         array.fields[idx] = *element;
     }

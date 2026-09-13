@@ -96,12 +96,8 @@ pub enum Error {
     },
 
     /// The bytes for a `CONSTANT_Utf8_info` entry are not valid UTF-8.
-    #[error("invalid CONSTANT_Utf8: {source}")]
-    InvalidUtf8 {
-        /// The underlying UTF-8 error.
-        #[from]
-        source: std::string::FromUtf8Error,
-    },
+    #[error("invalid CONSTANT_Utf8: {0}")]
+    InvalidUtf8(#[from] std::string::FromUtf8Error),
 
     /// An invalid reference kind was provided in a `MethodHandle` structure.
     #[error("invalid method handle reference kind {kind} (must be 1–9)")]
