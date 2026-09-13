@@ -172,6 +172,11 @@ pub enum ClassLoadSource {
 ///     static_fields: vec![],
 ///     instance_field_count: 0,
 ///     bootstrap_methods: vec![],
+///     permitted_subclasses: vec![],
+///     nest_host: None,
+///     nest_members: vec![],
+///     record_components: vec![],
+///     is_record: false,
 ///     load_source: ClassLoadSource::Classfile,
 /// };
 /// assert_eq!(context.class_name, "java/lang/Object");
@@ -197,9 +202,37 @@ pub struct ClassContext {
     pub instance_field_count: usize,
     /// `BootstrapMethods` entries from the class attribute (needed for invokedynamic).
     pub bootstrap_methods: Vec<duke_classfile::BootstrapMethodEntry>,
+    /// Direct permitted subclasses from the `PermittedSubclasses` attribute
+    /// (§4.7.31), as internal slash-form names. Empty for non-sealed classes.
+    pub permitted_subclasses: Vec<String>,
+    /// Nest host from the `NestHost` attribute (§4.7.30), as an internal
+    /// slash-form name. `None` when this class is its own nest host (i.e. the
+    /// attribute is absent).
+    pub nest_host: Option<String>,
+    /// Nest members from the `NestMembers` attribute (§4.7.30), as internal
+    /// slash-form names. Only meaningful on the nest host.
+    pub nest_members: Vec<String>,
+    /// Record components from the `Record` attribute (JVMS §4.7.30), in
+    /// declaration order. Empty for non-record classes.
+    pub record_components: Vec<RecordComponent>,
+    /// True if the class has a `Record` attribute (JVMS §4.7.30), even if it
+    /// declares zero components (e.g. `record Empty()`).
+    pub is_record: bool,
     /// How this class was loaded — `Synthetic` for `bootstrap_stdlib()` stubs,
     /// `Classfile` for real `.class` files parsed from JImage/directory/JAR.
     pub load_source: ClassLoadSource,
+}
+
+/// One record component: the name and field descriptor from the class file's
+/// `Record` attribute.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RecordComponent {
+    /// The component name (e.g. `"x"`).
+    pub name: String,
+    /// The component field descriptor (e.g. `"I"`, `"Ljava/lang/String;"`).
+    pub descriptor: String,
+    /// Runtime-visible annotations on the record component.
+    pub annotations: Vec<crate::ReflectedAnnotation>,
 }
 
 #[cfg(test)]

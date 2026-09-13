@@ -61,7 +61,7 @@ impl<'a> Cursor<'a> {
     const fn has_remaining(&self) -> bool {
         self.pos < self.data.len()
     }
-    fn read_u8(&mut self) -> Result<u8> {
+    const fn read_u8(&mut self) -> Result<u8> {
         if self.pos >= self.data.len() {
             return Err(crate::Error::Decode(DecodeError::UnexpectedEof {
                 pc: self.pos,
@@ -74,7 +74,7 @@ impl<'a> Cursor<'a> {
     fn read_i8(&mut self) -> Result<i8> {
         Ok(self.read_u8()?.cast_signed())
     }
-    fn read_u16(&mut self) -> Result<u16> {
+    const fn read_u16(&mut self) -> Result<u16> {
         if self.pos + 2 > self.data.len() {
             return Err(crate::Error::Decode(DecodeError::UnexpectedEof {
                 pc: self.pos,
@@ -87,7 +87,7 @@ impl<'a> Cursor<'a> {
     fn read_i16(&mut self) -> Result<i16> {
         Ok(self.read_u16()?.cast_signed())
     }
-    fn read_u32(&mut self) -> Result<u32> {
+    const fn read_u32(&mut self) -> Result<u32> {
         if self.pos + 4 > self.data.len() {
             return Err(crate::Error::Decode(DecodeError::UnexpectedEof {
                 pc: self.pos,

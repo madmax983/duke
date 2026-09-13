@@ -60,6 +60,17 @@ pub struct BootstrapMethodEntry {
     pub arguments: Vec<CpIndex>,
 }
 
+/// One component of a `Record` attribute (JVMS §4.7.30).
+#[derive(Debug, Clone)]
+pub struct RecordComponentInfo {
+    /// CP index of the component name (a UTF-8 entry).
+    pub name_index: CpIndex,
+    /// CP index of the component descriptor (a UTF-8 entry).
+    pub descriptor_index: CpIndex,
+    /// The component's own attributes (annotations, etc.), still raw.
+    pub attributes: Vec<AttributeInfo>,
+}
+
 /// One parsed runtime annotation instance (§4.7.16.1).
 #[derive(Debug, Clone)]
 pub struct Annotation {
@@ -129,8 +140,22 @@ pub enum AttributeData {
     },
     /// `BootstrapMethods` attribute (§4.7.23) — required for invokedynamic.
     BootstrapMethods(Vec<BootstrapMethodEntry>),
+    /// `PermittedSubclasses` attribute (§4.7.31) — direct permitted subclasses of
+    /// a sealed class, as constant-pool class indices.
+    PermittedSubclasses(Vec<CpIndex>),
+    /// `NestHost` attribute (§4.7.30) — the nest host of this class, as a
+    /// constant-pool class index.
+    NestHost { host_class_index: CpIndex },
+    /// `NestMembers` attribute (§4.7.30) — nest members of this nest host, as
+    /// constant-pool class indices.
+    NestMembers(Vec<CpIndex>),
+    /// `Record` attribute (JVMS §4.7.30) — the record components of a record
+    /// class, in declaration order.
+    Record(Vec<RecordComponentInfo>),
     /// `RuntimeVisibleAnnotations` (§4.7.16).
     RuntimeVisibleAnnotations(Vec<Annotation>),
+    /// `RuntimeVisibleParameterAnnotations` (§4.7.18) — per-parameter annotations.
+    RuntimeVisibleParameterAnnotations(Vec<Vec<Annotation>>),
     /// `AnnotationDefault` (§4.7.22) default value for an annotation element.
     AnnotationDefault(ElementValue),
     /// Any attribute we don't parse in detail yet.

@@ -32,5 +32,5 @@ fn test_string_join_empty_slice_panic() {
     } else {
         Vec::new()
     };
-    assert!(elems.is_empty());
+    assert_eq!(elems, [] as [duke_runtime::Slot; 0]);
 }

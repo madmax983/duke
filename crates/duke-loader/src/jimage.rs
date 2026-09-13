@@ -804,7 +804,7 @@ mod tests {
         // module="" → return "". Mutant `&&` only returns "" if BOTH empty.
         let mut path = String::new();
         build_jimage_path(&mut path, "", "parent", "base", "ext");
-        assert!(path.is_empty());
+        assert_eq!(path, "");
     }
 
     #[test]
@@ -812,7 +812,7 @@ mod tests {
         // base="" → return "". Mutant `&&` only returns "" if BOTH empty.
         let mut path = String::new();
         build_jimage_path(&mut path, "module", "parent", "", "ext");
-        assert!(path.is_empty());
+        assert_eq!(path, "");
     }
 
     // -----------------------------------------------------------------------

@@ -136,7 +136,10 @@ fn flag_off_guard_is_provably_disabled() {
     assert!(!registry.real_jdk_shadow_enabled());
     assert_eq!(registry.layout_check_mode(), LayoutCheckMode::Off);
     // The audit likewise reports no candidates when shadow mode is off.
-    assert!(registry.layout_audit_candidates().is_empty());
+    assert_eq!(
+        registry.layout_audit_candidates(),
+        [] as [std::string::String; 0]
+    );
 }
 
 /// `HelloWorld` runs identically with the guard off (the default configuration): it executes

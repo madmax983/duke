@@ -469,7 +469,7 @@ mod tests {
         let (locals, stack) = f.into_pool_bufs();
         assert_eq!(locals[0], Slot::Int(1));
         assert_eq!(locals[1], Slot::Int(2));
-        assert!(stack.is_empty());
+        assert_eq!(stack, []);
         assert!(stack.capacity() >= 2);
     }
 

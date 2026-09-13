@@ -31,6 +31,16 @@ pub(crate) fn native_executors_new_cached_thread_pool(
 ) -> Result<Option<Slot>> {
     Ok(Some(allocate_executor(heap, 64)?))
 }
+/// `Executors.newVirtualThreadPerTaskExecutor()` — one (virtual) thread per task.
+pub(crate) fn native_executors_new_virtual_thread_per_task_executor(
+    _args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    _out: &mut dyn Write,
+    _control: &mut NativeControl,
+) -> Result<Option<Slot>> {
+    // Virtual threads are cheap; model as an unbounded pool.
+    Ok(Some(allocate_executor(heap, 256)?))
+}
 pub(crate) fn native_timeunit_to_nanos(
     args: &[Slot],
     heap: &mut duke_gc::Heap,

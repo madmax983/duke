@@ -58,9 +58,22 @@ wrap_simple_native_for_tests!(
     native_string_split,
     native_string_substring,
     native_string_substring_range,
-    native_string_value_of_object,
     native_system_exit,
 );
+
+fn native_string_value_of_object(
+    args: &[Slot],
+    heap: &mut duke_gc::Heap,
+    out: &mut dyn std::io::Write,
+) -> Result<Option<Slot>> {
+    super::native_string_value_of_object(
+        args,
+        heap,
+        out,
+        &mut NativeControl::default(),
+        &mut NoopCallbackOps,
+    )
+}
 
 fn array_list_sort(
     args: &[Slot],
@@ -101,6 +114,11 @@ impl CallbackOps for NoopCallbackOps {
             access_flags: 0,
             annotations: Vec::new(),
             signature: None,
+            permitted_subclasses: Vec::new(),
+            nest_host: None,
+            nest_members: Vec::new(),
+            record_components: Vec::new(),
+            is_record: false,
         })
     }
 }
@@ -137,6 +155,11 @@ impl CallbackOps for FixedCodeSourceOps {
             access_flags: 0,
             annotations: Vec::new(),
             signature: None,
+            permitted_subclasses: Vec::new(),
+            nest_host: None,
+            nest_members: Vec::new(),
+            record_components: Vec::new(),
+            is_record: false,
         })
     }
 
@@ -183,6 +206,11 @@ fn native_hashset_init_from_collection_copies_to_array_elements() {
                 access_flags: 0,
                 annotations: Vec::new(),
                 signature: None,
+                permitted_subclasses: Vec::new(),
+                nest_host: None,
+                nest_members: Vec::new(),
+                record_components: Vec::new(),
+                is_record: false,
             })
         }
     }
@@ -1215,6 +1243,11 @@ fn invokevirtual_missing_loaded_method_returns_method_not_found() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
 
@@ -1317,6 +1350,11 @@ fn invokeinterface_getclass_resolves_inherited_object_native_via_super_chain() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
 
@@ -1331,6 +1369,11 @@ fn invokeinterface_getclass_resolves_inherited_object_native_via_super_chain() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     // Intermediate base class between the impl and Object — mirrors logback's
@@ -1345,6 +1388,11 @@ fn invokeinterface_getclass_resolves_inherited_object_native_via_super_chain() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     // Concrete receiver: `CfgImpl extends CfgBase implements Cfg`, no own methods.
@@ -1358,6 +1406,11 @@ fn invokeinterface_getclass_resolves_inherited_object_native_via_super_chain() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
 
@@ -1401,6 +1454,7 @@ fn invokeinterface_getclass_resolves_inherited_object_native_via_super_chain() {
 /// and only ever reads back). `get()` resolves on the `Reference` base via the
 /// receiver's super chain. This is a NON-COLLECTING strong-ref-backed stub.
 #[test]
+#[allow(clippy::too_many_lines)]
 fn weak_reference_get_round_trips_referent() {
     use duke_classfile::CpIndex;
     use std::collections::HashMap;
@@ -1474,6 +1528,11 @@ fn weak_reference_get_round_trips_referent() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
 
@@ -1558,6 +1617,11 @@ fn object_constructor_dispatches_via_invokespecial() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
 
@@ -1640,6 +1704,11 @@ fn invokevirtual_dispatches_to_runtime_subclass_implementation() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
     let abstract_base_ctx = ClassContext {
@@ -1652,6 +1721,11 @@ fn invokevirtual_dispatches_to_runtime_subclass_implementation() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
     let child_instructions: Arc<[(usize, Instruction)]> =
@@ -1681,6 +1755,11 @@ fn invokevirtual_dispatches_to_runtime_subclass_implementation() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
 
@@ -1773,6 +1852,11 @@ fn registered_native_overrides_loaded_bytecode_method() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
     let target_instructions: Arc<[(usize, Instruction)]> =
@@ -1802,6 +1886,11 @@ fn registered_native_overrides_loaded_bytecode_method() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
 
@@ -1896,6 +1985,11 @@ fn registered_callback_native_overrides_loaded_bytecode_static_method() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
     let target_instructions: Arc<[(usize, Instruction)]> =
@@ -1925,6 +2019,11 @@ fn registered_callback_native_overrides_loaded_bytecode_static_method() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
 
@@ -2021,6 +2120,11 @@ fn invokestatic_resolves_inherited_static_method() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
 
@@ -2052,6 +2156,11 @@ fn invokestatic_resolves_inherited_static_method() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
 
@@ -2066,6 +2175,11 @@ fn invokestatic_resolves_inherited_static_method() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
 
@@ -2379,6 +2493,11 @@ fn hashset_iterator_supports_invokeinterface_iteration() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
 
@@ -3981,6 +4100,11 @@ fn test_boot_archive_path_from_ref_exploded_archive() {
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
     registry.register(exploded_ctx);
@@ -10025,6 +10149,11 @@ fn callback_fires_via_lambda_sam_fallback() {
         instance_field_count: 0,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     });
     registry.natives_mut().register(
@@ -11344,7 +11473,12 @@ fn class_registry_contains_true_after_register() {
         static_fields: vec![],
         instance_field_count: 0,
         bootstrap_methods: vec![],
+        permitted_subclasses: vec![],
+        nest_host: None,
+        nest_members: vec![],
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
+        record_components: vec![],
     };
     assert!(!reg.contains("Foo"));
     reg.register(ctx);
@@ -11373,7 +11507,12 @@ fn class_registry_all_classes_mut_allows_mutation() {
         static_fields: vec![Slot::Int(1)],
         instance_field_count: 0,
         bootstrap_methods: vec![],
+        permitted_subclasses: vec![],
+        nest_host: None,
+        nest_members: vec![],
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
+        record_components: vec![],
     };
     reg.register(ctx);
     for cls in reg.all_classes_mut() {
@@ -12249,7 +12388,8 @@ fn native_string_format_precision() {
 fn execute_string_concat_recipe_single_dynamic_int() {
     let mut heap = duke_gc::Heap::new();
     let slot =
-        execute_string_concat_recipe("\u{1}", &[Slot::Int(42)], &['I'], &[], &mut heap).unwrap();
+        execute_string_concat_recipe_for_tests("\u{1}", &[Slot::Int(42)], &['I'], &[], &mut heap)
+            .unwrap();
     let r = slot.as_reference().unwrap();
     assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("42"));
 }
@@ -12257,8 +12397,14 @@ fn execute_string_concat_recipe_single_dynamic_int() {
 #[test]
 fn execute_string_concat_recipe_constant_only() {
     let mut heap = duke_gc::Heap::new();
-    let slot =
-        execute_string_concat_recipe("\u{2}", &[], &[], &["hello".to_string()], &mut heap).unwrap();
+    let slot = execute_string_concat_recipe_for_tests(
+        "\u{2}",
+        &[],
+        &[],
+        &["hello".to_string()],
+        &mut heap,
+    )
+    .unwrap();
     let r = slot.as_reference().unwrap();
     assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("hello"));
 }
@@ -12266,16 +12412,39 @@ fn execute_string_concat_recipe_constant_only() {
 #[test]
 fn execute_string_concat_recipe_literal_chars() {
     let mut heap = duke_gc::Heap::new();
-    let slot = execute_string_concat_recipe("xyz", &[], &[], &[], &mut heap).unwrap();
+    let slot = execute_string_concat_recipe_for_tests("xyz", &[], &[], &[], &mut heap).unwrap();
     let r = slot.as_reference().unwrap();
     assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("xyz"));
+}
+
+fn execute_string_concat_recipe_for_tests(
+    recipe: &str,
+    dynamic_args: &[Slot],
+    arg_types: &[char],
+    constants: &[String],
+    heap: &mut duke_gc::Heap,
+) -> Result<Slot> {
+    let mut registry = ClassRegistry::new();
+    let loader = duke_loader::DirectoryLoader::new(std::path::Path::new("."));
+    let mut stdout: Vec<u8> = Vec::new();
+    execute_string_concat_recipe(
+        recipe,
+        dynamic_args,
+        arg_types,
+        constants,
+        heap,
+        &mut registry,
+        &loader,
+        &mut stdout,
+    )
 }
 
 #[test]
 fn execute_string_concat_recipe_mixed() {
     let mut heap = duke_gc::Heap::new();
     let slot =
-        execute_string_concat_recipe("x\u{1}y", &[Slot::Int(5)], &['I'], &[], &mut heap).unwrap();
+        execute_string_concat_recipe_for_tests("x\u{1}y", &[Slot::Int(5)], &['I'], &[], &mut heap)
+            .unwrap();
     let r = slot.as_reference().unwrap();
     assert_eq!(heap.get(r).unwrap().string_value.as_deref(), Some("x5y"));
 }
@@ -12283,7 +12452,7 @@ fn execute_string_concat_recipe_mixed() {
 #[test]
 fn execute_string_concat_recipe_multiple_dynamics() {
     let mut heap = duke_gc::Heap::new();
-    let slot = execute_string_concat_recipe(
+    let slot = execute_string_concat_recipe_for_tests(
         "\u{1}+\u{1}",
         &[Slot::Int(3), Slot::Int(4)],
         &['I', 'I'],
@@ -13947,8 +14116,8 @@ fn execute_daload_out_of_bounds_raises_error() {
 fn frame_pool_acquire_from_empty_gives_empty_vecs() {
     let mut pool = FramePool::new();
     let (locals, stack) = pool.acquire();
-    assert!(locals.is_empty());
-    assert!(stack.is_empty());
+    assert_eq!(locals, [] as [duke_runtime::Slot; 0]);
+    assert_eq!(stack, [] as [duke_runtime::Slot; 0]);
 }
 
 #[test]
@@ -13959,10 +14128,10 @@ fn frame_pool_release_and_reacquire_returns_pooled_bufs() {
     pool.release(locals, stack);
     let (locals2, stack2) = pool.acquire();
     assert_eq!(locals2.len(), 2);
-    assert!(stack2.is_empty());
+    assert_eq!(stack2, [] as [duke_runtime::Slot; 0]);
     // Pool should be empty again
     let (locals3, _) = pool.acquire();
-    assert!(locals3.is_empty());
+    assert_eq!(locals3, [] as [duke_runtime::Slot; 0]);
 }
 
 #[test]
@@ -14177,6 +14346,11 @@ fn is_assignable_from_via_direct_interface_is_true() {
         static_fields: vec![],
         instance_field_count: 0,
         bootstrap_methods: vec![],
+        permitted_subclasses: vec![],
+        nest_host: None,
+        nest_members: vec![],
+        record_components: vec![],
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     });
     let loader = make_simple_loader();
@@ -14202,6 +14376,11 @@ fn is_assignable_from_unrelated_class_is_false() {
         static_fields: vec![],
         instance_field_count: 0,
         bootstrap_methods: vec![],
+        permitted_subclasses: vec![],
+        nest_host: None,
+        nest_members: vec![],
+        record_components: vec![],
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     });
     let loader = make_simple_loader();
@@ -14303,6 +14482,11 @@ fn make_two_class_registry() -> ClassRegistry {
         static_fields: vec![],
         instance_field_count: 2,
         bootstrap_methods: vec![],
+        permitted_subclasses: vec![],
+        nest_host: None,
+        nest_members: vec![],
+        record_components: vec![],
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     });
     registry.register(ClassContext {
@@ -14319,6 +14503,11 @@ fn make_two_class_registry() -> ClassRegistry {
         static_fields: vec![],
         instance_field_count: 1,
         bootstrap_methods: vec![],
+        permitted_subclasses: vec![],
+        nest_host: None,
+        nest_members: vec![],
+        record_components: vec![],
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     });
     registry
@@ -14977,6 +15166,11 @@ fn execute_class_synthetic(
         static_fields: vec![],
         instance_field_count: 0,
         bootstrap_methods: vec![],
+        permitted_subclasses: vec![],
+        nest_host: None,
+        nest_members: vec![],
+        record_components: vec![],
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
     let mut registry = ClassRegistry::new();
@@ -18877,6 +19071,11 @@ fn ec_multianewarray_negative_dim_errors() {
         static_fields: vec![],
         instance_field_count: 0,
         bootstrap_methods: vec![],
+        permitted_subclasses: vec![],
+        nest_host: None,
+        nest_members: vec![],
+        record_components: vec![],
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
     let mut registry = ClassRegistry::new();
@@ -18953,6 +19152,11 @@ fn ec_multianewarray_zero_dim_succeeds() {
         static_fields: vec![],
         instance_field_count: 0,
         bootstrap_methods: vec![],
+        permitted_subclasses: vec![],
+        nest_host: None,
+        nest_members: vec![],
+        record_components: vec![],
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
     let mut registry = ClassRegistry::new();
@@ -19018,8 +19222,14 @@ fn string_concat_recipe_extra_dynamic_placeholder_silently_skipped() {
     // Recipe "\u{1}\u{1}" with 1 arg: second \u{1} → dyn_idx=1 < len=1 is false → skip
     // Mutant < → <=: 1 <= 1 → true → dynamic_args[1] OOB panic
     let mut heap = duke_gc::Heap::new();
-    let r = execute_string_concat_recipe("\u{1}\u{1}", &[Slot::Int(42)], &['I'], &[], &mut heap)
-        .unwrap();
+    let r = execute_string_concat_recipe_for_tests(
+        "\u{1}\u{1}",
+        &[Slot::Int(42)],
+        &['I'],
+        &[],
+        &mut heap,
+    )
+    .unwrap();
     let s = heap
         .get(r.as_reference().unwrap())
         .unwrap()
@@ -19034,8 +19244,14 @@ fn string_concat_recipe_extra_constant_placeholder_silently_skipped() {
     // Recipe "\u{2}\u{2}" with 1 constant: second \u{2} → const_idx=1 < len=1 is false → skip
     // Mutant < → <=: 1 <= 1 → true → constants[1] OOB panic
     let mut heap = duke_gc::Heap::new();
-    let r = execute_string_concat_recipe("\u{2}\u{2}", &[], &[], &["hello".to_string()], &mut heap)
-        .unwrap();
+    let r = execute_string_concat_recipe_for_tests(
+        "\u{2}\u{2}",
+        &[],
+        &[],
+        &["hello".to_string()],
+        &mut heap,
+    )
+    .unwrap();
     let s = heap
         .get(r.as_reference().unwrap())
         .unwrap()
@@ -19050,7 +19266,7 @@ fn string_concat_recipe_two_constants_both_appended() {
     // Recipe "\u{2}\u{2}" with constants ["A","B"] → "AB"
     // Mutant += → *=: const_idx stays 0 → "AA"
     let mut heap = duke_gc::Heap::new();
-    let r = execute_string_concat_recipe(
+    let r = execute_string_concat_recipe_for_tests(
         "\u{2}\u{2}",
         &[],
         &[],
@@ -19292,6 +19508,11 @@ fn ec_ldcw_string_pushes_nonnull_ref() {
         static_fields: vec![],
         instance_field_count: 0,
         bootstrap_methods: vec![],
+        permitted_subclasses: vec![],
+        nest_host: None,
+        nest_members: vec![],
+        record_components: vec![],
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
     let mut registry = ClassRegistry::new();
@@ -19365,6 +19586,11 @@ fn ec_ldcw_class_constant_pushes_nonnull_ref() {
         static_fields: vec![],
         instance_field_count: 0,
         bootstrap_methods: vec![],
+        permitted_subclasses: vec![],
+        nest_host: None,
+        nest_members: vec![],
+        record_components: vec![],
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
     let mut registry = ClassRegistry::new();
@@ -19474,6 +19700,11 @@ fn ec_new_initialises_reference_field_to_null() {
         static_fields: vec![],
         instance_field_count: 0,
         bootstrap_methods: vec![],
+        permitted_subclasses: vec![],
+        nest_host: None,
+        nest_members: vec![],
+        record_components: vec![],
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
 
@@ -19504,6 +19735,11 @@ fn ec_new_initialises_reference_field_to_null() {
         static_fields: vec![Slot::Int(0)],
         instance_field_count: 2,
         bootstrap_methods: vec![],
+        permitted_subclasses: vec![],
+        nest_host: None,
+        nest_members: vec![],
+        record_components: vec![],
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
 
@@ -21396,6 +21632,11 @@ fn allocate_url_class_loader_for_path(
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     let url_loader_ctx = ClassContext {
@@ -21412,6 +21653,11 @@ fn allocate_url_class_loader_for_path(
         instance_field_count: 1,
         interfaces: Vec::new(),
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
     if !registry.contains("jdk/internal/loader/URLClassPath") {
@@ -23404,6 +23650,7 @@ fn native_class_get_declared_method_matches_parameter_class_array() {
                         annotations: Vec::new(),
                         annotation_default: None,
                         signature: None,
+                        parameter_annotations: Vec::new(),
                     },
                     ReflectedMethodInfo {
                         name: "main".to_string(),
@@ -23413,12 +23660,18 @@ fn native_class_get_declared_method_matches_parameter_class_array() {
                         annotations: Vec::new(),
                         annotation_default: None,
                         signature: None,
+                        parameter_annotations: Vec::new(),
                     },
                 ],
                 fields: Vec::new(),
                 access_flags: 0x0001,
                 annotations: Vec::new(),
                 signature: None,
+                permitted_subclasses: Vec::new(),
+                nest_host: None,
+                nest_members: Vec::new(),
+                record_components: Vec::new(),
+                is_record: false,
             })
         }
     }
@@ -33444,6 +33697,11 @@ fn class_info_with_flags(internal_name: &str, access_flags: u16) -> ReflectedCla
         access_flags,
         annotations: Vec::new(),
         signature: None,
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
     }
 }
 
@@ -34304,6 +34562,11 @@ fn is_assignable_from_matches_loader_qualified_interface() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
 
@@ -34434,6 +34697,11 @@ fn getstatic_resolves_inherited_static_field() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
 
@@ -34452,6 +34720,11 @@ fn getstatic_resolves_inherited_static_field() {
         static_fields: vec![Slot::Int(42)],
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
 
@@ -34466,6 +34739,11 @@ fn getstatic_resolves_inherited_static_field() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
 
@@ -34648,6 +34926,11 @@ fn subclass_init_initializes_superclass_first() {
         static_fields: vec![Slot::Int(0)],
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
     let sub_ctx = ClassContext {
@@ -34664,6 +34947,11 @@ fn subclass_init_initializes_superclass_first() {
         static_fields: vec![Slot::Int(0)],
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
     let log_ctx = ClassContext {
@@ -34680,6 +34968,11 @@ fn subclass_init_initializes_superclass_first() {
         static_fields: vec![Slot::Int(1)],
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Synthetic,
     };
 
@@ -34732,6 +35025,11 @@ fn subclass_init_initializes_superclass_first() {
         static_fields: Vec::new(),
         instance_field_count: 0,
         bootstrap_methods: Vec::new(),
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
         load_source: ClassLoadSource::Classfile,
     };
 
@@ -34913,6 +35211,11 @@ fn empty_reflected_class_info() -> ReflectedClassInfo {
         access_flags: 0,
         annotations: Vec::new(),
         signature: None,
+        permitted_subclasses: Vec::new(),
+        nest_host: None,
+        nest_members: Vec::new(),
+        record_components: Vec::new(),
+        is_record: false,
     }
 }
 
@@ -38889,6 +39192,7 @@ fn class_new_instance_survives_gc_during_constructor() {
                 is_public: true,
                 is_static: false,
                 annotations: Vec::new(),
+                parameter_annotations: Vec::new(),
                 annotation_default: None,
                 signature: None,
             }];

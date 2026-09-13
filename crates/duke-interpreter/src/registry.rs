@@ -261,6 +261,8 @@ pub struct ReflectedMethodInfo {
     /// type). `None` when the method has no generic signature or the declaring
     /// class is a synthetic stub carrying no classfile attributes.
     pub signature: Option<String>,
+    /// Runtime-visible annotations per parameter (JVMS §4.7.18).
+    pub parameter_annotations: Vec<Vec<ReflectedAnnotation>>,
 }
 
 /// Reflection metadata for one declared field discovered from a classfile.
@@ -429,6 +431,22 @@ pub struct ReflectedClassInfo {
     /// super/interface types), e.g. `<T:Ljava/lang/Object;>Ljava/lang/Object;`.
     /// `None` for a non-generic class or a synthetic stub with no attributes.
     pub signature: Option<String>,
+    /// Direct permitted subclasses from the `PermittedSubclasses` attribute
+    /// (JVMS §4.7.31), as internal slash-form names. Empty when the class is
+    /// not sealed (or the attribute is absent).
+    pub permitted_subclasses: Vec<String>,
+    /// Nest host from the `NestHost` attribute (JVMS §4.7.30), as an internal
+    /// slash-form name. `None` when the attribute is absent (the class is its
+    /// own nest host).
+    pub nest_host: Option<String>,
+    /// Nest members from the `NestMembers` attribute (JVMS §4.7.30), as
+    /// internal slash-form names. Only meaningful on the nest host.
+    pub nest_members: Vec<String>,
+    /// Record components from the `Record` attribute (JVMS §4.7.30), in
+    /// declaration order. Empty for non-record classes.
+    pub record_components: Vec<crate::context::RecordComponent>,
+    /// True if the class has a `Record` attribute, even with zero components.
+    pub is_record: bool,
 }
 /// A registry managing loaded classes, their initialization state, and associated native methods.
 pub struct ClassRegistry {
@@ -540,6 +558,11 @@ impl ClassRegistry {
             static_fields: Vec::new(),
             instance_field_count: info.captured_count,
             bootstrap_methods: Vec::new(),
+            permitted_subclasses: Vec::new(),
+            nest_host: None,
+            nest_members: Vec::new(),
+            record_components: Vec::new(),
+            is_record: false,
             load_source: ClassLoadSource::Synthetic,
         };
         self.register(ctx);
@@ -1428,6 +1451,11 @@ impl ClassRegistry {
                 static_fields: Vec::new(),
                 instance_field_count: 0,
                 bootstrap_methods: Vec::new(),
+                permitted_subclasses: Vec::new(),
+                nest_host: None,
+                nest_members: Vec::new(),
+                record_components: Vec::new(),
+                is_record: false,
                 load_source: ClassLoadSource::Synthetic,
             },
         );
@@ -1539,6 +1567,21 @@ pub trait CallbackOps {
     /// # Errors
     /// Returns an error if the class cannot be inspected.
     fn inspect_class(&mut self, class: &str) -> Result<ReflectedClassInfo>;
+
+    /// Resolve a class name to its canonical registry key.
+    ///
+    /// Reflection stores the declaring-class key in `Method`/`Field` objects;
+    /// that key must be the canonical registry key (not an alias or
+    /// internal-name fallback) so `Method.invoke` can route through
+    /// `prepare_execution_state` without ambiguity. The default impl returns
+    /// the input unchanged; the interpreter override resolves via the
+    /// registry.
+    ///
+    /// # Errors
+    /// Returns an error if the class cannot be resolved.
+    fn resolve_class_key(&mut self, class: &str) -> Result<String> {
+        Ok(class.to_string())
+    }
 
     /// Ensure the named class has completed initialization, including `<clinit>`.
     ///
@@ -1840,6 +1883,26 @@ impl NativeRegistry {
         self.handlers
             .get(&make_key(class, method, descriptor))
             .copied()
+    }
+
+    /// List all native (method, descriptor) pairs registered for a class.
+    ///
+    /// Used by reflection synthesis to make native methods visible to
+    /// `Class.getMethod`/`getMethods` for synthetic JDK classes whose
+    /// `ClassContext.methods` is empty.
+    #[must_use]
+    pub fn methods_for_class(&self, class: &str) -> Vec<(String, String)> {
+        let prefix = format!("{class}\x00");
+        self.handlers
+            .keys()
+            .filter_map(|key| {
+                key.strip_prefix(&prefix).and_then(|rest| {
+                    rest.split_once('\x00').map(|(method, descriptor)| {
+                        (method.to_string(), descriptor.to_string())
+                    })
+                })
+            })
+            .collect()
     }
 }
 

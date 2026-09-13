@@ -469,7 +469,7 @@ mod tests {
         assert_eq!(sig.type_params[0].name, "T");
         assert_eq!(sig.type_params[0].bounds, vec![class("java/lang/Object")]);
         assert_eq!(sig.super_class.name, "java/lang/Object");
-        assert!(sig.interfaces.is_empty());
+        assert_eq!(sig.interfaces, []);
     }
 
     #[test]
@@ -477,7 +477,7 @@ mod tests {
         // A class that merely has a parameterized supertype but no own type params.
         let sig = parse_class_signature("Ljava/lang/Object;Ljava/util/List<Ljava/lang/String;>;")
             .unwrap();
-        assert!(sig.type_params.is_empty());
+        assert_eq!(sig.type_params, []);
         assert_eq!(sig.super_class.name, "java/lang/Object");
         assert_eq!(sig.interfaces.len(), 1);
         assert_eq!(sig.interfaces[0].name, "java/util/List");
@@ -691,7 +691,7 @@ mod tests {
         // (Ljava/lang/String;)V^Ljava/io/IOException;^TX;
         let sig =
             parse_method_signature("(Ljava/lang/String;)V^Ljava/io/IOException;^TX;").unwrap();
-        assert!(sig.type_params.is_empty());
+        assert_eq!(sig.type_params, []);
         assert_eq!(sig.parameters.len(), 1);
         assert_eq!(sig.return_type, TypeSignature::Void);
         assert_eq!(sig.throws.len(), 2);
